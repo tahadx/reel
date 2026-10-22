@@ -1,0 +1,75 @@
+#!/bin/bash
+# Self-configure a Reel install: link the shipped engine's wrapper into
+# ~/.local/bin. Idempotent and quiet when everything is already in place.
+# Runs automatically from the shell service on startup; safe to run by hand.
+set -euo pipefail
+
+# We are the self-configure step. Children must not ask to self-configure
+# again: the link does not exist until this script finishes.
+export REEL_NO_SELF_CONFIGURE=1
+
+PLUGIN_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+DIST="$PLUGIN_DIR/bin/dist/reel-native"
+WRAPPER="$PLUGIN_DIR/bin/reel"
+LINK="$HOME/.local/bin/reel"
+MANIFEST_VERSION="$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' "$PLUGIN_DIR/manifest.json" | head -n 1)"
+
+if [[ -z "$MANIFEST_VERSION" ]]; then
+  echo "reel: cannot read the version from $PLUGIN_DIR/manifest.json" >&2
+  exit 1
+fi
+
+# Replace a link that still points at a development checkout, but never
+# clobber a regular file the user put on PATH themselves.
+need_setup=0
+if [[ ! -e "$LINK" && ! -L "$LINK" ]]; then
+  need_setup=1
+elif [[ ! -L "$LINK" ]]; then
+  echo "reel: $LINK exists and is not a symlink Reel manages" >&2
+  echo "reel: move it aside or remove it, then run bin/configure again" >&2
+  exit 1
+elif [[ "$(readlink -- "$LINK")" != "$WRAPPER" ]]; then
+  need_setup=1
+fi
+
+if (( need_setup == 0 )); then
+  if [[ ! -x "$DIST" ]]; then
+    need_setup=1
+  else
+    DIST_VERSION="$("$DIST" --version 2>/dev/null | awk 'NR == 1 { print $2 }' || true)"
+    [[ "$DIST_VERSION" == "$MANIFEST_VERSION" ]] || need_setup=1
+  fi
+fi
+
+if (( need_setup == 0 )); then
+  exit 0
+fi
+
+# Executing the shipped binary catches a package built for another CPU (exec
+# format error) before it is linked into the user's PATH.
+if [[ ! -e "$DIST" ]]; then
+  echo "reel: no shipped engine at $DIST" >&2
+  echo "reel: this plugin is built for linux-x86_64; build it with bin/refresh-dist" >&2
+  exit 1
+fi
+if [[ ! -x "$DIST" ]]; then
+  echo "reel: the shipped engine is not executable at $DIST" >&2
+  echo "reel: reinstall the plugin, or run bin/refresh-dist" >&2
+  exit 1
+fi
+
+if ! VERSION_OUTPUT="$("$DIST" --version 2>/dev/null)"; then
+  echo "reel: cannot execute $DIST on this machine" >&2
+  echo "reel: this plugin is built for linux-x86_64; build it with bin/refresh-dist" >&2
+  exit 1
+fi
+GOT_VERSION="$(printf '%s\n' "$VERSION_OUTPUT" | head -n 1)"
+if [[ "$GOT_VERSION" != "reel $MANIFEST_VERSION" ]]; then
+  echo "reel: shipped engine reports [$GOT_VERSION] but the plugin is $MANIFEST_VERSION" >&2
+  echo "reel: reinstall the plugin, or run bin/refresh-dist" >&2
+  exit 1
+fi
+
+mkdir -p -- "$(dirname -- "$LINK")"
+ln -sfn -- "$WRAPPER" "$LINK"
+echo "reel: linked $LINK -> $WRAPPER"

@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/reel"]
+resolver = "2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

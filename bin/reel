@@ -1,0 +1,15 @@
+#!/bin/sh
+# Reel entry point. The picker and capture flow live in the native engine, so
+# the installed wrapper never falls back to a half-compatible implementation.
+# A plugin install ships the engine under bin/dist; a development checkout may
+# still have one next to this wrapper, which stays first for compatibility.
+self=$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")
+dir=$(unset CDPATH; cd -- "$(dirname -- "$self")" && pwd)
+if [ -x "$dir/reel-native" ]; then
+  exec "$dir/reel-native" "$@"
+fi
+if [ -x "$dir/dist/reel-native" ]; then
+  exec "$dir/dist/reel-native" "$@"
+fi
+echo "reel: the native engine is missing. Run $dir/configure, or reinstall the plugin." >&2
+exit 127

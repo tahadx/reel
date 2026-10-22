@@ -1,0 +1,7 @@
+[toolchain]
+# Pinned so the committed bin/dist binary can be rebuilt byte-for-byte in CI.
+# Bump this together with bin/dist/reel-native.
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl"]
+profile = "minimal"

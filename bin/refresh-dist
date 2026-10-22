@@ -1,0 +1,26 @@
+#!/bin/bash
+# Rebuild the shipped engine from this tree and refresh bin/dist.
+# Run before committing any crates/ change: the plugin ships the binary, so a
+# stale dist records with an old engine no matter what the sources say.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+TARGET=x86_64-unknown-linux-musl
+
+# Normalize the paths embedded in panic locations and dependency metadata.
+# CI checks out under /home/runner and uses its own CARGO_HOME, so without this
+# a rebuild is functionally identical but never byte-identical to the committed
+# engine.
+remaps=("--remap-path-prefix=${HOME}=/build/home")
+if [[ -n "${CARGO_HOME:-}" && "${CARGO_HOME}" != "${HOME}"/* ]]; then
+  remaps+=("--remap-path-prefix=${CARGO_HOME}=/build/cargo")
+fi
+export RUSTFLAGS="${RUSTFLAGS:-} ${remaps[*]}"
+
+# Build for musl: a static engine does not depend on the build machine's
+# glibc, so the committed bytes mean the same thing on Arch, Ubuntu, and CI.
+cargo build --release -p reel --target "$TARGET"
+mkdir -p bin/dist
+cp -f "target/$TARGET/release/reel" bin/dist/reel-native
+strip bin/dist/reel-native
+bin/dist/reel-native --version

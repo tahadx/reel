@@ -1,0 +1,10 @@
+# Local scratch
+/target/
+*.part.*
+*.bak.*
+
+# Editors
+.DS_Store
+*.swp
+
+plan.md

@@ -1,0 +1,28 @@
+#!/bin/bash
+# Local pre-push gate: the same checks CI runs. Activate once per clone:
+#   git config core.hooksPath .githooks
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+echo "pre-push: fmt, clippy, tests, qml, installer, release, dist"
+cargo fmt --check -p reel
+cargo clippy -p reel --all-targets -- -D warnings
+cargo test --workspace --quiet
+bin/lint-qml
+bash tests/install.test.sh
+bin/check-release
+if command -v omarchy >/dev/null 2>&1; then
+  omarchy plugin validate .
+fi
+echo "pre-push: dist freshness"
+# The plugin ships the engine, so a stale bin/dist records with old code no
+# matter what crates/ says. Rebuilding here proves the committed bytes match
+# the sources (same machine, same toolchain => same bytes).
+before=$(md5sum bin/dist/reel-native 2>/dev/null || echo missing)
+bin/refresh-dist
+after=$(md5sum bin/dist/reel-native)
+if [[ "$before" != "$after" ]]; then
+  echo "pre-push: bin/dist was stale and has been rebuilt — commit bin/dist and push again" >&2
+  echo "pre-push: (if crates/ has uncommitted changes, commit or stash them first)" >&2
+  exit 1
+fi
+echo "pre-push: all green"

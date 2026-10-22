@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.tahadx.reel",
+  "name": "Reel",
+  "version": "0.0.1",
+  "author": "Taha Sadough",
+  "license": "MIT",
+  "description": "Screen recorder for Omarchy: record a window, area, or monitor, with pause, slow motion, webcam, audio, and recording history.",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Reel",
+    "description": "Record the screen with a crop, pause it, and keep your takes in one place.",
+    "category": "Capture",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "desktopAudio": "on",
+      "microphoneAudio": "off",
+      "cursor": "on",
+      "webcam": "off",
+      "slowmo": "off",
+      "countdown": 0,
+      "fps": 60,
+      "quality": "very_high",
+      "codec": "auto",
+      "resolution": "0x0",
+      "container": "mp4",
+      "outputDir": "",
+      "filenamePrefix": "",
+      "webcamDevice": "",
+      "notifications": "off"
+    },
+    "schema": [
+      {
+        "key": "desktopAudio",
+        "type": "enum",
+        "label": "Desktop audio",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "on"
+      },
+      {
+        "key": "microphoneAudio",
+        "type": "enum",
+        "label": "Microphone",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "off"
+      },
+      {
+        "key": "cursor",
+        "type": "enum",
+        "label": "Record the pointer",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "on"
+      },
+      {
+        "key": "webcam",
+        "type": "enum",
+        "label": "Webcam overlay",
+        "options": [
+          "off",
+          "small",
+          "medium",
+          "large"
+        ],
+        "defaultValue": "off",
+        "description": "A pinned camera corner, recorded with the screen."
+      },
+      {
+        "key": "slowmo",
+        "type": "enum",
+        "label": "Slow motion",
+        "options": [
+          "off",
+          "0.5",
+          "0.25"
+        ],
+        "defaultValue": "off",
+        "description": "Records at 120 fps, then saves the take at half or quarter speed."
+      },
+      {
+        "key": "countdown",
+        "type": "enum",
+        "label": "Countdown",
+        "options": [
+          0,
+          3,
+          5,
+          10
+        ],
+        "defaultValue": 0,
+        "description": "Seconds shown before the recording starts."
+      },
+      {
+        "key": "fps",
+        "type": "enum",
+        "label": "Frame rate",
+        "options": [
+          30,
+          60,
+          120
+        ],
+        "defaultValue": 60
+      },
+      {
+        "key": "quality",
+        "type": "enum",
+        "label": "Quality",
+        "options": [
+          "very_low",
+          "low",
+          "medium",
+          "high",
+          "very_high",
+          "ultra"
+        ],
+        "defaultValue": "very_high"
+      },
+      {
+        "key": "codec",
+        "type": "enum",
+        "label": "Video codec",
+        "options": [
+          "auto",
+          "h264",
+          "hevc",
+          "av1"
+        ],
+        "defaultValue": "auto"
+      },
+      {
+        "key": "resolution",
+        "type": "enum",
+        "label": "Resolution cap",
+        "options": [
+          "0x0",
+          "3840x2160",
+          "2560x1440",
+          "1920x1080",
+          "1280x720"
+        ],
+        "defaultValue": "0x0",
+        "description": "0x0 keeps the crop or monitor at native size."
+      },
+      {
+        "key": "container",
+        "type": "enum",
+        "label": "Container",
+        "options": [
+          "mp4",
+          "mkv"
+        ],
+        "defaultValue": "mp4"
+      },
+      {
+        "key": "outputDir",
+        "type": "string",
+        "label": "Recordings folder",
+        "defaultValue": "",
+        "description": "Empty uses the XDG Videos folder plus /Reel."
+      },
+      {
+        "key": "filenamePrefix",
+        "type": "string",
+        "label": "Filename prefix",
+        "defaultValue": "",
+        "description": "Prepended to the date and time. Empty uses reel-<date>."
+      },
+      {
+        "key": "webcamDevice",
+        "type": "string",
+        "label": "Webcam device",
+        "defaultValue": "",
+        "description": "Empty picks the first camera, such as /dev/video0."
+      },
+      {
+        "key": "notifications",
+        "type": "enum",
+        "label": "Saved notification",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "off",
+        "description": "Show a preview toast when a take is ready."
+      }
+    ]
+  }
+}

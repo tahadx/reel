@@ -1,0 +1,96 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+          targets: x86_64-unknown-linux-musl
+
+      - name: Install lint tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            shellcheck qt6-declarative-dev-tools
+
+      # rustfmt first: formatting drift is the cheapest failure to fix.
+      - name: Formatting
+        run: cargo fmt --check -p reel
+
+      - name: Check
+        run: cargo check -p reel --all-targets
+
+      # Keep warnings denied before a task counts as done.
+      - name: Clippy
+        run: cargo clippy -p reel --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Shell lint
+        run: |
+          shellcheck -x \
+            install.sh \
+            bin/configure bin/uninstall bin/refresh-dist bin/version \
+            bin/stamp-version bin/check-release bin/lint-qml \
+            bin/reel \
+            tests/install.test.sh
+
+      - name: Installer and uninstaller reruns
+        run: bash tests/install.test.sh
+
+      - name: QML syntax
+        run: bin/lint-qml
+
+      # Plugin version, crate version and the shipped engine must agree, and
+      # the engine must target this runner's CPU.
+      - name: Release consistency
+        run: bin/check-release
+
+      - name: Plugin contract
+        run: |
+          if command -v omarchy >/dev/null 2>&1; then
+            omarchy plugin validate .
+          else
+            echo "omarchy not available; checking the manifest contract directly."
+            python3 -c "import json; m = json.load(open('manifest.json')); assert m['schemaVersion'] == 1 and m['id'] and m['entryPoints']"
+          fi
+
+      # A committed engine that no longer matches crates/ would ship the wrong
+      # recorder. Rebuild and compare; this is the same gate as the pre-push
+      # hook, so a stale bin/dist fails CI rather than a user's machine.
+      - name: Dist freshness
+        run: |
+          set -euo pipefail
+          before=$(md5sum bin/dist/reel-native | cut -d' ' -f1)
+          bin/refresh-dist
+          after=$(md5sum bin/dist/reel-native | cut -d' ' -f1)
+          if [ "$before" != "$after" ]; then
+            echo "::error::bin/dist/reel-native is stale. Run bin/refresh-dist and commit the result."
+            exit 1
+          fi
+
+      - name: Upload rebuilt dist
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reel-dist
+          path: bin/dist/reel-native

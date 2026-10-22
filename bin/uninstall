@@ -1,0 +1,59 @@
+#!/bin/bash
+# Remove everything Reel installs outside its own plugin directory: the
+# ~/.local/bin link and the optional marked shortcut block. Recordings, state
+# and configuration are user data and stay untouched. Idempotent.
+# Usage: ./bin/uninstall
+set -euo pipefail
+
+PLUGIN_ID="io.github.tahadx.reel"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+BINDINGS="$CONFIG_HOME/hypr/bindings.lua"
+LINK="$HOME/.local/bin/reel"
+
+echo "== Reel: removing installed pieces =="
+
+# Only a link into a Reel tree is ours. Checking the shape of the target, not
+# just the word "reel", keeps an unrelated ~/.local/bin/reel helper safe.
+if [[ -L "$LINK" ]]; then
+  target="$(readlink -- "$LINK")"
+  case "$target" in
+  */bin/reel | */bin/reel-native | */bin/dist/reel-native | */target/debug/reel | */target/release/reel)
+    rm -f -- "$LINK"
+    echo "  unlinked $LINK"
+    ;;
+  esac
+fi
+
+# Remove only the marked block, leaving every other line byte for byte.
+if [[ -f "$BINDINGS" ]] && grep -q '^-- Reel: begin' "$BINDINGS"; then
+  python3 - "$BINDINGS" <<'PY'
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    lines = f.readlines()
+
+kept = []
+inside = False
+removed = False
+for line in lines:
+    stripped = line.strip()
+    if not inside and stripped.startswith("-- Reel: begin"):
+        inside = True
+        removed = True
+        continue
+    if inside:
+        if stripped.startswith("-- Reel: end"):
+            inside = False
+        continue
+    kept.append(line)
+
+if removed:
+    with open(path, "w", encoding="utf-8") as f:
+        f.writelines(kept)
+PY
+  echo "  removed the Reel shortcut block"
+fi
+
+echo "Done. Recordings, settings and state are untouched."
+echo "Finish with: omarchy plugin remove $PLUGIN_ID"

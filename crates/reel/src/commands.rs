@@ -1,0 +1,333 @@
+use crate::config;
+use crate::finalize;
+use crate::paths::{self, Paths};
+use crate::state;
+use crate::util;
+use anyhow::{Context, Result};
+use serde_json::json;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::UNIX_EPOCH;
+
+pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
+    if as_json {
+        println!("{}", serde_json::to_string(&state::status_json(paths))?);
+        return Ok(());
+    }
+
+    state::reconcile(paths);
+    let status = state::status(paths);
+    match status.as_str() {
+        "recording" => println!("Recording {}", util::format_duration(state::elapsed(paths))),
+        "paused" => println!("Paused {}", util::format_duration(state::elapsed(paths))),
+        "finalizing" => println!("Saving"),
+        "starting" => println!("Starting"),
+        _ => println!("Idle"),
+    }
+    Ok(())
+}
+
+struct Take {
+    path: PathBuf,
+    preview: String,
+    duration: f64,
+    size: u64,
+    mtime: i64,
+}
+
+fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
+    let dir = config::output_dir(paths);
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+
+    let mut files: Vec<(i64, PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_file() {
+                return None;
+            }
+            let ext = path.extension()?.to_string_lossy().to_ascii_lowercase();
+            if ext != "mp4" && ext != "mkv" {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_secs() as i64)
+                .unwrap_or(0);
+            Some((modified, path))
+        })
+        .collect();
+
+    files.sort_by_key(|file| std::cmp::Reverse(file.0));
+    files.truncate(limit);
+
+    files
+        .into_iter()
+        .map(|(mtime, path)| {
+            let preview_path = format!("{}-preview.jpg", path.with_extension("").display());
+            let preview = if Path::new(&preview_path).is_file() {
+                preview_path
+            } else {
+                String::new()
+            };
+            let size = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
+            Take {
+                duration: util::duration_of(&path),
+                preview,
+                size,
+                mtime,
+                path,
+            }
+        })
+        .collect()
+}
+
+pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
+    let takes = recent_takes(paths, limit);
+    if as_json {
+        let recordings: Vec<_> = takes
+            .iter()
+            .map(|take| {
+                json!({
+                    "path": take.path.display().to_string(),
+                    "preview": take.preview,
+                    "duration": take.duration,
+                    "size": take.size,
+                    "mtime": take.mtime,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string(&json!({ "recordings": recordings }))?
+        );
+    } else if takes.is_empty() {
+        println!("No recordings yet.");
+    } else {
+        for take in &takes {
+            println!("{}\t{}", take.path.display(), take.duration);
+        }
+    }
+    Ok(())
+}
+
+pub fn slowmo(paths: &Paths, file: PathBuf, factor: &str) -> Result<()> {
+    if !file.is_file() {
+        anyhow::bail!("Usage: reel slowmo <recording> [0.5|0.25]");
+    }
+    let value = finalize::factor(factor);
+    if value == 1.0 {
+        anyhow::bail!("Slow motion needs 0.5 or 0.25.");
+    }
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let stem = file.with_extension("").display().to_string();
+    let factor = finalize::factor_str(factor);
+    let output = PathBuf::from(format!("{stem}-slowmo-{factor}x.{ext}"));
+    let preview = format!("{}-preview.jpg", output.with_extension("").display());
+
+    finalize::finalize_video(paths, &file, factor, Some(&output))
+        .map_err(|_| anyhow::anyhow!("The slow-motion copy could not be written."))?;
+    let _ = finalize::make_preview(&output, Path::new(&preview));
+
+    if util::notifications_on(paths) && util::have("omarchy-notification-send") {
+        let mut cmd = Command::new("omarchy-notification-send");
+        cmd.arg("Slow motion saved")
+            .arg(util::file_stem_name(&output))
+            .arg("-t")
+            .arg("8000");
+        if Path::new(&preview).is_file() {
+            cmd.arg("--image").arg(&preview);
+        }
+        cmd.arg("--exec").arg("mpv").arg("--").arg(&output);
+        let _ = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    println!("{}", output.display());
+    Ok(())
+}
+
+pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
+    if !file.is_file() {
+        anyhow::bail!("Usage: reel trash <recording>");
+    }
+    let dir = config::output_dir(paths);
+    let real_dir = fs::canonicalize(&dir).unwrap_or(dir.clone());
+    let real_file = fs::canonicalize(&file)?;
+    if !real_file.starts_with(&real_dir) {
+        anyhow::bail!("Refusing to delete a file outside the recordings folder.");
+    }
+
+    let preview = format!("{}-preview.jpg", file.with_extension("").display());
+    let trashed = util::have("gio")
+        && Command::new("gio")
+            .arg("trash")
+            .arg("--")
+            .arg(&file)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+    if !trashed {
+        fs::remove_file(&file).with_context(|| format!("cannot remove {}", file.display()))?;
+    }
+    paths::remove_quiet(Path::new(&preview));
+    Ok(())
+}
+
+/// A still of the focused monitor. The take itself is framed later in the
+/// picker, so this is only a rough look at the screen before recording.
+pub fn preview(paths: &Paths, as_json: bool, note_only: bool) -> Result<()> {
+    let name = crate::target::focused_monitor()
+        .ok_or_else(|| anyhow::anyhow!("Reel could not read the monitor layout from Hyprland."))?;
+    let target = format!("monitor:{name}");
+    let (x, y, width, height) = crate::target::geometry(&target)
+        .ok_or_else(|| anyhow::anyhow!("Reel could not read the target geometry."))?;
+    if width <= 0 || height <= 0 {
+        anyhow::bail!("The next-take preview has no area to capture.");
+    }
+    let note = "Pick a window, area, or monitor at record time";
+
+    if note_only {
+        if as_json {
+            println!(
+                "{}",
+                serde_json::to_string(&json!({
+                    "path": "",
+                    "target": target,
+                    "width": width,
+                    "height": height,
+                    "note": note,
+                }))?
+            );
+        } else {
+            println!("{note}");
+        }
+        return Ok(());
+    }
+
+    if !util::have("grim") {
+        anyhow::bail!("grim is missing, so Reel cannot draw the next-take preview.");
+    }
+
+    let millis = paths::now_millis();
+    let destination = paths.runtime.join(format!("next-preview-{millis}.jpg"));
+    if let Ok(entries) = fs::read_dir(&paths.runtime) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("next-preview-")
+                && name.ends_with(".jpg")
+                && entry.path() != destination
+            {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
+    let scale = if width > 720 {
+        720.0 / width as f64
+    } else {
+        1.0
+    };
+    let region = format!("{x},{y} {width}x{height}");
+    let captured = Command::new("grim")
+        .arg("-g")
+        .arg(&region)
+        .arg("-s")
+        .arg(format!("{scale:.4}"))
+        .arg("-t")
+        .arg("jpeg")
+        .arg("-q")
+        .arg("85")
+        .arg(&destination)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+    if !captured || !destination.is_file() {
+        anyhow::bail!("The next-take preview could not be captured.");
+    }
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "path": destination.display().to_string(),
+                "target": target,
+                "width": width,
+                "height": height,
+                "note": note,
+            }))?
+        );
+    } else {
+        println!("{}", destination.display());
+    }
+    Ok(())
+}
+
+pub fn output(paths: &Paths) {
+    println!("{}", config::output_dir(paths).display());
+}
+
+pub fn doctor(paths: &Paths) {
+    println!("reel state: {}", paths.state.display());
+    println!("reel output: {}", config::output_dir(paths).display());
+    for tool in [
+        "gpu-screen-recorder",
+        "ffmpeg",
+        "ffprobe",
+        "hyprctl",
+        "mpv",
+        "slurp",
+        "grim",
+        "hyprpicker",
+        "jq",
+        "v4l2-ctl",
+        "omarchy-capture-region",
+        "omarchy-osd",
+        "omarchy-notification-send",
+    ] {
+        if util::have(tool) {
+            println!("  ok      {tool}");
+        } else {
+            println!("  missing {tool}");
+        }
+    }
+    if util::have("gpu-screen-recorder") {
+        if let Some(version) = util::run_stdout("gpu-screen-recorder", &["--version"]) {
+            if let Some(first) = version.lines().next() {
+                println!("  version {first}");
+            }
+        }
+        if let Some(monitors) = util::run_stdout("gpu-screen-recorder", &["--list-monitors"]) {
+            for line in monitors.lines().filter(|line| !line.trim().is_empty()) {
+                println!("  monitor {line}");
+            }
+        }
+        if let Some(audio) = util::run_stdout("gpu-screen-recorder", &["--list-audio-devices"]) {
+            for line in audio
+                .lines()
+                .filter(|line| line.starts_with("default_"))
+                .take(4)
+            {
+                println!("  audio   {line}");
+            }
+        }
+    }
+}
