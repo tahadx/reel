@@ -27,7 +27,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   the picker.
 - **A recording history page**: recent takes, scrollable, with open in Omacut,
   slow-motion copy, path copy, and trash actions. The most recent take appears
-  at the top. If Omacut is not installed, takes open in `mpv` instead.
+  at the top. Turn off **Open takes in Omacut** in Settings — or omit Omacut
+  entirely — to keep opening takes in `mpv` instead.
 - **A bar mark that tells the state at a glance**: a screen-and-dot mark when
   idle, a live clock (with a pulsing dot) while recording, a pause glyph when
   paused, and `saving` while the take is being finished.

@@ -60,6 +60,7 @@ Panel {
     "resolution": "0x0",
     "container": "mp4",
     "notifications": "off",
+    "openWithOmacut": "on",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -79,7 +80,8 @@ Panel {
     { key: "codec", label: "Video codec", glyph: "󰈙" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
     { key: "container", label: "Container", glyph: "󰉋" },
-    { key: "notifications", label: "Saved notification", glyph: "󰂚" }
+    { key: "notifications", label: "Saved notification", glyph: "󰂚" },
+    { key: "openWithOmacut", label: "Open takes in Omacut", glyph: "󰐊" }
   ]
 
   // ---------- panel state -------------------------------------------------
@@ -92,6 +94,8 @@ Panel {
   property bool cursorActive: false
   property int settingsIndex: 0
   property bool hasOmacut: false
+  readonly property bool usesOmacut: root.hasOmacut
+    && root.currentValue("openWithOmacut") === "on"
 
   property string notice: ""
   property bool noticeUrgent: false
@@ -172,6 +176,7 @@ Panel {
     case "resolution": return ["0x0", "3840x2160", "2560x1440", "1920x1080", "1280x720"]
     case "container": return ["mp4", "mkv"]
     case "notifications": return ["on", "off"]
+    case "openWithOmacut": return ["on", "off"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -198,7 +203,8 @@ Panel {
     if (list.indexOf(raw) >= 0) return raw
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
-    if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor" || key === "notifications")
+    if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
+        || key === "notifications" || key === "openWithOmacut")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -212,6 +218,7 @@ Panel {
     case "microphoneAudio":
     case "cursor":
     case "notifications":
+    case "openWithOmacut":
       return value === "on" ? "On" : "Off"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
@@ -490,7 +497,8 @@ Panel {
   }
 
   function openVideo(row) {
-    var command = Model.openVideoCommand(row && row.path, root.hasOmacut)
+    var command = Model.openVideoCommand(row && row.path, root.hasOmacut,
+      root.currentValue("openWithOmacut") === "on")
     if (command.length > 0) Quickshell.execDetached(command)
   }
 
@@ -1993,7 +2001,7 @@ Panel {
 
         PanelActionButton {
           iconText: "󰐊"
-          tooltipText: root.hasOmacut ? "Open in Omacut" : "Play"
+          tooltipText: root.usesOmacut ? "Open in Omacut" : "Play"
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openVideo(take.row)

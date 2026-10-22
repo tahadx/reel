@@ -498,11 +498,11 @@ function captureSize(plan, sourceSize) {
 }
 
 // Omacut is the preferred trimmer. Keep mpv as a fallback so history stays
-// useful on a machine without the Omarchy package.
-function openVideoCommand(path, hasOmacut) {
+// useful when Omacut is missing or the preference is turned off.
+function openVideoCommand(path, hasOmacut, openWithOmacut) {
   var value = String(path || "")
   if (value === "") return []
-  return hasOmacut
+  return hasOmacut && openWithOmacut
     ? ["omacut", value]
     : ["mpv", "--force-window=yes", "--", value]
 }

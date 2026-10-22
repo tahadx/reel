@@ -35,7 +35,8 @@
       "outputDir": "",
       "filenamePrefix": "",
       "webcamDevice": "",
-      "notifications": "off"
+      "notifications": "off",
+      "openWithOmacut": "on"
     },
     "schema": [
       {
@@ -198,6 +199,17 @@
         ],
         "defaultValue": "off",
         "description": "Show a preview toast when a take is ready."
+      },
+      {
+        "key": "openWithOmacut",
+        "type": "enum",
+        "label": "Open takes in Omacut",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "on",
+        "description": "Off opens history takes in mpv instead."
       }
     ]
   }

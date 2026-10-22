@@ -22,7 +22,8 @@ pub fn defaults() -> Value {
         "outputDir": "",
         "filenamePrefix": "",
         "webcamDevice": "",
-        "notifications": false
+        "notifications": false,
+        "openWithOmacut": true
     })
 }
 
