@@ -8,6 +8,7 @@ cargo fmt --check -p reel
 cargo clippy -p reel --all-targets -- -D warnings
 cargo test --workspace --quiet
 bin/lint-qml
+bin/test-qml
 bash tests/install.test.sh
 bin/check-release
 if command -v omarchy >/dev/null 2>&1; then

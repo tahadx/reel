@@ -210,3 +210,289 @@ function indexOf(list, value) {
 function clamp(value, low, high) {
   return Math.max(low, Math.min(high, value))
 }
+
+// ---------- capture preview geometry -------------------------------------
+
+// The picker and the compositor both speak logical desktop coordinates.
+// ScreencopyView reports the output's physical buffer separately, so keep the
+// two spaces apart: geometry below is logical, sourceSize is physical.
+
+function parseTarget(target) {
+  var value = String(target || "")
+  if (value === "portal") return { kind: "portal", target: value }
+  if (value.indexOf("monitor:") === 0) {
+    var name = value.slice(8)
+    return name === "" ? null : { kind: "monitor", target: value, name: name }
+  }
+  var match = /^region:(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$/.exec(value)
+  if (!match) return null
+  var width = Number(match[1])
+  var height = Number(match[2])
+  var x = Number(match[3])
+  var y = Number(match[4])
+  if (!(width > 0) || !(height > 0)) return null
+  return { kind: "region", target: value, x: x, y: y, width: width, height: height }
+}
+
+function screenRect(screen) {
+  if (!screen) return null
+  var x = Number(screen.x)
+  var y = Number(screen.y)
+  var width = Number(screen.width)
+  var height = Number(screen.height)
+  if (!isFinite(x) || !isFinite(y) || !(width > 0) || !(height > 0)) return null
+  return {
+    name: String(screen.name || ""),
+    x: x,
+    y: y,
+    width: width,
+    height: height,
+    object: screen
+  }
+}
+
+function screenRects(screens) {
+  var out = []
+  // Quickshell.screens is an array-like model, not a JavaScript Array.
+  var list = screens && typeof screens.length === "number" ? screens : []
+  for (var i = 0; i < list.length; i++) {
+    var rect = screenRect(list[i])
+    if (rect) out.push(rect)
+  }
+  return out
+}
+
+function screenNamed(screens, name) {
+  var list = screenRects(screens)
+  for (var i = 0; i < list.length; i++) {
+    if (list[i].name === String(name || "")) return list[i]
+  }
+  return null
+}
+
+function rectContains(outer, inner) {
+  return !!outer && !!inner
+    && inner.x >= outer.x
+    && inner.y >= outer.y
+    && inner.x + inner.width <= outer.x + outer.width
+    && inner.y + inner.height <= outer.y + outer.height
+}
+
+function rectIntersection(a, b) {
+  if (!a || !b) return null
+  var left = Math.max(a.x, b.x)
+  var top = Math.max(a.y, b.y)
+  var right = Math.min(a.x + a.width, b.x + b.width)
+  var bottom = Math.min(a.y + a.height, b.y + b.height)
+  if (right <= left || bottom <= top) return null
+  return { x: left, y: top, width: right - left, height: bottom - top }
+}
+
+function screensIntersecting(screens, area) {
+  var out = []
+  var list = screenRects(screens)
+  for (var i = 0; i < list.length; i++) {
+    if (rectIntersection(list[i], area)) out.push(list[i])
+  }
+  return out
+}
+
+function screenContaining(screens, area) {
+  var list = screenRects(screens)
+  for (var i = 0; i < list.length; i++) {
+    if (rectContains(list[i], area)) return list[i]
+  }
+  return null
+}
+
+function unavailablePlan(target, kind, title, area, reason) {
+  return {
+    mode: "capture",
+    kind: String(kind || ""),
+    target: String(target || ""),
+    title: title,
+    area: area || null,
+    screenRect: null,
+    source: null,
+    unavailable: true,
+    reason: reason
+  }
+}
+
+// Resolve the saved recording target against the screens that are connected
+// now. A region that is not wholly inside one screen cannot be represented by
+// a single source, so it is refused instead of being silently clamped.
+function capturePlan(target, screens, kind) {
+  var value = String(target || "")
+  var parsed = parseTarget(value)
+  if (!parsed) {
+    return unavailablePlan(value, kind, "Capture target", null,
+      "The saved target is malformed. Choose the target again.")
+  }
+  if (parsed.kind === "portal") {
+    return unavailablePlan(value, kind || "portal", "Portal capture", null,
+      "Portal capture is chosen in the system picker. An exact live preview is unavailable.")
+  }
+  if (parsed.kind === "monitor") {
+    var monitor = screenNamed(screens, parsed.name)
+    if (!monitor) {
+      return unavailablePlan(value, kind || "monitor", parsed.name, null,
+        parsed.name + " is not connected. Choose another monitor.")
+    }
+    return {
+      mode: "capture",
+      kind: kind || "monitor",
+      target: value,
+      title: monitor.name,
+      area: { x: monitor.x, y: monitor.y, width: monitor.width, height: monitor.height },
+      screenRect: monitor,
+      source: monitor.object,
+      unavailable: false,
+      reason: ""
+    }
+  }
+
+  var area = { x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height }
+  var title = kind === "window" ? "Window area" : "Selected area"
+  var containing = screenContaining(screens, area)
+  if (containing) {
+    return {
+      mode: "capture",
+      kind: kind || "region",
+      target: value,
+      title: title,
+      area: area,
+      screenRect: containing,
+      source: containing.object,
+      unavailable: false,
+      reason: ""
+    }
+  }
+
+  var hits = screensIntersecting(screens, area)
+  if (hits.length > 1) {
+    return unavailablePlan(value, kind, title, area,
+      "Selection crosses monitor boundaries. An exact live preview is unavailable.")
+  }
+  if (hits.length === 1) {
+    return unavailablePlan(value, kind, title, area,
+      "Selection extends beyond " + hits[0].name + ". An exact live preview is unavailable.")
+  }
+  return unavailablePlan(value, kind, title, area,
+    "Selected area is not on a connected monitor.")
+}
+
+function idlePlan(screens, focusedName) {
+  var monitor = screenNamed(screens, focusedName)
+  if (!monitor) {
+    var list = screenRects(screens)
+    monitor = list.length > 0 ? list[0] : null
+  }
+  if (!monitor) {
+    return {
+      mode: "idle",
+      kind: "monitor",
+      target: "",
+      title: "Full monitor preview",
+      area: null,
+      screenRect: null,
+      source: null,
+      unavailable: true,
+      reason: "No connected monitor is available for a preview."
+    }
+  }
+  return {
+    mode: "idle",
+    kind: "monitor",
+    target: "",
+    title: "Full monitor preview",
+    area: { x: monitor.x, y: monitor.y, width: monitor.width, height: monitor.height },
+    screenRect: monitor,
+    source: monitor.object,
+    unavailable: false,
+    reason: ""
+  }
+}
+
+function fitPreview(width, height, maxWidth, maxHeight) {
+  var w = Number(width)
+  var h = Number(height)
+  var maxW = Number(maxWidth)
+  var maxH = Number(maxHeight)
+  if (!(w > 0) || !(h > 0) || !(maxW > 0) || !(maxH > 0)) return null
+  var scale = Math.min(maxW / w, maxH / h)
+  if (!isFinite(scale) || !(scale > 0)) return null
+  return { width: w * scale, height: h * scale, scale: scale }
+}
+
+// Fit the selected rectangle into the panel, then place the full source screen
+// behind it. Both use the same scale, so the viewport is an exact crop rather
+// than a stretched image.
+function previewLayout(plan, maxWidth, maxHeight) {
+  var p = object(plan)
+  var area = p.area
+  var hasArea = !!area && Number(area.width) > 0 && Number(area.height) > 0
+  if (!hasArea) {
+    var empty = fitPreview(16, 9, maxWidth, maxHeight)
+    if (!empty) return null
+    return {
+      frameWidth: empty.width,
+      frameHeight: empty.height,
+      scale: empty.scale,
+      sourceX: 0,
+      sourceY: 0,
+      sourceWidth: 0,
+      sourceHeight: 0,
+      hasSource: false
+    }
+  }
+
+  var fit = fitPreview(area.width, area.height, maxWidth, maxHeight)
+  if (!fit) return null
+  var screen = p.screenRect
+  var hasSource = !!screen && !!p.source
+  var layout = {
+    frameWidth: fit.width,
+    frameHeight: fit.height,
+    scale: fit.scale,
+    sourceX: 0,
+    sourceY: 0,
+    sourceWidth: 0,
+    sourceHeight: 0,
+    hasSource: hasSource
+  }
+  if (hasSource) {
+    layout.sourceX = (screen.x - area.x) * fit.scale
+    layout.sourceY = (screen.y - area.y) * fit.scale
+    layout.sourceWidth = screen.width * fit.scale
+    layout.sourceHeight = screen.height * fit.scale
+  }
+  return layout
+}
+
+function span(start, end, scale) {
+  return Math.max(0, Math.round(end * scale) - Math.round(start * scale))
+}
+
+// Dimensions the compositor will encode for the selected rectangle. The only
+// reliable source is the real buffer size: Qt's devicePixelRatio can differ
+// from the compositor's fractional scale, so never guess from it.
+function captureSize(plan, sourceSize) {
+  var p = object(plan)
+  var area = p.area
+  var screen = p.screenRect
+  if (!area || !screen) return null
+
+  var sourceWidth = Number(sourceSize && sourceSize.width)
+  var sourceHeight = Number(sourceSize && sourceSize.height)
+  if (!(sourceWidth > 0) || !(sourceHeight > 0)) return null
+  var scaleX = sourceWidth / screen.width
+  var scaleY = sourceHeight / screen.height
+
+  var left = area.x - screen.x
+  var top = area.y - screen.y
+  return {
+    width: span(left, left + area.width, scaleX),
+    height: span(top, top + area.height, scaleY)
+  }
+}

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Geometry/unit tests for the pure JavaScript helpers behind the preview.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+runner=""
+if [ -x /usr/lib/qt6/bin/qmltestrunner ]; then
+  runner=/usr/lib/qt6/bin/qmltestrunner
+else
+  runner="$(command -v qmltestrunner || true)"
+fi
+if [ -z "$runner" ]; then
+  echo "qmltestrunner not available; skipping QML tests"
+  exit 0
+fi
+
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+"$runner" -input tests -txt

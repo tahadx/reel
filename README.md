@@ -105,9 +105,13 @@ Build and test from the repo root:
 
 ```sh
 cargo test --workspace
+bin/lint-qml
+bin/test-qml
 cargo build --release
 bin/refresh-dist
 ```
+
+`bin/test-qml` runs the preview geometry tests through Qt's `qmltestrunner`.
 
 `bin/refresh-dist` builds `-p reel` for `x86_64-unknown-linux-musl`, copies
 `target/x86_64-unknown-linux-musl/release/reel` to `bin/dist/reel-native`,

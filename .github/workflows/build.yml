@@ -29,7 +29,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            shellcheck qt6-declarative-dev-tools
+            shellcheck qt6-declarative-dev-tools qt6-qpa-plugins \
+            qml6-module-qtquick qml6-module-qtquick-window \
+            qml6-module-qtqml-workerscript qml6-module-qttest
 
       # rustfmt first: formatting drift is the cheapest failure to fix.
       - name: Formatting
@@ -50,7 +52,7 @@ jobs:
           shellcheck -x \
             install.sh \
             bin/configure bin/uninstall bin/refresh-dist bin/version \
-            bin/stamp-version bin/check-release bin/lint-qml \
+            bin/stamp-version bin/check-release bin/lint-qml bin/test-qml \
             bin/reel \
             tests/install.test.sh
 
@@ -59,6 +61,9 @@ jobs:
 
       - name: QML syntax
         run: bin/lint-qml
+
+      - name: QML geometry tests
+        run: bin/test-qml
 
       # Plugin version, crate version and the shipped engine must agree, and
       # the engine must target this runner's CPU.
