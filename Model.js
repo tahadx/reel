@@ -496,3 +496,13 @@ function captureSize(plan, sourceSize) {
     height: span(top, top + area.height, scaleY)
   }
 }
+
+// Omacut is the preferred trimmer. Keep mpv as a fallback so history stays
+// useful on a machine without the Omarchy package.
+function openVideoCommand(path, hasOmacut) {
+  var value = String(path || "")
+  if (value === "") return []
+  return hasOmacut
+    ? ["omacut", value]
+    : ["mpv", "--force-window=yes", "--", value]
+}

@@ -25,9 +25,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   folder — plus a webcam corner overlay.
 - **A live preview** at the top of the panel. Click it, or press Record, to open
   the picker.
-- **A recording history page**: recent takes, scrollable, with play,
+- **A recording history page**: recent takes, scrollable, with open in Omacut,
   slow-motion copy, path copy, and trash actions. The most recent take appears
-  at the top.
+  at the top. If Omacut is not installed, takes open in `mpv` instead.
 - **A bar mark that tells the state at a glance**: a screen-and-dot mark when
   idle, a live clock (with a pulsing dot) while recording, a pause glyph when
   paused, and `saving` while the take is being finished.
@@ -44,13 +44,14 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Omarchy with the Quattro shell (`omarchy-shell`).
 - `gpu-screen-recorder` (tested with 6.1.4), `ffmpeg`, `ffprobe`.
 - Omarchy's capture helpers (`omarchy-capture-region`, `slurp`, `grim`), and
-  `mpv` for the webcam overlay.
+  `mpv` for the webcam overlay and as the history playback fallback.
+- `omacut` is optional; when present, history takes open in its trimmer.
 - Linux x86_64 for the prebuilt engine. The engine is statically linked
   against musl, so it does not depend on your glibc version. Other
   architectures must build the engine from source; see Development.
 
 ```sh
-sudo pacman -S --needed gpu-screen-recorder ffmpeg grim slurp mpv
+sudo pacman -S --needed gpu-screen-recorder ffmpeg grim slurp mpv omacut
 ```
 
 The plugin ships its engine at `bin/dist/reel-native`, so installing Reel does
@@ -111,7 +112,7 @@ cargo build --release
 bin/refresh-dist
 ```
 
-`bin/test-qml` runs the preview geometry tests through Qt's `qmltestrunner`.
+`bin/test-qml` runs the preview and history action tests through Qt's `qmltestrunner`.
 
 `bin/refresh-dist` builds `-p reel` for `x86_64-unknown-linux-musl`, copies
 `target/x86_64-unknown-linux-musl/release/reel` to `bin/dist/reel-native`,
@@ -164,7 +165,7 @@ the take ends.
 | --- | --- |
 | `↑` `↓` / `j` `k` | Move between rows |
 | `←` `→` / `h` `l` | Move horizontally; cycle the focused option |
-| `Enter` / `Space` | Activate (start, stop, save, play) |
+| `Enter` / `Space` | Activate (start, stop, save, open) |
 | `Tab` / `Shift + Tab` | Move between sections |
 | `Esc` | Cancel a selection or countdown; otherwise back, then close |
 | `q` | Close the panel |

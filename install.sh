@@ -54,7 +54,7 @@ if ((${#missing[@]})); then
   echo "  Install with: sudo pacman -S --needed ${missing[*]}" >&2
   exit 1
 fi
-for tool in slurp mpv grim omarchy-capture-region; do
+for tool in slurp mpv grim omarchy-capture-region omacut; do
   have "$tool" || echo "  optional tool missing: $tool"
 done
 echo "  ok"

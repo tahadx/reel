@@ -91,6 +91,7 @@ Panel {
   property int selectedIndex: 0
   property bool cursorActive: false
   property int settingsIndex: 0
+  property bool hasOmacut: false
 
   property string notice: ""
   property bool noticeUrgent: false
@@ -373,7 +374,7 @@ Panel {
     if (root.page === "settings") return "settings · s toggles · esc goes back · q closes"
     if (root.page === "history") {
       if (root.visibleRecents.length === 0) return "no takes yet · open the recordings folder · esc goes back"
-      return root.visibleRecents.length + " takes · enter plays · x trashes · esc goes back"
+      return root.visibleRecents.length + " takes · enter opens · x trashes · esc goes back"
     }
     if (root.finalizing) return "trimming the first frame · normalizing audio"
     if (root.paused) return "paused at " + Model.clock(root.elapsed) + " · press p to resume"
@@ -488,9 +489,9 @@ Panel {
     else if (!root.finalizing) root.start()
   }
 
-  function play(row) {
-    if (!row || !row.path) return
-    Quickshell.execDetached(["mpv", "--force-window=yes", "--", String(row.path)])
+  function openVideo(row) {
+    var command = Model.openVideoCommand(row && row.path, root.hasOmacut)
+    if (command.length > 0) Quickshell.execDetached(command)
   }
 
   function openFolder() {
@@ -642,7 +643,7 @@ Panel {
       if (root.selectedIndex === 0) root.openFolder()
       else {
         var take = root.visibleRecents[root.selectedIndex - 1]
-        if (take) root.play(take)
+        if (take) root.openVideo(take)
       }
       break
     }
@@ -693,6 +694,7 @@ Panel {
 
   function openHistory() {
     if (root.page === "history") return
+    if (!omacutProbe.running) omacutProbe.running = true
     var area = root.scrollArea()
     var flick = area ? area.contentItem : null
     if (flick && flick.contentY !== undefined) flick.contentY = 0
@@ -975,7 +977,7 @@ Panel {
         anchors.fill: parent
         clip: true
         ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: contentColumn.implicitHeight > height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
         Binding {
           target: scrollArea.contentItem
           property: "interactive"
@@ -1519,7 +1521,7 @@ Panel {
                 { keys: "↑ ↓ / j k", what: "move between rows" },
                 { keys: "← →", what: "move across the action row" },
                 { keys: "h / l", what: "move horizontally or cycle the focused option" },
-                { keys: "enter", what: "start, stop, save, or play" },
+                { keys: "enter", what: "start, stop, save, or open" },
                 { keys: "r", what: "start or stop a take" },
                 { keys: "p", what: "pause or resume" },
                 { keys: "d", what: "discard the current take" },
@@ -1596,7 +1598,7 @@ Panel {
                 id: takesHint
                 textFormat: Text.PlainText
                 text: root.visibleRecents.length > 0
-                  ? "enter plays · x trashes · m slows"
+                  ? "enter opens · x trashes · m slows"
                   : "takes appear here after the first recording"
                 color: root.dim
                 font.family: root.fontFamily
@@ -1991,10 +1993,10 @@ Panel {
 
         PanelActionButton {
           iconText: "󰐊"
-          tooltipText: "Play"
+          tooltipText: root.hasOmacut ? "Open in Omacut" : "Play"
           foreground: root.foreground
           fontFamily: root.fontFamily
-          onClicked: root.play(take.row)
+          onClicked: root.openVideo(take.row)
         }
 
         PanelActionButton {
@@ -2039,7 +2041,7 @@ Panel {
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
       }
-      onClicked: root.play(take.row)
+      onClicked: root.openVideo(take.row)
     }
   }
 
@@ -2207,6 +2209,13 @@ Panel {
   }
 
   Process {
+    id: omacutProbe
+    running: false
+    command: ["sh", "-c", "command -v omacut >/dev/null 2>&1"]
+    onExited: function(code) { root.hasOmacut = code === 0 }
+  }
+
+  Process {
     id: controlProc
     running: false
     stdout: StdioCollector { waitForEnd: true }
@@ -2306,5 +2315,6 @@ Panel {
 
   Component.onCompleted: {
     if (root.service) root.service.refresh()
+    if (!omacutProbe.running) omacutProbe.running = true
   }
 }
