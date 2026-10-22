@@ -661,10 +661,6 @@ Panel {
       root.close()
       return
     }
-    if (key === "h") {
-      root.toggleHistory()
-      return
-    }
     if (key === "s") {
       root.toggleSettings()
       return
@@ -703,13 +699,14 @@ Panel {
 
   function openHistory() {
     if (root.page === "history") return
+    var area = root.scrollArea()
+    var flick = area ? area.contentItem : null
+    if (flick && flick.contentY !== undefined) flick.contentY = 0
     root.page = "history"
     root.focusSection = "recents"
     root.selectedIndex = 0
     root.cursorActive = true
-    if (root.service) root.service.refresh()
     Qt.callLater(root.focusPanelKeys)
-    Qt.callLater(root.resetScroll)
   }
 
   function closeHistory() {
@@ -718,7 +715,6 @@ Panel {
     root.selectedIndex = 0
     root.cursorActive = true
     Qt.callLater(root.focusPanelKeys)
-    Qt.callLater(root.resetScroll)
   }
 
   function toggleHistory() {
@@ -971,7 +967,7 @@ Panel {
       property alias scrollArea: scrollArea
       implicitHeight: contentColumn.implicitHeight
       anchors.fill: parent
-      blocked: root.typingPrefix
+      blocked: root.page === "settings" && root.typingPrefix
 
       onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
       onActivateRequested: root.activateCursor()
@@ -980,7 +976,6 @@ Panel {
       onTabRequested: function(direction) { root.moveSection(direction) }
       onTextKey: function(text) { root.onTextKey(text) }
       onHistoryRequested: root.toggleHistory()
-
       ScrollView {
         id: scrollArea
         anchors.fill: parent
@@ -1088,7 +1083,7 @@ Panel {
 
                 PanelActionButton {
                   iconText: "󰋚"
-                  tooltipText: root.page === "history" ? "Back from history (h)" : "History (h)"
+                  tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
                   foreground: root.page === "history" ? root.accent : root.foreground
                   fontFamily: root.fontFamily
                   hasCursor: root.cursorActive && root.focusSection === "header"
@@ -1430,11 +1425,12 @@ Panel {
               model: [
                 { keys: "↑ ↓ / j k", what: "move between rows" },
                 { keys: "← →", what: "move across the action row" },
+                { keys: "h / l", what: "move horizontally or cycle the focused option" },
                 { keys: "enter", what: "start, stop, save, or play" },
                 { keys: "r", what: "start or stop a take" },
                 { keys: "p", what: "pause or resume" },
                 { keys: "d", what: "discard the current take" },
-                { keys: "h", what: "open or close history" },
+                { keys: "Shift+H", what: "open or close history" },
                 { keys: "s", what: "settings" },
                 { keys: "x / delete", what: "trash the selected take" },
                 { keys: "m", what: "make a slow-motion copy" },
@@ -1633,8 +1629,8 @@ Panel {
 
   // ---------- helpers -----------------------------------------------------
 
-  // Reel owns the key map because h opens history while j/k/l still move the
-  // cursor. PanelKeyCatcher reserves h for vim-left, which swallowed the key.
+  // Reel owns the key map because h/l are vim-style movement while Shift+H
+  // opens history. PanelKeyCatcher reserves h for vim-left, which swallowed it.
   component ReelKeyCatcher: Item {
     id: catcher
 
@@ -1647,7 +1643,6 @@ Panel {
     signal tabRequested(int direction)
     signal textKey(string text, int modifiers)
     signal historyRequested()
-
     focus: true
     Keys.priority: Keys.BeforeItem
     Keys.onPressed: function(event) {
@@ -1664,8 +1659,23 @@ Panel {
         event.accepted = true
         return
       }
-      if (event.text === "h") {
+      var keyText = String(event.text || "").toLowerCase()
+      var shifted = (event.modifiers & Qt.ShiftModifier) !== 0
+      // Shift+H is the only history shortcut. Plain h/l are horizontal
+      // movement; the focused section decides whether that moves the cursor
+      // or cycles an option.
+      if (shifted && (event.key === Qt.Key_H || keyText === "h")) {
         catcher.historyRequested()
+        event.accepted = true
+        return
+      }
+      if (event.text === "h") {
+        catcher.moveRequested(-1, 0)
+        event.accepted = true
+        return
+      }
+      if (event.text === "l") {
+        catcher.moveRequested(1, 0)
         event.accepted = true
         return
       }

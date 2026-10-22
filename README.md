@@ -1,7 +1,7 @@
 # Reel
 
-A screen recorder for [Omarchy](https://omarchy.org): a bar widget, a
-keyboard-first recording history, and a small CLI that owns the recording. It records
+A screen recorder for [Omarchy](https://omarchy.org): a bar widget and a
+small CLI that owns the recording. It records
 a crop, a window, or a monitor with the audio and framing you choose, can pause
 mid-take, and can save a take in slow motion.
 
@@ -158,12 +158,13 @@ the take ends.
 
 | Key | Action |
 | --- | --- |
-| `←` `→` `↑` `↓` / `j` `k` | Move the cursor |
+| `↑` `↓` / `j` `k` | Move between rows |
+| `←` `→` / `h` `l` | Move horizontally; cycle the focused option |
 | `Enter` / `Space` | Activate (start, stop, save, play) |
 | `Tab` / `Shift + Tab` | Move between sections |
 | `Esc` | Cancel a selection or countdown; otherwise back, then close |
 | `q` | Close the panel |
-| `h` | Open or close history |
+| `Shift + H` | Open or close history |
 | `r` | Start or stop a take |
 | `p` | Pause or resume |
 | `d` | Discard the current take |
