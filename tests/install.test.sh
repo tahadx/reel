@@ -84,8 +84,8 @@ assert_file "$PLUGIN_DIR/bin/dist/reel-native"
 grep -qxF -- "$USER_BIND" "$BINDINGS" || fail "installer changed the user binding"
 grep -qxF -- '-- Reel: begin. Written by install.sh; delete this block to remove the binds.' \
   "$BINDINGS" || fail "installer did not add the marked block"
-grep -qxF -- 'o.bind("SUPER + R", "Reel start/stop", "reel toggle")' "$BINDINGS" \
-  || fail "installer did not add the start/stop binding"
+grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
+  || fail "installer did not add the layout-independent start/stop binding"
 [[ "$(grep -c '^-- Reel: begin' "$BINDINGS")" -eq 1 ]] || fail "binding block duplicated"
 [[ "$(tail -c 1 -- "$BINDINGS" | wc -l)" -eq 1 ]] || fail "bindings file lost its final newline"
 assert_file "$BINDINGS.bak."*
@@ -122,7 +122,7 @@ BACKUPS_BEFORE="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.b
 rm -f -- "$BINDINGS"
 "$REPO/install.sh" --yes >"$TEST_ROOT/install-3.log"
 assert_file "$BINDINGS"
-grep -qxF -- 'o.bind("SUPER + R", "Reel start/stop", "reel toggle")' "$BINDINGS" \
+grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
   || fail "installer did not create a missing bindings file"
 BACKUPS_AFTER="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.bak.*' | wc -l)"
 [[ "$BACKUPS_BEFORE" -eq "$BACKUPS_AFTER" ]] \

@@ -100,16 +100,17 @@ else
   BIND_BLOCK=$(
     cat <<'LUA'
 -- Reel: begin. Written by install.sh; delete this block to remove the binds.
-o.bind("SUPER + R", "Reel start/stop", "reel toggle")
-o.bind("SUPER + SHIFT + R", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '{}'")
-o.bind("SUPER + ALT + O", "Reel pause/resume", "reel toggle-pause")
+-- Keycodes keep these binds working after switching keyboard layouts.
+o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")
+o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '{}'")
+o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")
 -- Reel: end.
 LUA
   )
   if [[ -f "$BINDINGS" ]] \
-    && grep -qxF -- 'o.bind("SUPER + R", "Reel start/stop", "reel toggle")' "$BINDINGS" \
-    && grep -qxF -- 'o.bind("SUPER + SHIFT + R", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '\''{}'\''")' "$BINDINGS" \
-    && grep -qxF -- 'o.bind("SUPER + ALT + O", "Reel pause/resume", "reel toggle-pause")' "$BINDINGS"; then
+    && grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '\''{}'\''")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")' "$BINDINGS"; then
     echo "  Reel shortcuts are already present."
   elif ask "Add or update the optional Reel shortcuts?"; then
     mkdir -p -- "$(dirname -- "$BINDINGS")"
