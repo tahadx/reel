@@ -1,6 +1,6 @@
 use crate::cli::StartArgs;
 use crate::config;
-use crate::finalize::{self, factor_str, label};
+use crate::finalize::{factor_str, label};
 use crate::paths::{self, Lock, Paths};
 use crate::state;
 use crate::target;
@@ -55,10 +55,10 @@ impl Settings {
     }
 }
 
-fn effective(option: &Option<String>, paths: &Paths, key: &str, fallback: &str) -> String {
+fn effective(option: &Option<String>, settings: &Value, key: &str, fallback: &str) -> String {
     match option {
         Some(value) if !value.is_empty() => value.clone(),
-        _ => config::cfg(paths, key, fallback),
+        _ => config::cfg_in(settings, key, fallback),
     }
 }
 
@@ -97,66 +97,72 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
 }
 
 fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
+    // Read reel.json once. The old path reloaded and parsed it for every
+    // option, which put a surprising amount of file I/O in front of the
+    // picker on the first press.
+    let stored = config::load(paths);
     let desktop = util::normalize_switch(&effective(
         &options.desktop_audio,
-        paths,
+        &stored,
         "desktopAudio",
         "on",
     ));
     let mic = util::normalize_switch(&effective(
         &options.microphone_audio,
-        paths,
+        &stored,
         "microphoneAudio",
         "off",
     ));
-    let cursor = util::normalize_switch(&effective(&options.cursor, paths, "cursor", "on"));
+    let cursor = util::normalize_switch(&effective(&options.cursor, &stored, "cursor", "on"));
     let webcam = util::pick_choice(
-        &effective(&options.webcam, paths, "webcam", "off"),
+        &effective(&options.webcam, &stored, "webcam", "off"),
         "off",
         &["off", "small", "medium", "large"],
     );
-    let webcam_device = effective(&options.webcam_device, paths, "webcamDevice", "");
+    let webcam_device = effective(&options.webcam_device, &stored, "webcamDevice", "");
     let slowmo = util::pick_choice(
-        label(&effective(&options.slowmo, paths, "slowmo", "off")),
+        label(&effective(&options.slowmo, &stored, "slowmo", "off")),
         "off",
         &["off", "0.5x", "0.25x"],
     );
     let countdown =
-        util::at_least_int(&effective(&options.countdown, paths, "countdown", "0"), 0).min(60);
+        util::at_least_int(&effective(&options.countdown, &stored, "countdown", "0"), 0).min(60);
     let fps = util::pick_choice(
-        &effective(&options.fps, paths, "fps", "60"),
+        &effective(&options.fps, &stored, "fps", "60"),
         "60",
         &["30", "60", "120"],
     )
     .parse::<i64>()
     .unwrap_or(60);
-    let quality =
-        quality_level(&effective(&options.quality, paths, "quality", "very_high")).to_string();
+    let quality = quality_level(&effective(
+        &options.quality,
+        &stored,
+        "quality",
+        "very_high",
+    ))
+    .to_string();
     let codec = util::pick_choice(
-        &effective(&options.codec, paths, "codec", "auto"),
+        &effective(&options.codec, &stored, "codec", "auto"),
         "auto",
         &["auto", "h264", "hevc", "av1"],
     );
     let resolution = util::pick_choice(
-        &effective(&options.resolution, paths, "resolution", "0x0"),
+        &effective(&options.resolution, &stored, "resolution", "0x0"),
         "0x0",
         &["0x0", "3840x2160", "2560x1440", "1920x1080", "1280x720"],
     );
     let container = util::pick_choice(
-        &effective(&options.container, paths, "container", "mp4"),
+        &effective(&options.container, &stored, "container", "mp4"),
         "mp4",
         &["mp4", "mkv"],
     );
-    let dir = match options.output_dir.as_deref() {
-        Some(value) if !value.is_empty() => util::expand_home(value),
-        _ => config::output_dir(paths).display().to_string(),
-    };
-    let dir = if dir.is_empty() {
+    let configured_dir = effective(&options.output_dir, &stored, "outputDir", "");
+    let dir = if configured_dir.is_empty() {
         util::default_output_dir().display().to_string()
     } else {
-        dir
+        util::expand_home(&configured_dir)
     };
-    let filename_prefix = effective(&options.filename_prefix, paths, "filenamePrefix", "");
+    let filename_prefix = effective(&options.filename_prefix, &stored, "filenamePrefix", "");
 
     Ok(Settings {
         desktop,
@@ -213,6 +219,9 @@ fn available_audio() -> Option<String> {
 }
 
 fn validate_audio(settings: &Settings) -> Result<()> {
+    if !settings.desktop && !settings.mic {
+        return Ok(());
+    }
     let Some(devices) = available_audio() else {
         return Ok(());
     };
@@ -324,6 +333,42 @@ fn restore_cursor_mode(paths: &Paths) {
 
 fn cancelled(paths: &Paths) -> bool {
     paths.cancel.exists()
+}
+
+/// Wait for a recorder process to exit. The first checks are deliberately
+/// close together: gpu-screen-recorder usually closes its file in well under
+/// 100 ms, and a fixed 100 ms poll made every stop feel a beat slower.
+fn wait_for_exit(pid: i32, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    let mut delay = Duration::from_millis(5);
+    loop {
+        if !paths::alive(pid) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(delay);
+        delay = (delay * 2).min(Duration::from_millis(50));
+    }
+}
+
+/// Wait until the recorder has produced its first file or exited. Short,
+/// backing-off checks remove most of the fixed latency before `recording`
+/// appears in the bar.
+fn wait_for_capture_file(file: &Path, pid: i32, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    let mut delay = Duration::from_millis(5);
+    loop {
+        if file.exists() {
+            return true;
+        }
+        if !paths::alive(pid) || Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(delay);
+        delay = (delay * 2).min(Duration::from_millis(50));
+    }
 }
 
 fn fail_start(paths: &Paths, message: &str) {
@@ -622,23 +667,11 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     util::debug(&format!("capture: recorder pid {pid}"));
     let _ = paths::write_pid(&paths.pid_file, pid);
 
-    let deadline = Instant::now() + Duration::from_secs(15);
-    let mut ready_file = false;
-    while Instant::now() < deadline {
-        if Path::new(&file).exists() {
-            ready_file = true;
-            break;
-        }
-        if !paths::alive(pid as i32) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
+    let ready_file = wait_for_capture_file(Path::new(&file), pid as i32, Duration::from_secs(15));
 
     if !ready_file {
         paths::kill(pid as i32, libc::SIGINT);
-        thread::sleep(Duration::from_millis(500));
-        if paths::alive(pid as i32) {
+        if !wait_for_exit(pid as i32, Duration::from_secs(2)) {
             paths::kill(pid as i32, libc::SIGKILL);
         }
         if let Some(cursor) = hardware_cursor {
@@ -667,13 +700,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
 
     if cancelled(paths) {
         paths::kill(pid as i32, libc::SIGINT);
-        for _ in 0..40 {
-            if !paths::alive(pid as i32) {
-                break;
-            }
-            thread::sleep(Duration::from_millis(100));
-        }
-        if paths::alive(pid as i32) {
+        if !wait_for_exit(pid as i32, Duration::from_secs(4)) {
             paths::kill(pid as i32, libc::SIGKILL);
         }
         if let Some(cursor) = hardware_cursor {
@@ -730,13 +757,29 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     let settings = resolve_settings(paths, &options)?;
     require_tools()?;
     prepare_output_dir(&settings.output_dir)?;
-    validate_audio(&settings)?;
     let _ = start_guard(paths)?;
     restore_cursor_mode(paths);
-    match choose_target(paths)? {
-        Some(choice) => run_take(paths, &settings, &choice),
-        None => Ok(false),
+
+    // The audio-device probe starts gpu-screen-recorder and can take long
+    // enough to notice. Run it while the picker is open instead of making the
+    // user wait before they can choose a target.
+    let audio_settings = settings.clone();
+    let audio_check = thread::spawn(move || validate_audio(&audio_settings));
+    let picked = choose_target(paths);
+    let audio_result = audio_check
+        .join()
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("The audio check stopped unexpectedly.")));
+
+    let choice = match picked? {
+        Some(choice) => choice,
+        None => return Ok(false),
+    };
+    if let Err(err) = audio_result {
+        fail_start(paths, &err.to_string());
+        return Err(err);
     }
+
+    run_take(paths, &settings, &choice)
 }
 
 fn send_pause(paths: &Paths, paused: bool) -> bool {
@@ -864,13 +907,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     }
 
     paths::kill(pid, libc::SIGINT);
-    for _ in 0..80 {
-        if !paths::alive(pid) {
-            break;
-        }
-        thread::sleep(Duration::from_millis(100));
-    }
-    if paths::alive(pid) {
+    if !wait_for_exit(pid, Duration::from_secs(8)) {
         paths::log(paths, "stop: encoder ignored SIGINT, escalating to SIGKILL");
         paths::kill(pid, libc::SIGKILL);
     }
@@ -922,10 +959,10 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         anyhow::bail!("{message}");
     }
 
+    // Do not render a preview here. The finalize child already makes one after
+    // the save pass, and doing it twice delayed the stop response for every
+    // take. Passing the cache path lets the child reuse a preview if it exists.
     let preview = paths.preview_path(Path::new(&file));
-    if !finalize::make_preview(Path::new(&file), &preview) {
-        // The save pass will try once more.
-    }
 
     let job = util::spawn_finalize(
         paths,
