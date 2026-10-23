@@ -309,7 +309,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut preview = args.preview;
     if preview.is_empty() || !Path::new(&preview).is_file() {
-        let generated = PathBuf::from(format!("{}-preview.jpg", file.with_extension("").display()));
+        let generated = paths.preview_path(&file);
         if make_preview(&file, &generated) {
             preview = generated.display().to_string();
         } else {

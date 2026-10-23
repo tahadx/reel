@@ -225,7 +225,7 @@ pub fn spawn_finalize(
     paths: &Paths,
     file: &Path,
     slowmo: &str,
-    preview: &str,
+    preview: &std::path::Path,
     started_at: i64,
     target: &str,
     target_kind: &str,

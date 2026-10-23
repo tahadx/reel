@@ -95,6 +95,7 @@ If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
+| `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
 | `~/Videos/Reel` | Default recordings folder |
 
 If `XDG_RUNTIME_DIR` is unset, the runtime files live under
@@ -102,8 +103,9 @@ If `XDG_RUNTIME_DIR` is unset, the runtime files live under
 the XDG Videos directory, so it may not be `~/Videos`.
 
 Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
-uses `reel-`; repeated names get `-2`, `-3`, and so on. A JPEG preview is saved
-next to each take as `<stem>-preview.jpg`.
+uses `reel-`; repeated names get `-2`, `-3`, and so on. JPEG previews are kept
+in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
+by older Reel versions are moved into the cache when history is first read.
 
 ## Optional Hyprland shortcuts
 

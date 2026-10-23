@@ -889,7 +889,8 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
                 .map(|e| e.to_string_lossy().to_string())
                 .unwrap_or_default();
             paths::remove_quiet(path);
-            paths::remove_quiet(Path::new(&format!("{stem}-preview.jpg")));
+            paths::remove_quiet(&paths.preview_path(path));
+            paths::remove_quiet(&paths::legacy_preview_path(path));
             paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
         }
         let _ = state::write(paths, &state::idle_preserving_last(paths));
@@ -921,11 +922,8 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         anyhow::bail!("{message}");
     }
 
-    let preview = format!(
-        "{}-preview.jpg",
-        Path::new(&file).with_extension("").display()
-    );
-    if !finalize::make_preview(Path::new(&file), Path::new(&preview)) {
+    let preview = paths.preview_path(Path::new(&file));
+    if !finalize::make_preview(Path::new(&file), &preview) {
         // The save pass will try once more.
     }
 

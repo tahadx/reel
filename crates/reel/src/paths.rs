@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -19,6 +20,7 @@ pub struct Paths {
     pub webcam_pid: PathBuf,
     pub config_dir: PathBuf,
     pub config: PathBuf,
+    pub previews: PathBuf,
 }
 
 impl Paths {
@@ -43,6 +45,11 @@ impl Paths {
 
         let config_dir = config_home.join("omarchy");
 
+        let cache_home = std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".cache"));
+        let previews = cache_home.join("reel/previews");
+
         let paths = Paths {
             state: runtime.join("state.json"),
             last: runtime.join("last.json"),
@@ -55,13 +62,46 @@ impl Paths {
             webcam_pid: runtime.join("webcam.pid"),
             config: config_dir.join("reel.json"),
             config_dir,
+            previews,
             runtime,
         };
 
         let _ = fs::create_dir_all(&paths.runtime);
         let _ = fs::set_permissions(&paths.runtime, fs::Permissions::from_mode(0o700));
+        let _ = fs::create_dir_all(&paths.previews);
+        let _ = fs::set_permissions(&paths.previews, fs::Permissions::from_mode(0o700));
         paths
     }
+
+    /// Preview cache for a take, keyed by its full path so equal filenames in
+    /// different recording folders cannot overwrite each other.
+    pub fn preview_path(&self, file: &Path) -> PathBuf {
+        self.previews.join(preview_file_name(file))
+    }
+}
+
+/// The old location, next to the recording. Used to adopt previews made by
+/// older Reel versions without leaving them in the recordings folder.
+pub fn legacy_preview_path(file: &Path) -> PathBuf {
+    PathBuf::from(format!("{}-preview.jpg", file.with_extension("").display()))
+}
+
+fn preview_file_name(file: &Path) -> String {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy())
+        .unwrap_or_default();
+    format!("{stem}-{:016x}-preview.jpg", path_hash(file))
+}
+
+fn path_hash(path: &Path) -> u64 {
+    // FNV-1a keeps cache names stable across Rust versions and builds.
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in path.as_os_str().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 pub fn now_secs() -> i64 {
@@ -218,5 +258,20 @@ impl Lock {
 impl Drop for Lock {
     fn drop(&mut self) {
         // Closing the descriptor releases the flock.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_names_are_stable_and_directory_specific() {
+        let one = Path::new("/home/a/Videos/Reel/reel-1.mp4");
+        let two = Path::new("/home/b/Videos/Reel/reel-1.mp4");
+
+        assert_eq!(preview_file_name(one), preview_file_name(one));
+        assert_ne!(preview_file_name(one), preview_file_name(two));
+        assert!(preview_file_name(one).ends_with("-preview.jpg"));
     }
 }

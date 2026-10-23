@@ -36,6 +36,28 @@ struct Take {
     mtime: i64,
 }
 
+/// The cached preview for a take, adopting a preview written next to the
+/// recording by an older Reel version when possible.
+fn take_preview(paths: &Paths, file: &Path) -> Option<PathBuf> {
+    let cached = paths.preview_path(file);
+    if cached.is_file() {
+        return Some(cached);
+    }
+
+    let legacy = paths::legacy_preview_path(file);
+    if !legacy.is_file() {
+        return None;
+    }
+    if fs::rename(&legacy, &cached).is_ok() {
+        return Some(cached);
+    }
+    if fs::copy(&legacy, &cached).is_ok() {
+        paths::remove_quiet(&legacy);
+        return Some(cached);
+    }
+    Some(legacy)
+}
+
 fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
     let dir = config::output_dir(paths);
     let Ok(entries) = fs::read_dir(&dir) else {
@@ -70,12 +92,9 @@ fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
     files
         .into_iter()
         .map(|(mtime, path)| {
-            let preview_path = format!("{}-preview.jpg", path.with_extension("").display());
-            let preview = if Path::new(&preview_path).is_file() {
-                preview_path
-            } else {
-                String::new()
-            };
+            let preview = take_preview(paths, &path)
+                .map(|path| path.display().to_string())
+                .unwrap_or_default();
             let size = fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0);
             Take {
                 duration: util::duration_of(&path),
@@ -132,11 +151,11 @@ pub fn slowmo(paths: &Paths, file: PathBuf, factor: &str) -> Result<()> {
     let stem = file.with_extension("").display().to_string();
     let factor = finalize::factor_str(factor);
     let output = PathBuf::from(format!("{stem}-slowmo-{factor}x.{ext}"));
-    let preview = format!("{}-preview.jpg", output.with_extension("").display());
+    let preview = paths.preview_path(&output);
 
     finalize::finalize_video(paths, &file, factor, Some(&output))
         .map_err(|_| anyhow::anyhow!("The slow-motion copy could not be written."))?;
-    let _ = finalize::make_preview(&output, Path::new(&preview));
+    let _ = finalize::make_preview(&output, &preview);
 
     if util::notifications_on(paths) && util::have("omarchy-notification-send") {
         let mut cmd = Command::new("omarchy-notification-send");
@@ -144,7 +163,7 @@ pub fn slowmo(paths: &Paths, file: PathBuf, factor: &str) -> Result<()> {
             .arg(util::file_stem_name(&output))
             .arg("-t")
             .arg("8000");
-        if Path::new(&preview).is_file() {
+        if preview.is_file() {
             cmd.arg("--image").arg(&preview);
         }
         cmd.arg("--exec").arg("mpv").arg("--").arg(&output);
@@ -170,7 +189,8 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
         anyhow::bail!("Refusing to delete a file outside the recordings folder.");
     }
 
-    let preview = format!("{}-preview.jpg", file.with_extension("").display());
+    let preview = paths.preview_path(&file);
+    let legacy_preview = paths::legacy_preview_path(&file);
     let trashed = util::have("gio")
         && Command::new("gio")
             .arg("trash")
@@ -185,7 +205,8 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
     if !trashed {
         fs::remove_file(&file).with_context(|| format!("cannot remove {}", file.display()))?;
     }
-    paths::remove_quiet(Path::new(&preview));
+    paths::remove_quiet(&preview);
+    paths::remove_quiet(&legacy_preview);
     Ok(())
 }
 
