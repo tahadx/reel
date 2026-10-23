@@ -1942,12 +1942,16 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
-        SizedImage {
+        // Plain Image keeps the panel working on Omarchy 4.0.x, where
+        // qs.Ui.SizedImage does not exist yet.
+        Image {
           anchors.fill: parent
           visible: take.preview !== ""
-          url: take.preview !== "" ? Util.fileUrl(take.preview) : ""
-          crop: true
+          source: take.preview !== "" ? Util.fileUrl(take.preview) : ""
+          fillMode: Image.PreserveAspectCrop
           asynchronous: true
+          sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
+          sourceSize.height: Math.ceil(height * Screen.devicePixelRatio)
         }
 
         Rectangle {
