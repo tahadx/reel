@@ -51,6 +51,22 @@ The installer checks the core dependencies, links the `reel` command into
 `~/.local/bin`, and enables the widget. It asks before adding optional
 Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 
+### Default shortcuts
+
+These are the shortcuts Reel offers to install. **They are not set by
+default**: nothing is written to your Hyprland config unless you answer `y` at
+the installer prompt or run it with `--yes`.
+
+| Shortcut | Action |
+| --- | --- |
+| `Super + R` | Start or stop a take |
+| `Super + Shift + R` | Open or close the Reel panel |
+| `Super + Alt + O` | Pause or resume |
+
+They are added as a marked block in `~/.config/hypr/bindings.lua`; run
+`hyprctl reload` after adding them. The block uses keycodes, so the shortcuts
+keep working after switching keyboard layouts. Delete the block to remove them.
+
 If `~/.local/bin` is not on your `PATH`, add it. Re-running `install.sh` is
 safe. Update with `omarchy plugin update io.github.tahadx.reel`.
 
