@@ -29,6 +29,10 @@ Panel {
   readonly property string status: Model.status(root.state)
   readonly property bool active: Model.isActive(root.state)
   readonly property bool starting: root.status === "starting"
+  // The encoder is launched and warming up: the take runs, but the state only
+  // becomes "recording" once its first file exists.
+  readonly property bool capturing: root.starting
+    && String(root.state.stage || "") === "capture"
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
   readonly property bool busy: Model.isBusy(root.state)
@@ -363,7 +367,11 @@ Panel {
 
   function barLabel() {
     if (root.finalizing) return "saving"
-    if (root.starting) return String(root.state.stage || "") === "countdown" ? "…" : "pick"
+    if (root.starting) {
+      var stage = String(root.state.stage || "")
+      if (stage === "capture") return Model.clock(root.elapsed)
+      return stage === "countdown" ? "…" : "pick"
+    }
     if (root.paused) return ""
     if (root.active) return Model.clock(root.elapsed)
     return ""
@@ -372,6 +380,7 @@ Panel {
   function barTooltip() {
     if (root.finalizing) return "Reel · saving the take"
     if (root.paused) return "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
+    if (root.capturing) return "Reel · recording " + Model.clock(root.elapsed)
     if (root.starting) return "Reel · waiting for a selection"
     if (root.active) return "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
     return "Reel · click to open, right-click to record"
@@ -386,7 +395,9 @@ Panel {
     if (root.finalizing) return "trimming the first frame · normalizing audio"
     if (root.paused) return "paused at " + Model.clock(root.elapsed) + " · press p to resume"
     if (root.starting) {
-      if (String(root.state.stage || "select") === "countdown") return "starting in a moment"
+      var stage = String(root.state.stage || "select")
+      if (stage === "capture") return Model.clock(root.elapsed) + " · recording"
+      if (stage === "countdown") return "starting in a moment"
       return "click a window or monitor, or drag an area"
     }
     if (root.active) return Model.clock(root.elapsed) + " · recording"
@@ -856,7 +867,8 @@ Panel {
     hasVisualContent: true
     fixedWidth: root.barTimer
       ? barLabelMetrics.advanceWidth(root.barLabel())
-        + (root.status === "recording" ? Style.space(30) : Style.space(20))
+        + (root.status === "recording" || root.capturing
+          ? Style.space(30) : Style.space(20))
       : Style.bar.iconSlot
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
@@ -926,8 +938,10 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(6)
 
+      // The capture warmup is a real take, so the recording dot appears as
+      // soon as the clock starts rather than a second or two later.
       Rectangle {
-        visible: root.status === "recording"
+        visible: root.status === "recording" || root.capturing
         width: Style.space(6)
         height: width
         radius: width / 2
@@ -935,7 +949,7 @@ Panel {
         color: root.foreground
 
         SequentialAnimation on opacity {
-          running: root.status === "recording"
+          running: root.status === "recording" || root.capturing
           loops: Animation.Infinite
           NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
           NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
@@ -945,10 +959,11 @@ Panel {
       Text {
         textFormat: Text.PlainText
         text: root.barLabel()
-        color: root.status === "recording" ? root.urgent : root.finalizing ? root.dim : root.foreground
+        color: root.status === "recording" || root.capturing
+          ? root.urgent : root.finalizing ? root.dim : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.bar.iconFont
-        font.bold: root.status === "recording"
+        font.bold: root.status === "recording" || root.capturing
         anchors.verticalCenter: parent.verticalCenter
       }
     }

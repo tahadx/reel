@@ -372,10 +372,13 @@ fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> bool {
     wait_until(timeout, || matches!(child.try_wait(), Ok(Some(_))))
 }
 
-/// Wait until the recorder has produced its first file or exited.
-fn wait_for_capture_file(file: &Path, pid: i32, timeout: Duration) -> bool {
-    // A dead recorder will never create the file, so stop early.
-    wait_until(timeout, || file.exists() || !paths::alive(pid));
+/// Wait until the recorder has produced its first file, exited, or the take
+/// was cancelled. A cold encoder can take a second or more to get there.
+fn wait_for_capture_file(paths: &Paths, file: &Path, pid: i32, timeout: Duration) -> bool {
+    // A dead recorder or an aborted take will never produce the file.
+    wait_until(timeout, || {
+        file.exists() || cancelled(paths) || !paths::alive(pid)
+    });
     file.exists()
 }
 
@@ -687,7 +690,50 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     util::debug(&format!("capture: recorder pid {pid}"));
     let _ = paths::write_pid(&paths.pid_file, pid);
 
-    let ready_file = wait_for_capture_file(Path::new(&file), pid as i32, Duration::from_secs(15));
+    // The encoder is running now, so the take has started even though its
+    // first file can take a moment to appear (a cold GPU can need a second or
+    // more). Announce the capture stage and start the clock here instead of
+    // leaving the bar on the "starting" placeholder until the file shows up.
+    let started_at = paths::now_secs();
+    {
+        let _lock = Lock::acquire(paths).ok();
+        let _ = state::write(
+            paths,
+            &json!({
+                "status": "starting",
+                "stage": "capture",
+                "pid": pid,
+                "file": &file,
+                "target": target,
+                "targetKind": &choice.kind,
+                "targetLabel": &choice.label,
+                "targetWarning": &choice.warning,
+                "monitor": &choice.monitor,
+                "settings": settings.to_json(),
+                "startedAt": started_at,
+            }),
+        );
+    }
+
+    let ready_file =
+        wait_for_capture_file(paths, Path::new(&file), pid as i32, Duration::from_secs(15));
+
+    // A stop during the warmup writes the cancel marker; the take never got
+    // going, so tear it down quietly instead of reporting a start failure.
+    if cancelled(paths) {
+        stop_child(&mut child, Duration::from_secs(4));
+        if let Some(cursor) = hardware_cursor {
+            cursor.restore(paths);
+        }
+        webcam::cleanup(paths);
+        paths::remove_quiet(&paths.pid_file);
+        paths::remove_quiet(&paths.socket);
+        paths::remove_quiet(Path::new(&file));
+        let _ = state::write(paths, &state::idle_preserving_last(paths));
+        paths::remove_quiet(&paths.starting);
+        paths::remove_quiet(&paths.cancel);
+        return Ok(false);
+    }
 
     if !ready_file {
         stop_child(&mut child, Duration::from_secs(2));
@@ -715,24 +761,10 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         return Err(anyhow::anyhow!(message));
     }
 
-    if cancelled(paths) {
-        stop_child(&mut child, Duration::from_secs(4));
-        if let Some(cursor) = hardware_cursor {
-            cursor.restore(paths);
-        }
-        webcam::cleanup(paths);
-        paths::remove_quiet(&paths.pid_file);
-        paths::remove_quiet(&paths.socket);
-        paths::remove_quiet(Path::new(&file));
-        let _ = state::write(paths, &state::idle_preserving_last(paths));
-        paths::remove_quiet(&paths.starting);
-        paths::remove_quiet(&paths.cancel);
-        return Ok(false);
-    }
-
     {
         let _lock = Lock::acquire(paths).ok();
-        let now = paths::now_secs();
+        // Keep the clock started at the capture stage so the bar timer does not
+        // jump back to zero when the encoder's file finally appears.
         let _ = state::write(
             paths,
             &json!({
@@ -752,7 +784,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "cursor": settings.cursor,
                 "webcam": settings.webcam,
                 "fps": capture_fps,
-                "startedAt": now,
+                "startedAt": started_at,
                 "paused": false,
                 "pausedTotal": 0,
                 "pausedAt": 0,

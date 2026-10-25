@@ -40,6 +40,10 @@ Item {
   readonly property bool active: Model.isActive(root.state)
   readonly property bool busy: Model.isBusy(root.state)
   readonly property bool starting: Model.status(root.state) === "starting"
+  // The encoder is launched and warming up; the take is running even though
+  // its state has not flipped to "recording" yet.
+  readonly property bool capturing: root.starting
+    && String(root.state.stage || "") === "capture"
   readonly property int elapsed: Model.elapsed(root.state, root.tick)
 
   function refresh() {
@@ -190,11 +194,13 @@ Item {
   }
 
   // One tick a second is enough for the bar clock and costs almost nothing.
+  // During the capture warmup the clock already runs, so keep ticking there
+  // too instead of freezing at 0:00 until "recording" arrives.
   Timer {
     id: tickTimer
     interval: 1000
     repeat: true
-    running: root.active
+    running: root.active || root.capturing
     onTriggered: root.tick++
   }
 
