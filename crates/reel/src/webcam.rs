@@ -33,8 +33,16 @@ fn dispatch(lua: &str, legacy: [&str; 2]) {
 pub fn cleanup(paths: &Paths) {
     if let Some(pid) = paths::read_pid(&paths.webcam_pid) {
         paths::kill(pid, libc::SIGTERM);
-        thread::sleep(Duration::from_millis(100));
-        paths::kill(pid, libc::SIGKILL);
+        // Poll briefly instead of always paying a fixed 100 ms on stop.
+        for _ in 0..20 {
+            if !paths::alive(pid) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        if paths::alive(pid) {
+            paths::kill(pid, libc::SIGKILL);
+        }
     }
     paths::remove_quiet(&paths.webcam_pid);
 }

@@ -298,15 +298,11 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     };
 
     let file = args.file;
-    let mut error = String::new();
-    if let Err(err) = finalize_video(paths, &file, &args.slowmo, None) {
-        let _ = err;
-        error = "The take was saved, but the final pass failed.".into();
-    }
 
-    let duration = util::duration_of(&file);
-    let size = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
-
+    // Render the thumbnail before the save pass. It comes from the raw capture
+    // either way, and generating it first means history keeps an image even if
+    // the save (a slow re-encode with slow motion) is interrupted. An existing
+    // cache file from an earlier pass is reused.
     let mut preview = args.preview;
     if preview.is_empty() || !Path::new(&preview).is_file() {
         let generated = paths.preview_path(&file);
@@ -316,6 +312,15 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
             preview.clear();
         }
     }
+
+    let mut error = String::new();
+    if let Err(err) = finalize_video(paths, &file, &args.slowmo, None) {
+        let _ = err;
+        error = "The take was saved, but the final pass failed.".into();
+    }
+
+    let duration = util::duration_of(&file);
+    let size = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
 
     let last = json!({
         "path": file.display().to_string(),

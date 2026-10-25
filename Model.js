@@ -149,7 +149,8 @@ function shortPath(path, home) {
 
 function stateTitle(state) {
   switch (status(state)) {
-  case "starting": return "Choose what to record"
+  case "starting":
+    return String(object(state).stage || "") === "capture" ? "Recording" : "Choose what to record"
   case "recording": return "Recording"
   case "paused": return "Paused"
   case "finalizing": return "Saving the take"
@@ -161,6 +162,7 @@ function stateMeta(state, elapsedSeconds) {
   var s = object(state)
   switch (status(s)) {
   case "starting":
+    if (String(s.stage || "") === "capture") return clock(elapsedSeconds) + " · recording"
     return String(s.stage || "select") === "countdown"
       ? "starting in a moment" : "pick a window, area, or monitor"
   case "recording":

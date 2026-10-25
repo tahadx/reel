@@ -56,6 +56,15 @@ pub fn cfg(paths: &Paths, key: &str, fallback: &str) -> String {
     cfg_raw(paths, key).unwrap_or_else(|| fallback.to_string())
 }
 
+/// Read one key from an already-loaded settings object. Start resolves many
+/// options at once; loading and parsing reel.json once avoids repeating that
+/// work for every key.
+pub fn cfg_in(settings: &Value, key: &str, fallback: &str) -> String {
+    raw(settings, key)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| fallback.to_string())
+}
+
 pub fn output_dir(paths: &Paths) -> PathBuf {
     let configured = cfg(paths, "outputDir", "");
     if !configured.is_empty() {
@@ -118,4 +127,17 @@ pub fn run(paths: &Paths, args: ConfigArgs) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cfg_in_uses_the_loaded_object_and_fallback() {
+        let settings = serde_json::json!({ "fps": 120, "empty": "" });
+        assert_eq!(cfg_in(&settings, "fps", "60"), "120");
+        assert_eq!(cfg_in(&settings, "empty", "fallback"), "fallback");
+        assert_eq!(cfg_in(&settings, "missing", "fallback"), "fallback");
+    }
 }
