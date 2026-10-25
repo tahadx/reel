@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.tahadx.reel",
   "name": "Reel",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "author": "Taha Sadough",
   "license": "MIT",
   "description": "Screen recorder for Omarchy: record a window, area, or monitor, with pause, slow motion, webcam, audio, and recording history.",
