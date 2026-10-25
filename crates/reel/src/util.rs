@@ -1,6 +1,7 @@
 use crate::paths::Paths;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 pub fn have(tool: &str) -> bool {
     let Some(path) = std::env::var_os("PATH") else {
@@ -44,6 +45,50 @@ pub fn run_stdout(program: &str, args: &[&str]) -> Option<String> {
         return None;
     }
     Some(output.stdout)
+}
+
+/// Run a short command and give up after `timeout`, killing it. `run` waits
+/// indefinitely; a probe stuck behind a wedged service must not hold up a
+/// recording. Only use this where the output fits in the pipe buffer.
+pub fn run_stdout_within(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
+    let mut child = match Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            debug(&format!("run {program} {args:?} could not spawn: {err}"));
+            return None;
+        }
+    };
+
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            _ => {
+                debug(&format!(
+                    "run {program} {args:?} timed out after {timeout:?}"
+                ));
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+    };
+
+    if !status.success() {
+        return None;
+    }
+    // try_wait reaped the child; wait_with_output still drains the pipes.
+    let output = child.wait_with_output().ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 pub fn run_ok(program: &str, args: &[&str]) -> bool {
@@ -263,5 +308,34 @@ pub fn spawn_finalize(
 pub fn debug(message: &str) {
     if std::env::var_os("REEL_DEBUG").is_some() {
         eprintln!("[reel] {message}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_stdout_within_returns_trimmed_output() {
+        let output = run_stdout_within(
+            "sh",
+            &["-c", "printf '  default_output|Default output\\n'"],
+            Duration::from_secs(5),
+        );
+        assert_eq!(output.as_deref(), Some("default_output|Default output"));
+    }
+
+    #[test]
+    fn run_stdout_within_treats_a_failed_command_as_no_output() {
+        let output = run_stdout_within("sh", &["-c", "exit 3"], Duration::from_secs(5));
+        assert_eq!(output, None);
+    }
+
+    #[test]
+    fn run_stdout_within_kills_a_stalled_command() {
+        let started = Instant::now();
+        let output = run_stdout_within("sh", &["-c", "sleep 10"], Duration::from_millis(30));
+        assert_eq!(output, None);
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }

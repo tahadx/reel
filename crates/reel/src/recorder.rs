@@ -97,9 +97,9 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
 }
 
 fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
-    // Read reel.json once. The old path reloaded and parsed it for every
-    // option, which put a surprising amount of file I/O in front of the
-    // picker on the first press.
+    // Read reel.json once and resolve every option from it. The old path
+    // reloaded and re-parsed the file for each option, which was wasteful even
+    // if each read was small.
     let stored = config::load(paths);
     let desktop = util::normalize_switch(&effective(
         &options.desktop_audio,
@@ -215,7 +215,12 @@ fn prepare_output_dir(dir: &str) -> Result<()> {
 }
 
 fn available_audio() -> Option<String> {
-    util::run_stdout("gpu-screen-recorder", &["--list-audio-devices"])
+    // Bounded: enumerating devices must never stall a take.
+    util::run_stdout_within(
+        "gpu-screen-recorder",
+        &["--list-audio-devices"],
+        Duration::from_secs(3),
+    )
 }
 
 fn validate_audio(settings: &Settings) -> Result<()> {
@@ -335,14 +340,15 @@ fn cancelled(paths: &Paths) -> bool {
     paths.cancel.exists()
 }
 
-/// Wait for a recorder process to exit. The first checks are deliberately
-/// close together: gpu-screen-recorder usually closes its file in well under
-/// 100 ms, and a fixed 100 ms poll made every stop feel a beat slower.
-fn wait_for_exit(pid: i32, timeout: Duration) -> bool {
+/// Poll with a short, backing-off delay until `ready` or the deadline. The
+/// first checks are deliberately close together: gpu-screen-recorder usually
+/// closes its file in well under 100 ms, and a fixed 100 ms poll made every
+/// start and stop feel a beat slower.
+fn wait_until(timeout: Duration, mut ready: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
     let mut delay = Duration::from_millis(5);
     loop {
-        if !paths::alive(pid) {
+        if ready() {
             return true;
         }
         if Instant::now() >= deadline {
@@ -353,22 +359,36 @@ fn wait_for_exit(pid: i32, timeout: Duration) -> bool {
     }
 }
 
-/// Wait until the recorder has produced its first file or exited. Short,
-/// backing-off checks remove most of the fixed latency before `recording`
-/// appears in the bar.
+/// Wait for a recorder we did not spawn. After the recorder exits it is
+/// reaped by its own parent, so `alive` turns false; our own children would
+/// linger as zombies instead, and must go through `wait_for_child`.
+fn wait_for_exit(pid: i32, timeout: Duration) -> bool {
+    wait_until(timeout, || !paths::alive(pid))
+}
+
+/// Wait for a child of this process, reaping it. `try_wait` reports a zombie
+/// as exited, which `kill(pid, 0)` does not.
+fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> bool {
+    wait_until(timeout, || matches!(child.try_wait(), Ok(Some(_))))
+}
+
+/// Wait until the recorder has produced its first file or exited.
 fn wait_for_capture_file(file: &Path, pid: i32, timeout: Duration) -> bool {
-    let deadline = Instant::now() + timeout;
-    let mut delay = Duration::from_millis(5);
-    loop {
-        if file.exists() {
-            return true;
-        }
-        if !paths::alive(pid) || Instant::now() >= deadline {
-            return false;
-        }
-        thread::sleep(delay);
-        delay = (delay * 2).min(Duration::from_millis(50));
+    // A dead recorder will never create the file, so stop early.
+    wait_until(timeout, || file.exists() || !paths::alive(pid));
+    file.exists()
+}
+
+/// Stop a recorder this process spawned: ask politely, then insist, and reap.
+fn stop_child(child: &mut std::process::Child, grace: Duration) {
+    let pid = child.id() as i32;
+    paths::kill(pid, libc::SIGINT);
+    if wait_for_child(child, grace) {
+        return;
     }
+    paths::kill(pid, libc::SIGKILL);
+    // Reap it if it goes; do not block forever on an uninterruptible process.
+    let _ = wait_for_child(child, Duration::from_secs(1));
 }
 
 fn fail_start(paths: &Paths, message: &str) {
@@ -646,7 +666,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         .stdout(Stdio::null())
         .stderr(Stdio::from(err))
         .spawn();
-    let child = match child {
+    let mut child = match child {
         Ok(child) => child,
         Err(err) => {
             if let Some(cursor) = hardware_cursor {
@@ -670,10 +690,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     let ready_file = wait_for_capture_file(Path::new(&file), pid as i32, Duration::from_secs(15));
 
     if !ready_file {
-        paths::kill(pid as i32, libc::SIGINT);
-        if !wait_for_exit(pid as i32, Duration::from_secs(2)) {
-            paths::kill(pid as i32, libc::SIGKILL);
-        }
+        stop_child(&mut child, Duration::from_secs(2));
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
         }
@@ -699,10 +716,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     }
 
     if cancelled(paths) {
-        paths::kill(pid as i32, libc::SIGINT);
-        if !wait_for_exit(pid as i32, Duration::from_secs(4)) {
-            paths::kill(pid as i32, libc::SIGKILL);
-        }
+        stop_child(&mut child, Duration::from_secs(4));
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
         }
@@ -758,28 +772,21 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     require_tools()?;
     prepare_output_dir(&settings.output_dir)?;
     let _ = start_guard(paths)?;
-    restore_cursor_mode(paths);
 
-    // The audio-device probe starts gpu-screen-recorder and can take long
-    // enough to notice. Run it while the picker is open instead of making the
-    // user wait before they can choose a target.
-    let audio_settings = settings.clone();
-    let audio_check = thread::spawn(move || validate_audio(&audio_settings));
-    let picked = choose_target(paths);
-    let audio_result = audio_check
-        .join()
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("The audio check stopped unexpectedly.")));
-
-    let choice = match picked? {
-        Some(choice) => choice,
-        None => return Ok(false),
-    };
-    if let Err(err) = audio_result {
+    // Check the audio devices before opening the picker, but only once the
+    // "already busy" state is ruled out. The probe is a single fast call, and
+    // failing here means a missing microphone is reported immediately instead
+    // of after the user has already drawn a region.
+    if let Err(err) = validate_audio(&settings) {
         fail_start(paths, &err.to_string());
         return Err(err);
     }
+    restore_cursor_mode(paths);
 
-    run_take(paths, &settings, &choice)
+    match choose_target(paths)? {
+        Some(choice) => run_take(paths, &settings, &choice),
+        None => Ok(false),
+    }
 }
 
 fn send_pause(paths: &Paths, paused: bool) -> bool {
@@ -959,9 +966,9 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         anyhow::bail!("{message}");
     }
 
-    // Do not render a preview here. The finalize child already makes one after
-    // the save pass, and doing it twice delayed the stop response for every
-    // take. Passing the cache path lets the child reuse a preview if it exists.
+    // Do not render a preview here: it delayed the stop response for every
+    // take. The finalize child renders one from the raw capture before its
+    // save pass, so a failed or interrupted save still leaves a thumbnail.
     let preview = paths.preview_path(Path::new(&file));
 
     let job = util::spawn_finalize(
@@ -1048,5 +1055,29 @@ mod tests {
         assert_eq!(sanitize_prefix("Bad/name"), "Bad-name-");
         assert_eq!(sanitize_prefix("Already-"), "Already-");
         assert_eq!(sanitize_prefix("..."), "reel-");
+    }
+
+    #[test]
+    fn wait_until_returns_as_soon_as_ready() {
+        let started = Instant::now();
+        assert!(wait_until(Duration::from_secs(5), || true));
+        assert!(started.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn wait_until_keeps_polling_until_ready() {
+        let mut calls = 0;
+        assert!(wait_until(Duration::from_secs(5), || {
+            calls += 1;
+            calls == 3
+        }));
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn wait_until_gives_up_at_the_deadline() {
+        let started = Instant::now();
+        assert!(!wait_until(Duration::from_millis(20), || false));
+        assert!(started.elapsed() >= Duration::from_millis(20));
     }
 }
