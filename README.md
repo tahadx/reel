@@ -18,8 +18,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   codec and resolution limits, MP4/MKV, and a webcam corner overlay.
 - Live preview of the next take and a bar mark for recording, paused, and
   saving states.
-- Recording history with previews, open in Omacut (or `mpv`), slow-motion
-  copy, path copy, and trash.
+- Recording history with previews, open in Omacut (or `mpv`), an actions menu
+  with slow-motion copy, share, and trash, plus path copy.
 - Keyboard-first panel.
 
 ## Requirements
@@ -30,6 +30,7 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - `grim` for still previews.
 - `mpv` for the webcam overlay and history playback fallback.
 - `wl-clipboard` if you want the history path-copy action.
+- LocalSend for sharing takes through `omarchy share`.
 - Optional: `omacut` for opening takes in its trimmer.
 - Linux x86_64 for the prebuilt engine. Other architectures must build from
   source; see [Development](docs/DEVELOPMENT.md).
@@ -103,8 +104,10 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `p` | Pause or resume |
 | `d` | Discard the current take (press twice) |
 | `s` | Open or close settings |
+| `a` | Open the selected take's actions menu |
 | `x` / `Delete` | Trash the selected take (press twice) |
 | `m` | Save a 0.5× slow-motion copy of the selected take |
+| `u` | Share the selected take with LocalSend |
 | `c` | Copy the selected take's path |
 | `o` | Open the recordings folder |
 

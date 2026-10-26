@@ -98,8 +98,6 @@ Panel {
   property bool cursorActive: false
   property int settingsIndex: 0
   property bool hasOmacut: false
-  readonly property bool usesOmacut: root.hasOmacut
-    && root.currentValue("openWithOmacut") === "on"
 
   property string notice: ""
   property bool noticeUrgent: false
@@ -112,6 +110,35 @@ Panel {
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
+
+  // The take actions menu lives at panel level rather than inside each row so
+  // the keyboard cursor keeps working while it is open. It anchors to the
+  // row's menu button and floats over the history list.
+  property bool takeMenuOpen: false
+  property var takeMenuRow: null
+  property int takeMenuIndex: 0
+  property real takeMenuX: 0
+  property real takeMenuY: 0
+  readonly property real takeMenuWidth: Style.space(198)
+  readonly property real takeMenuRowHeight: Style.space(32)
+  readonly property real takeMenuPadding: Style.space(4)
+  readonly property var takeMenuBorderSpec: Border.flat(root.dim, 1)
+  readonly property var takeMenuItems: [
+    { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
+    { key: "share", label: "Share", glyph: "󰒗" },
+    {
+      key: "trash",
+      label: root.trashArmedPath !== "" && root.takeMenuRow
+        && root.trashArmedPath === String(root.takeMenuRow.path || "")
+        ? "Confirm delete" : "Delete",
+      glyph: "󰆴",
+      urgent: root.trashArmedPath !== "" && root.takeMenuRow
+        && root.trashArmedPath === String(root.takeMenuRow.path || "")
+    }
+  ]
+  readonly property real takeMenuHeight: root.takeMenuRowHeight * root.takeMenuItems.length
+    + root.takeMenuPadding * 2
+    + Border.top(root.takeMenuBorderSpec) + Border.bottom(root.takeMenuBorderSpec)
 
   // A take can be armed for a second press, but not for long.
   Timer {
@@ -390,7 +417,7 @@ Panel {
     if (root.page === "settings") return "settings · s toggles · esc goes back · q closes"
     if (root.page === "history") {
       if (root.visibleRecents.length === 0) return "no takes yet · open the recordings folder · esc goes back"
-      return root.visibleRecents.length + " takes · enter opens · x trashes · esc goes back"
+      return root.visibleRecents.length + " takes · enter opens · a actions · esc goes back"
     }
     if (root.finalizing) return "trimming the first frame · normalizing audio"
     if (root.paused) return "paused at " + Model.clock(root.elapsed) + " · press p to resume"
@@ -531,6 +558,79 @@ Panel {
     root.setNotice("Building a half-speed copy…")
   }
 
+  function share(row) {
+    if (!row || !row.path) return
+    if (shareProc.running) return
+    shareProc.command = ["omarchy", "share", "file", String(row.path)]
+    shareProc.running = true
+    root.setNotice("Sharing " + Model.takeTitle(row) + "…")
+  }
+
+  // ---------- take actions menu ------------------------------------------
+
+  function openTakeMenu(row, rowIndex, anchor) {
+    if (!row || !anchor) return
+    var surface = keyboardPanel.loadedContent
+    if (!surface) return
+    root.cursorActive = true
+    root.focusSection = "recents"
+    root.selectedIndex = rowIndex
+
+    var point = anchor.mapToItem(surface, 0, 0)
+    var margin = Style.space(8)
+    var gap = Style.space(4)
+    var x = point.x + anchor.width - root.takeMenuWidth
+    x = Math.max(margin, Math.min(x, surface.width - root.takeMenuWidth - margin))
+    var y = point.y + anchor.height + gap
+    if (y + root.takeMenuHeight > surface.height - margin)
+      y = point.y - root.takeMenuHeight - gap
+    y = Math.max(margin, Math.min(y, surface.height - root.takeMenuHeight - margin))
+
+    root.takeMenuX = x
+    root.takeMenuY = y
+    root.takeMenuRow = row
+    root.takeMenuIndex = 0
+    root.takeMenuOpen = true
+  }
+
+  function closeTakeMenu() {
+    if (!root.takeMenuOpen) return
+    root.takeMenuOpen = false
+    root.takeMenuRow = null
+    root.takeMenuIndex = 0
+  }
+
+  function moveTakeMenu(delta) {
+    if (!root.takeMenuOpen || delta === 0) return
+    var count = root.takeMenuItems.length
+    root.takeMenuIndex = (root.takeMenuIndex + delta + count) % count
+  }
+
+  function activateTakeMenu() {
+    var row = root.takeMenuRow
+    if (!root.takeMenuOpen || !row) return
+    var item = root.takeMenuItems[root.takeMenuIndex]
+    var key = item ? String(item.key || "") : ""
+    if (key === "slowmo") {
+      root.closeTakeMenu()
+      root.slowmo(row)
+    } else if (key === "share") {
+      root.closeTakeMenu()
+      root.share(row)
+    } else if (key === "trash") {
+      var path = String(row.path || "")
+      if (path === "") return
+      if (root.trashArmedPath !== path) {
+        root.trashArmedPath = path
+        root.setNotice("Choose Delete again to move " + Model.takeTitle(row) + " to the trash.", true)
+        armTimer.restart()
+        return
+      }
+      root.closeTakeMenu()
+      root.trashTake(row)
+    }
+  }
+
   function selectedTake() {
     if (root.page !== "history" || root.focusSection !== "recents") return null
     var index = root.selectedIndex - 1
@@ -538,11 +638,10 @@ Panel {
     return root.visibleRecents[index]
   }
 
-  function trashSelected() {
-    var row = root.selectedTake()
-    if (!row) return
-    if (root.trashArmedPath !== row.path) {
-      root.trashArmedPath = row.path
+  function trashTake(row) {
+    if (!row || !row.path) return
+    if (root.trashArmedPath !== String(row.path)) {
+      root.trashArmedPath = String(row.path)
       root.setNotice("Press x again to move " + Model.takeTitle(row) + " to the trash.", true)
       armTimer.restart()
       return
@@ -553,9 +652,18 @@ Panel {
     trashProc.running = true
   }
 
+  function trashSelected() {
+    root.trashTake(root.selectedTake())
+  }
+
   function slowmoSelected() {
     var row = root.selectedTake()
     if (row) root.slowmo(row)
+  }
+
+  function shareSelected() {
+    var row = root.selectedTake()
+    if (row) root.share(row)
   }
 
   function primaryAction(index) {
@@ -670,6 +778,7 @@ Panel {
 
   function onTextKey(text) {
     var key = String(text || "").toLowerCase()
+    if (root.takeMenuOpen) return
     if (root.page === "settings" && root.typingPrefix) return
     if (key === "q") {
       root.close()
@@ -685,6 +794,12 @@ Panel {
     else if (key === "d") root.discard()
     else if (key === "o") root.openFolder()
     else if (key === "m") root.slowmoSelected()
+    else if (key === "u") root.shareSelected()
+    else if (key === "a") {
+      if (keyboardPanel.loadedContent
+          && typeof keyboardPanel.loadedContent.openTakeMenuForSelected === "function")
+        keyboardPanel.loadedContent.openTakeMenuForSelected()
+    }
     else if (key === "c") {
       var row = root.selectedTake()
       if (row) root.copyPath(row.path)
@@ -820,6 +935,10 @@ Panel {
 
   // ---------- lifecycle ---------------------------------------------------
 
+  onPageChanged: {
+    if (root.takeMenuOpen) root.closeTakeMenu()
+  }
+
   onRecentsChanged: {
     if (root.page === "history" && root.focusSection === "recents")
       root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, root.sectionCount("recents") - 1))
@@ -836,12 +955,18 @@ Panel {
       root.notice = ""
       root.discardArmed = false
       root.trashArmedPath = ""
+      root.takeMenuOpen = false
+      root.takeMenuRow = null
+      root.takeMenuIndex = 0
       root.syncConfig()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
       root.discardArmed = false
       root.trashArmedPath = ""
+      root.takeMenuOpen = false
+      root.takeMenuRow = null
+      root.takeMenuIndex = 0
     }
   }
 
@@ -988,13 +1113,30 @@ Panel {
       anchors.fill: parent
       blocked: root.page === "settings" && root.typingPrefix
 
-      onMoveRequested: function(dx, dy) { root.moveCursor(dx, dy) }
-      onActivateRequested: root.activateCursor()
-      onCloseRequested: root.back()
-      onDeleteRequested: if (root.page === "history") root.trashSelected()
-      onTabRequested: function(direction) { root.moveSection(direction) }
+      onMoveRequested: function(dx, dy) {
+        if (root.takeMenuOpen) root.moveTakeMenu(dy)
+        else root.moveCursor(dx, dy)
+      }
+      onActivateRequested: {
+        if (root.takeMenuOpen) root.activateTakeMenu()
+        else root.activateCursor()
+      }
+      onCloseRequested: {
+        if (root.takeMenuOpen) root.closeTakeMenu()
+        else root.back()
+      }
+      onDeleteRequested: {
+        if (root.takeMenuOpen) root.closeTakeMenu()
+        if (root.page === "history") root.trashSelected()
+      }
+      onTabRequested: function(direction) {
+        if (!root.takeMenuOpen) root.moveSection(direction)
+      }
       onTextKey: function(text) { root.onTextKey(text) }
-      onHistoryRequested: root.toggleHistory()
+      onHistoryRequested: {
+        if (root.takeMenuOpen) root.closeTakeMenu()
+        else root.toggleHistory()
+      }
       ScrollView {
         id: scrollArea
         anchors.fill: parent
@@ -1544,14 +1686,17 @@ Panel {
                 { keys: "↑ ↓ / j k", what: "move between rows" },
                 { keys: "← →", what: "move across the action row" },
                 { keys: "h / l", what: "move horizontally or cycle the focused option" },
-                { keys: "enter", what: "start, stop, save, or open" },
+                { keys: "enter / space", what: "start, stop, save, or open" },
+                { keys: "tab", what: "move between sections" },
                 { keys: "r", what: "start or stop a take" },
                 { keys: "p", what: "pause or resume" },
                 { keys: "d", what: "discard the current take" },
                 { keys: "Shift+H", what: "open or close history" },
                 { keys: "s", what: "settings" },
+                { keys: "a", what: "open the take actions menu" },
                 { keys: "x / delete", what: "trash the selected take" },
                 { keys: "m", what: "make a slow-motion copy" },
+                { keys: "u", what: "share the selected take" },
                 { keys: "c", what: "copy the selected take's path" },
                 { keys: "o", what: "open the recordings folder" },
                 { keys: "q", what: "close" },
@@ -1621,7 +1766,7 @@ Panel {
                 id: takesHint
                 textFormat: Text.PlainText
                 text: root.visibleRecents.length > 0
-                  ? "enter opens · x trashes · m slows"
+                  ? "enter opens · a actions · x trashes"
                   : "takes appear here after the first recording"
                 color: root.dim
                 font.family: root.fontFamily
@@ -1637,6 +1782,7 @@ Panel {
             }
 
             Repeater {
+              id: takesRepeater
               model: root.visibleRecents
 
               TakeRow {
@@ -1646,6 +1792,17 @@ Panel {
                 row: modelData
                 rowIndex: index + 1
               }
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              visible: root.notice !== ""
+              text: root.notice
+              color: root.noticeUrgent ? root.urgent : root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+              width: parent.width
             }
           }
 
@@ -1742,6 +1899,64 @@ Panel {
           }
         }
       }
+
+      // ---------- take actions menu ----------
+
+      Item {
+        id: takeMenuOverlay
+        anchors.fill: parent
+        visible: root.takeMenuOpen
+        z: 1000
+
+        MouseArea {
+          anchors.fill: parent
+          acceptedButtons: Qt.AllButtons
+          cursorShape: Qt.ArrowCursor
+          onClicked: root.closeTakeMenu()
+        }
+
+        BorderSurface {
+          id: takeMenuCard
+          x: root.takeMenuX
+          y: root.takeMenuY
+          width: root.takeMenuWidth
+          height: root.takeMenuHeight
+          color: Commons.Color.background
+          borderSpec: root.takeMenuBorderSpec
+          radius: Style.cornerRadius
+          padding: root.takeMenuPadding
+
+          // Swallow clicks on the card's padding so only the overlay behind it
+          // dismisses the menu.
+          MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+          }
+
+          Column {
+            anchors.fill: parent
+            anchors.leftMargin: takeMenuCard.contentLeftInset
+            anchors.rightMargin: takeMenuCard.contentRightInset
+            anchors.topMargin: takeMenuCard.contentTopInset
+            anchors.bottomMargin: takeMenuCard.contentBottomInset
+
+            Repeater {
+              model: root.takeMenuItems
+
+              TakeMenuRow {
+                required property var modelData
+                required property int index
+                width: parent.width
+                itemIndex: index
+                glyph: String(modelData.glyph || "")
+                label: String(modelData.label || "")
+                urgent: !!modelData.urgent
+                selected: root.takeMenuIndex === index
+              }
+            }
+          }
+        }
+      }
     }
   }
 
@@ -1763,6 +1978,14 @@ Panel {
     signal historyRequested()
     focus: true
     Keys.priority: Keys.BeforeItem
+
+    function openTakeMenuForSelected() {
+      var row = root.selectedTake()
+      if (!row) return
+      var item = takesRepeater.itemAt(root.selectedIndex - 1)
+      if (item && typeof item.openMenu === "function") item.openMenu()
+    }
+
     Keys.onPressed: function(event) {
       if (catcher.blocked) return
 
@@ -1829,6 +2052,14 @@ Panel {
       }
       if (event.key === Qt.Key_Delete || event.text === "x" || event.text === "X") {
         catcher.deleteRequested()
+        event.accepted = true
+        return
+      }
+      // Share is handled here as well as in the root key map so it works while
+      // the actions menu is open and survives any other text-key handling.
+      if (event.text === "u" || event.text === "U") {
+        if (root.takeMenuOpen) root.closeTakeMenu()
+        root.shareSelected()
         event.accepted = true
         return
       }
@@ -1928,6 +2159,61 @@ Panel {
     }
   }
 
+  component TakeMenuRow: Rectangle {
+    id: menuItem
+    property int itemIndex: 0
+    property string glyph: ""
+    property string label: ""
+    property bool selected: false
+    property bool urgent: false
+
+    height: root.takeMenuRowHeight
+    radius: Style.cornerRadius
+    color: menuItem.selected
+      ? (menuItem.urgent ? root.urgentSoft : root.accentSoft)
+      : "transparent"
+
+    Row {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(8)
+
+      Text {
+        textFormat: Text.PlainText
+        text: menuItem.glyph
+        color: menuItem.urgent ? root.urgent : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(20)
+        horizontalAlignment: Text.AlignHCenter
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        text: menuItem.label
+        color: menuItem.urgent ? root.urgent : root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        anchors.verticalCenter: parent.verticalCenter
+        elide: Text.ElideRight
+        width: parent.width - Style.space(28)
+      }
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onContainsMouseChanged: if (containsMouse) root.takeMenuIndex = menuItem.itemIndex
+      onClicked: {
+        root.takeMenuIndex = menuItem.itemIndex
+        root.activateTakeMenu()
+      }
+    }
+  }
+
   component TakeRow: CursorSurface {
     id: take
     property var row: null
@@ -1935,6 +2221,12 @@ Panel {
 
     readonly property bool armed: root.trashArmedPath !== "" && root.trashArmedPath === String(row.path || "")
     readonly property string preview: String(row.preview || "")
+    readonly property bool menuOpen: root.takeMenuOpen && root.takeMenuRow !== null
+      && String(root.takeMenuRow.path || "") === String(row.path || "")
+
+    function openMenu() {
+      root.openTakeMenu(take.row, take.rowIndex, menuButton)
+    }
 
     hasCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
@@ -2019,40 +2311,14 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
 
         PanelActionButton {
-          iconText: "󰐊"
-          tooltipText: root.usesOmacut ? "Open in Omacut" : "Play"
-          foreground: root.foreground
+          id: menuButton
+          iconText: "󰇘"
+          tooltipText: "Take actions"
+          foreground: take.menuOpen ? root.accent : root.dim
+          hoverColor: root.accent
+          hasCursor: take.menuOpen
           fontFamily: root.fontFamily
-          onClicked: root.openVideo(take.row)
-        }
-
-        PanelActionButton {
-          iconText: "󰔟"
-          tooltipText: "Half-speed copy"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          onClicked: root.slowmo(take.row)
-        }
-
-        PanelActionButton {
-          iconText: "󰆴"
-          tooltipText: take.armed ? "Press again to trash" : "Move to trash"
-          foreground: take.armed ? root.urgent : root.foreground
-          hoverColor: root.urgent
-          fontFamily: root.fontFamily
-          onClicked: {
-            if (root.trashArmedPath !== String(take.row.path || "")) {
-              root.trashArmedPath = String(take.row.path || "")
-              root.setNotice("Press trash again to move " + Model.takeTitle(take.row) + " to the trash.", true)
-              armTimer.restart()
-            } else {
-              root.trashArmedPath = ""
-              if (!trashProc.running) {
-                trashProc.command = ["reel", "trash", String(take.row.path)]
-                trashProc.running = true
-              }
-            }
-          }
+          onClicked: take.menuOpen ? root.closeTakeMenu() : take.openMenu()
         }
       }
     }
@@ -2061,14 +2327,17 @@ Panel {
       anchors.fill: parent
       z: -1
       hoverEnabled: true
-      acceptedButtons: Qt.LeftButton
+      acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
       onContainsMouseChanged: if (containsMouse) {
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
       }
-      onClicked: root.openVideo(take.row)
+      onClicked: function(mouse) {
+        if (mouse.button === Qt.RightButton) take.openMenu()
+        else root.openVideo(take.row)
+      }
     }
   }
 
@@ -2287,6 +2556,19 @@ Panel {
       if (code === 0) root.setNotice("Slow-motion copy saved.")
       else root.setNotice(message.replace(/^reel:\s*/, "") || "The slow-motion copy failed.", true)
       if (root.service) root.service.refresh()
+    }
+  }
+
+  Process {
+    id: shareProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: shareErr; waitForEnd: true }
+    onExited: function(code) {
+      var message = String(shareErr.text || "").trim()
+      if (code === 0) root.setNotice("Sharing with LocalSend.")
+      else root.setNotice(message.replace(/^omarchy:\s*/, "")
+        || "Sharing failed. Is LocalSend installed?", true)
     }
   }
 
