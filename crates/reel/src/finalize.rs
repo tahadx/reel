@@ -2,6 +2,7 @@ use crate::cli::FinalizeArgs;
 use crate::paths::{self, Paths};
 use crate::state;
 use crate::util;
+use crate::zoom;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -281,6 +282,7 @@ pub fn finalize_video(
 pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // Keep the take's framing with its result so the panel can show the same
     // area after the recording has finished.
+    let target_arg = args.target.clone();
     let target = if args.target.is_empty() {
         Value::Null
     } else {
@@ -314,6 +316,15 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     }
 
     let mut error = String::new();
+
+    // Auto zoom: the tracker left a keyframe curve next to the take. It is
+    // expressed in the raw timeline, so it has to be applied before the trim
+    // and audio pass. A failure here keeps the raw take, never loses it.
+    let sidecar = file.with_extension("zoom.json");
+    if sidecar.exists() {
+        zoom::apply_pass(&file, &sidecar, &target_arg, Some(&paths.log));
+    }
+
     if let Err(err) = finalize_video(paths, &file, &args.slowmo, None) {
         let _ = err;
         error = "The take was saved, but the final pass failed.".into();

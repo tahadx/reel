@@ -57,6 +57,11 @@ Panel {
     "cursor": "on",
     "webcam": "off",
     "slowmo": "off",
+    "autoZoom": "post_process",
+    "autoZoomMax": "1.8",
+    "autoZoomIdle": "3200",
+    "followMouse": "on",
+    "focusAutoZoom": "on",
     "countdown": 0,
     "fps": 60,
     "quality": "very_high",
@@ -76,6 +81,7 @@ Panel {
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
+    { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" },
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
   readonly property var advancedSettingRows: [
@@ -84,6 +90,10 @@ Panel {
     { key: "codec", label: "Video codec", glyph: "󰈙" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
     { key: "container", label: "Container", glyph: "󰉋" },
+    { key: "autoZoomMax", label: "Zoom depth", glyph: "󰍉" },
+    { key: "autoZoomIdle", label: "Zoom hold time", glyph: "󰔛" },
+    { key: "followMouse", label: "Zoom follows mouse", glyph: "󰍽" },
+    { key: "focusAutoZoom", label: "Focus auto-zoom", glyph: "󰌌" },
     { key: "notifications", label: "Saved notification", glyph: "󰂚" },
     { key: "openWithOmacut", label: "Open takes in Omacut", glyph: "󰐊" }
   ]
@@ -125,6 +135,7 @@ Panel {
   readonly property var takeMenuBorderSpec: Border.flat(root.dim, 1)
   readonly property var takeMenuItems: [
     { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
+    { key: "zoom", label: "Apply camera zoom", glyph: "󰍉" },
     { key: "share", label: "Share", glyph: "󰒗" },
     {
       key: "trash",
@@ -200,12 +211,17 @@ Panel {
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
     case "slowmo": return ["off", "0.5", "0.25"]
+    case "autoZoom": return ["post_process", "live_compositor", "off"]
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
     case "quality": return ["very_low", "low", "medium", "high", "very_high", "ultra"]
     case "codec": return ["auto", "h264", "hevc", "av1"]
     case "resolution": return ["0x0", "3840x2160", "2560x1440", "1920x1080", "1280x720"]
     case "container": return ["mp4", "mkv"]
+    case "autoZoomMax": return ["1.5", "1.8", "2.0", "2.4"]
+    case "autoZoomIdle": return ["2000", "3200", "5000", "8000"]
+    case "followMouse": return ["on", "off"]
+    case "focusAutoZoom": return ["on", "off"]
     case "notifications": return ["on", "off"]
     case "openWithOmacut": return ["on", "off"]
     default: return [String(root.defaults[key] || "")]
@@ -235,9 +251,24 @@ Panel {
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-        || key === "notifications" || key === "openWithOmacut")
+        || key === "notifications" || key === "openWithOmacut"
+        || key === "followMouse" || key === "focusAutoZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
+    }
+    if (key === "focusAutoZoom" && root.setting("followKeyboard") !== undefined) {
+      var kLower = String(root.setting("followKeyboard")).toLowerCase().trim()
+      if (kLower === "off" || kLower === "false" || kLower === "0") return "off"
+      return "on"
+    }
+    // Auto zoom replaced an older on/off switch. Any enabled value, including
+    // the old "mouse" word, is the smooth post-process mode.
+    if (key === "autoZoom") {
+      var lower = String(raw).toLowerCase().trim()
+      if (lower === "live" || lower === "live_compositor") return "live_compositor"
+      var off = ["off", "false", "no", "0", "none", "disabled"]
+      if (off.indexOf(lower) >= 0) return "off"
+      return "post_process"
     }
     var fallback = String(root.defaults[key])
     return list.indexOf(fallback) >= 0 ? fallback : list[0]
@@ -248,6 +279,8 @@ Panel {
     case "desktopAudio":
     case "microphoneAudio":
     case "cursor":
+    case "followMouse":
+    case "focusAutoZoom":
     case "notifications":
     case "openWithOmacut":
       return value === "on" ? "On" : "Off"
@@ -255,6 +288,13 @@ Panel {
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "slowmo":
       return value === "off" ? "Off" : value + "x"
+    case "autoZoom":
+      return value === "off" ? "Off"
+        : value === "live_compositor" ? "Live" : "Post"
+    case "autoZoomMax":
+      return value + "x"
+    case "autoZoomIdle":
+      return (Number(value) / 1000) + "s"
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -315,7 +355,7 @@ Panel {
   function cycleOption(key, direction) {
     var list = root.optionList(key)
     var next = Model.cycle(list, root.currentValue(key), direction)
-    var value = (key === "countdown" || key === "fps") ? Number(next) : next
+    var value = (key === "countdown" || key === "fps" || key === "autoZoomMax" || key === "autoZoomIdle") ? Number(next) : next
     root.writeSetting(key, value)
   }
 
@@ -414,21 +454,29 @@ Panel {
   }
 
   function stateMeta() {
+    var mode = root.currentValue("autoZoom")
+    var zoomSuffix = mode === "live_compositor" ? " · live zoom"
+      : (mode !== "off") ? " · auto zoom" : ""
     if (root.page === "settings") return "settings · s toggles · esc goes back · q closes"
     if (root.page === "history") {
       if (root.visibleRecents.length === 0) return "no takes yet · open the recordings folder · esc goes back"
       return root.visibleRecents.length + " takes · enter opens · a actions · esc goes back"
     }
-    if (root.finalizing) return "trimming the first frame · normalizing audio"
+    if (root.finalizing) {
+      return mode === "post_process"
+        ? "rendering smooth camera pass · normalizing audio"
+        : "trimming the first frame · normalizing audio"
+    }
     if (root.paused) return "paused at " + Model.clock(root.elapsed) + " · press p to resume"
     if (root.starting) {
       var stage = String(root.state.stage || "select")
-      if (stage === "capture") return Model.clock(root.elapsed) + " · recording"
+      if (stage === "capture") return Model.clock(root.elapsed) + " · recording" + zoomSuffix
       if (stage === "countdown") return "starting in a moment"
       return "click a window or monitor, or drag an area"
     }
-    if (root.active) return Model.clock(root.elapsed) + " · recording"
+    if (root.active) return Model.clock(root.elapsed) + " · recording" + zoomSuffix
     return "ready · pick a window, area, or monitor · " + root.currentValue("fps") + " fps"
+      + zoomSuffix
   }
 
   function primaryLabel() {
@@ -456,6 +504,9 @@ Panel {
       "--webcam", root.currentValue("webcam"),
       "--webcam-device", root.valueString("webcamDevice", ""),
       "--slowmo", root.currentValue("slowmo"),
+      "--auto-zoom", root.currentValue("autoZoom"),
+      "--follow-mouse", root.currentValue("followMouse"),
+      "--focus-auto-zoom", root.currentValue("focusAutoZoom"),
       "--countdown", String(root.currentValue("countdown")),
       "--fps", String(root.currentValue("fps")),
       "--quality", root.currentValue("quality"),
@@ -558,6 +609,14 @@ Panel {
     root.setNotice("Building a half-speed copy…")
   }
 
+  function zoom(row) {
+    if (!row || !row.path) return
+    if (zoomProc.running) return
+    zoomProc.command = ["reel", "zoom", String(row.path)]
+    zoomProc.running = true
+    root.setNotice("Applying camera zoom…")
+  }
+
   function share(row) {
     if (!row || !row.path) return
     if (shareProc.running) return
@@ -614,6 +673,9 @@ Panel {
     if (key === "slowmo") {
       root.closeTakeMenu()
       root.slowmo(row)
+    } else if (key === "zoom") {
+      root.closeTakeMenu()
+      root.zoom(row)
     } else if (key === "share") {
       root.closeTakeMenu()
       root.share(row)
@@ -659,6 +721,11 @@ Panel {
   function slowmoSelected() {
     var row = root.selectedTake()
     if (row) root.slowmo(row)
+  }
+
+  function zoomSelected() {
+    var row = root.selectedTake()
+    if (row) root.zoom(row)
   }
 
   function shareSelected() {
@@ -794,6 +861,7 @@ Panel {
     else if (key === "d") root.discard()
     else if (key === "o") root.openFolder()
     else if (key === "m") root.slowmoSelected()
+    else if (key === "z") root.zoomSelected()
     else if (key === "u") root.shareSelected()
     else if (key === "a") {
       if (keyboardPanel.loadedContent
@@ -1696,6 +1764,7 @@ Panel {
                 { keys: "a", what: "open the take actions menu" },
                 { keys: "x / delete", what: "trash the selected take" },
                 { keys: "m", what: "make a slow-motion copy" },
+                { keys: "z", what: "apply camera zoom" },
                 { keys: "u", what: "share the selected take" },
                 { keys: "c", what: "copy the selected take's path" },
                 { keys: "o", what: "open the recordings folder" },
@@ -1766,7 +1835,7 @@ Panel {
                 id: takesHint
                 textFormat: Text.PlainText
                 text: root.visibleRecents.length > 0
-                  ? "enter opens · a actions · x trashes"
+                  ? "enter opens · a actions · x trashes · m slows · z zooms"
                   : "takes appear here after the first recording"
                 color: root.dim
                 font.family: root.fontFamily
@@ -2555,6 +2624,19 @@ Panel {
       var message = String(slowmoErr.text || "").trim()
       if (code === 0) root.setNotice("Slow-motion copy saved.")
       else root.setNotice(message.replace(/^reel:\s*/, "") || "The slow-motion copy failed.", true)
+      if (root.service) root.service.refresh()
+    }
+  }
+
+  Process {
+    id: zoomProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: zoomErr; waitForEnd: true }
+    onExited: function(code) {
+      var message = String(zoomErr.text || "").trim()
+      if (code === 0) root.setNotice("Camera zoom copy saved.")
+      else root.setNotice(message.replace(/^reel:\s*/, "") || "Could not apply camera zoom.", true)
       if (root.service) root.service.refresh()
     }
   }

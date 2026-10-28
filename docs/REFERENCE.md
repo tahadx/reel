@@ -20,6 +20,7 @@ its own:
 | `reel status [--json]` | Print the current state |
 | `reel recent [--json] [--limit N]` | List recent takes; the default limit is 8 |
 | `reel slowmo <file> [0.5\|0.25]` | Write a slow-motion copy; the default factor is 0.5 |
+| `reel zoom <file>` | Apply camera zoom, writing a `-zoomed` copy |
 | `reel trash <file>` | Move a take to the trash |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
@@ -39,6 +40,7 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--webcam` | `off`, `small`, `medium`, `large` | `off` |
 | `--webcam-device` | camera path, such as `/dev/video0` | first camera |
 | `--slowmo` | `off`, `0.5`, `0.25` | `off` |
+| `--auto-zoom` | `post_process`, `live_compositor`, `off` | `post_process` |
 | `--countdown` | seconds, clamped to 0–60 | `0` |
 | `--fps` | `30`, `60`, `120` | `60` |
 | `--quality` | `very_low`, `low`, `medium`, `high`, `very_high`, `ultra` | `very_high` |

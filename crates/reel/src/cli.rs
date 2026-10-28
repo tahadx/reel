@@ -49,6 +49,8 @@ pub enum Command {
         #[arg(default_value = "0.5")]
         factor: String,
     },
+    /// Apply camera zoom to a take, creating a zoomed copy.
+    Zoom { file: PathBuf },
     /// Move a take to the trash.
     Trash { file: PathBuf },
     /// Read or write the settings file.
@@ -68,6 +70,9 @@ pub enum Command {
     /// Internal child process that owns the save pass.
     #[command(name = "__finalize", hide = true)]
     Finalize(FinalizeArgs),
+    /// Internal child process that samples the pointer during a take.
+    #[command(name = "__zoom", hide = true)]
+    ZoomTrace(ZoomArgs),
 }
 
 #[derive(Args, Debug, Default, Clone)]
@@ -102,6 +107,12 @@ pub struct StartArgs {
     /// Prefix for the saved filename. Empty uses `reel-<date>`.
     #[arg(long = "filename-prefix")]
     pub filename_prefix: Option<String>,
+    #[arg(long = "auto-zoom")]
+    pub auto_zoom: Option<String>,
+    #[arg(long = "follow-mouse")]
+    pub follow_mouse: Option<String>,
+    #[arg(long = "focus-auto-zoom")]
+    pub focus_auto_zoom: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -143,4 +154,31 @@ pub struct FinalizeArgs {
     pub target_kind: String,
     #[arg(long = "target-label", default_value = "")]
     pub target_label: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ZoomArgs {
+    /// Disappears when the take stops; the tracker then flushes and exits.
+    #[arg(long)]
+    pub sentinel: PathBuf,
+    /// Where the keyframe curve is written, one JSON object per line.
+    #[arg(long)]
+    pub sidecar: PathBuf,
+    #[arg(long, default_value = "")]
+    pub target: String,
+    #[arg(long = "max-zoom", default_value_t = 1.9)]
+    pub max_zoom: f64,
+    #[arg(long = "typing-zoom", default_value_t = 1.75)]
+    pub typing_zoom: f64,
+    /// `post_process` or `live_compositor`.
+    #[arg(long, default_value = "post_process")]
+    pub mode: String,
+    #[arg(long = "follow-mouse", default_value = "on")]
+    pub follow_mouse: String,
+    #[arg(long = "focus-auto-zoom", default_value = "on")]
+    pub focus_auto_zoom: String,
+    #[arg(long = "idle-timeout", default_value_t = 4000)]
+    pub idle_timeout_ms: u64,
+    #[arg(long = "unzoom-speed", default_value_t = 2600.0)]
+    pub unzoom_speed: f64,
 }

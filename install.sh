@@ -57,7 +57,22 @@ fi
 for tool in slurp mpv grim omarchy-capture-region omacut; do
   have "$tool" || echo "  optional tool missing: $tool"
 done
-echo "  ok"
+
+can_read_input=0
+for ev in /dev/input/event*; do
+  if [[ -r "$ev" ]]; then
+    can_read_input=1
+    break
+  fi
+done
+
+if (( can_read_input == 1 )); then
+  echo "  ok (/dev/input is readable)"
+else
+  echo "  note: /dev/input is not readable by $USER."
+  echo "  Keyboard auto-zoom and click tracking require /dev/input read access."
+  echo "  Run: sudo usermod -aG input $USER && sudo setfacl -m u:$USER:rw /dev/input/event*"
+fi
 
 echo "== Reel: command line =="
 "$HERE/bin/configure"

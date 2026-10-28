@@ -26,6 +26,11 @@
       "cursor": "on",
       "webcam": "off",
       "slowmo": "off",
+      "autoZoom": "post_process",
+      "autoZoomMax": 1.9,
+      "autoZoomIdle": 3200,
+      "followMouse": true,
+      "focusAutoZoom": true,
       "countdown": 0,
       "fps": 60,
       "quality": "very_high",
@@ -93,6 +98,58 @@
         ],
         "defaultValue": "off",
         "description": "Records at 120 fps, then saves the take at half or quarter speed."
+      },
+      {
+        "key": "autoZoom",
+        "type": "enum",
+        "label": "Auto zoom",
+        "options": [
+          "post_process",
+          "live_compositor",
+          "off"
+        ],
+        "defaultValue": "post_process",
+        "description": "Adds a smooth camera move to the saved video: follows pointer clicks and active text typing/caret. Rendered after the take in post, or live via Hyprland."
+      },
+      {
+        "key": "autoZoomMax",
+        "type": "enum",
+        "label": "Zoom depth",
+        "options": [
+          1.5,
+          1.8,
+          2.0,
+          2.4
+        ],
+        "defaultValue": 1.8,
+        "description": "Maximum magnification level when zooming in."
+      },
+      {
+        "key": "autoZoomIdle",
+        "type": "enum",
+        "label": "Zoom hold time",
+        "options": [
+          2000,
+          3200,
+          5000,
+          8000
+        ],
+        "defaultValue": 3200,
+        "description": "Milliseconds of stillness before zooming back out to the full frame."
+      },
+      {
+        "key": "followMouse",
+        "type": "boolean",
+        "label": "Zoom follows mouse",
+        "defaultValue": true,
+        "description": "Frames mouse clicks and pans smoothly with cursor movement."
+      },
+      {
+        "key": "focusAutoZoom",
+        "type": "boolean",
+        "label": "Focus auto-zoom",
+        "defaultValue": true,
+        "description": "Frames the active focused window and smoothly zooms into the text caret while typing."
       },
       {
         "key": "countdown",

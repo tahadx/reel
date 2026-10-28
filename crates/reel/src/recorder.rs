@@ -6,6 +6,7 @@ use crate::state;
 use crate::target;
 use crate::util;
 use crate::webcam;
+use crate::zoom::{self, Mode};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -32,6 +33,7 @@ struct Settings {
     container: String,
     output_dir: String,
     filename_prefix: String,
+    auto_zoom: zoom::Settings,
 }
 
 impl Settings {
@@ -51,6 +53,9 @@ impl Settings {
             "container": self.container,
             "outputDir": self.output_dir,
             "filenamePrefix": self.filename_prefix,
+            "autoZoom": self.auto_zoom.mode.as_str(),
+            "followMouse": self.auto_zoom.follow_mouse,
+            "focusAutoZoom": self.auto_zoom.focus_auto_zoom,
         })
     }
 }
@@ -163,6 +168,16 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         util::expand_home(&configured_dir)
     };
     let filename_prefix = effective(&options.filename_prefix, &stored, "filenamePrefix", "");
+    let mut auto_zoom = zoom::settings_from(&stored);
+    if let Some(ref mode_str) = options.auto_zoom {
+        auto_zoom.mode = zoom::Mode::from_value(Some(&serde_json::Value::String(mode_str.clone())));
+    }
+    if let Some(ref val) = options.follow_mouse {
+        auto_zoom.follow_mouse = util::normalize_switch(val);
+    }
+    if let Some(ref val) = options.focus_auto_zoom {
+        auto_zoom.focus_auto_zoom = util::normalize_switch(val);
+    }
 
     Ok(Settings {
         desktop,
@@ -179,6 +194,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         container,
         output_dir: dir,
         filename_prefix,
+        auto_zoom,
     })
 }
 
@@ -338,6 +354,85 @@ fn restore_cursor_mode(paths: &Paths) {
 
 fn cancelled(paths: &Paths) -> bool {
     paths.cancel.exists()
+}
+
+/// Start the detached auto-zoom tracker for a take. It has to be its own
+/// process: `reel start` exits as soon as the encoder is running, and threads
+/// do not outlive it.
+fn start_zoom_tracker(paths: &Paths, file: &str, target: &str, settings: &zoom::Settings) {
+    if settings.mode == Mode::Off {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let sentinel = paths.runtime.join("zoom.active");
+    let pid_file = paths.runtime.join("zoom.pid");
+    let sidecar = Path::new(file).with_extension("zoom.json");
+
+    paths::remove_quiet(&sidecar);
+    let _ = paths::write_atomic(&sentinel, "");
+
+    let child = Command::new(exe)
+        .arg("__zoom")
+        .arg("--sentinel")
+        .arg(&sentinel)
+        .arg("--sidecar")
+        .arg(&sidecar)
+        .arg("--target")
+        .arg(target)
+        .arg("--max-zoom")
+        .arg(format!("{:.3}", settings.max_zoom))
+        .arg("--typing-zoom")
+        .arg(format!("{:.3}", settings.typing_zoom))
+        .arg("--mode")
+        .arg(settings.mode.as_str())
+        .arg("--follow-mouse")
+        .arg(if settings.follow_mouse { "on" } else { "off" })
+        .arg("--focus-auto-zoom")
+        .arg(if settings.focus_auto_zoom { "on" } else { "off" })
+        .arg("--idle-timeout")
+        .arg(settings.idle_timeout.as_millis().to_string())
+        .arg("--unzoom-speed")
+        .arg(format!("{:.1}", settings.unzoom_speed))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    match child {
+        Ok(child) => {
+            let _ = paths::write_pid(&pid_file, child.id());
+            paths::log(
+                paths,
+                &format!(
+                    "zoom: tracking {} up to {:.2}x ({})",
+                    file,
+                    settings.max_zoom,
+                    settings.mode.as_str()
+                ),
+            );
+        }
+        Err(err) => paths::log(paths, &format!("zoom: cannot start the tracker: {err}")),
+    }
+}
+
+/// Stop the tracker and give it a moment to flush the last keyframes.
+fn stop_zoom_tracker(paths: &Paths) {
+    let sentinel = paths.runtime.join("zoom.active");
+    let pid_file = paths.runtime.join("zoom.pid");
+    let pid = paths::read_pid(&pid_file).unwrap_or(0);
+    paths::remove_quiet(&sentinel);
+
+    if pid > 0 && paths::alive(pid) {
+        wait_until(Duration::from_millis(1500), || !paths::alive(pid));
+        if paths::alive(pid) {
+            paths::kill(pid, libc::SIGTERM);
+            wait_until(Duration::from_millis(500), || !paths::alive(pid));
+        }
+    }
+    paths::remove_quiet(&pid_file);
+    let _ = zoom::reset_compositor_zoom();
 }
 
 /// Poll with a short, backing-off delay until `ready` or the deadline. The
@@ -792,6 +887,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             }),
         );
     }
+    start_zoom_tracker(paths, &file, &target, &settings.auto_zoom);
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);
     println!("{file}");
@@ -952,6 +1048,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     }
 
     restore_cursor_mode(paths);
+    stop_zoom_tracker(paths);
     webcam::cleanup(paths);
     paths::remove_quiet(&paths.pid_file);
     paths::remove_quiet(&paths.socket);
@@ -968,6 +1065,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
             paths::remove_quiet(&paths.preview_path(path));
             paths::remove_quiet(&paths::legacy_preview_path(path));
             paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
+            paths::remove_quiet(&path.with_extension("zoom.json"));
         }
         let _ = state::write(paths, &state::idle_preserving_last(paths));
         return Ok(());
@@ -1061,11 +1159,13 @@ mod tests {
             container: "mp4".into(),
             output_dir: "/tmp".into(),
             filename_prefix: "reel-".into(),
+            auto_zoom: zoom::Settings::default(),
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
+        assert_eq!(value["focusAutoZoom"], true);
     }
 
     #[test]

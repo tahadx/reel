@@ -3,6 +3,7 @@ use crate::finalize;
 use crate::paths::{self, Paths};
 use crate::state;
 use crate::util;
+use crate::zoom;
 use anyhow::{Context, Result};
 use serde_json::json;
 use std::fs;
@@ -178,6 +179,67 @@ pub fn slowmo(paths: &Paths, file: PathBuf, factor: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn zoom(paths: &Paths, file: PathBuf) -> Result<()> {
+    if !file.is_file() {
+        anyhow::bail!("Usage: reel zoom <recording>");
+    }
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let stem = file.with_extension("").display().to_string();
+    let output = if stem.ends_with("-zoomed") {
+        file.clone()
+    } else {
+        PathBuf::from(format!("{stem}-zoomed.{ext}"))
+    };
+    let preview = paths.preview_path(&output);
+
+    let sidecar = file.with_extension("zoom.json");
+    let stored = config::load(paths);
+    let zoom_settings = zoom::settings_from(&stored);
+    let duration = util::duration_of(&file);
+
+    let frames = if sidecar.is_file() {
+        zoom::read_keyframes(&sidecar)
+    } else {
+        let info = zoom::video_info(&file)
+            .ok_or_else(|| anyhow::anyhow!("Could not read video stream from {}", file.display()))?;
+        zoom::synthetic_keyframes(info, duration, zoom_settings.max_zoom)
+    };
+
+    if frames.is_empty() {
+        anyhow::bail!("No zoom keyframes available for this take.");
+    }
+
+    let ok = zoom::render_zoom_to(&file, &output, &frames, "", Some(&paths.log));
+    if !ok || !output.is_file() {
+        anyhow::bail!("The zoomed copy could not be written.");
+    }
+
+    let _ = finalize::make_preview(&output, &preview);
+
+    if util::notifications_on(paths) && util::have("omarchy-notification-send") {
+        let mut cmd = Command::new("omarchy-notification-send");
+        cmd.arg("Camera zoom saved")
+            .arg(util::file_stem_name(&output))
+            .arg("-t")
+            .arg("8000");
+        if preview.is_file() {
+            cmd.arg("--image").arg(&preview);
+        }
+        cmd.arg("--exec").arg("mpv").arg("--").arg(&output);
+        let _ = cmd
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+
+    println!("{}", output.display());
+    Ok(())
+}
+
 pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
     if !file.is_file() {
         anyhow::bail!("Usage: reel trash <recording>");
@@ -191,6 +253,7 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
 
     let preview = paths.preview_path(&file);
     let legacy_preview = paths::legacy_preview_path(&file);
+    let sidecar = file.with_extension("zoom.json");
     let trashed = util::have("gio")
         && Command::new("gio")
             .arg("trash")
@@ -207,6 +270,7 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
     }
     paths::remove_quiet(&preview);
     paths::remove_quiet(&legacy_preview);
+    paths::remove_quiet(&sidecar);
     Ok(())
 }
 
@@ -350,5 +414,28 @@ pub fn doctor(paths: &Paths) {
                 println!("  audio   {line}");
             }
         }
+    }
+
+    let evdev_ok = evdev::enumerate().any(|(_, d)| {
+        d.supported_keys().is_some_and(|k| k.contains(evdev::Key::BTN_LEFT) || k.contains(evdev::Key::KEY_A))
+    });
+    if evdev_ok {
+        println!("  ok      input access (/dev/input)");
+    } else {
+        println!("  note    /dev/input is not readable; run: sudo usermod -aG input $USER");
+    }
+
+    if Path::new("/usr/bin/python").exists()
+        && util::run_ok(
+            "/usr/bin/python",
+            &[
+                "-c",
+                "import gi; gi.require_version('Atspi', '2.0'); from gi.repository import Atspi",
+            ],
+        )
+    {
+        println!("  ok      at-spi2 caret tracking");
+    } else {
+        println!("  note    at-spi2 caret tracking unavailable (falls back to window geometry)");
     }
 }

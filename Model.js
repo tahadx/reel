@@ -160,19 +160,24 @@ function stateTitle(state) {
 
 function stateMeta(state, elapsedSeconds) {
   var s = object(state)
+  var zoomMode = String(s.autoZoom || "")
+  var zoomSuffix = zoomMode === "live_compositor" ? " · live zoom"
+    : (zoomMode !== "" && zoomMode !== "off") ? " · auto zoom" : ""
   switch (status(s)) {
   case "starting":
-    if (String(s.stage || "") === "capture") return clock(elapsedSeconds) + " · recording"
+    if (String(s.stage || "") === "capture") return clock(elapsedSeconds) + " · recording" + zoomSuffix
     return String(s.stage || "select") === "countdown"
       ? "starting in a moment" : "pick a window, area, or monitor"
   case "recording":
-    return clock(elapsedSeconds) + " · " + (s.fps ? number(s.fps) + " fps" : "recording")
+    return clock(elapsedSeconds) + " · " + (s.fps ? number(s.fps) + " fps" : "recording") + zoomSuffix
   case "paused":
     return "paused at " + clock(elapsedSeconds)
   case "finalizing":
-    return "trimming and normalizing audio"
+    return zoomMode === "post_process"
+      ? "rendering camera zoom · normalizing audio"
+      : "trimming and normalizing audio"
   default:
-    return "ready · " + (s.fps ? number(s.fps) + " fps" : "60 fps")
+    return "ready · " + (s.fps ? number(s.fps) + " fps" : "60 fps") + zoomSuffix
   }
 }
 
