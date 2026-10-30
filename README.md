@@ -54,6 +54,23 @@ The installer checks the core dependencies, links the `reel` command into
 `~/.local/bin`, and enables the widget. It asks before adding optional
 Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 
+### Updating
+
+```sh
+omarchy plugin update io.github.tahadx.reel
+~/.config/omarchy/plugins/io.github.tahadx.reel/install.sh
+```
+
+`omarchy plugin update` only fast-forwards the plugin checkout and validates its
+manifest — it cannot run `install.sh`. Re-run the installer after updating to
+relink the `reel` command, recheck dependencies, and refresh the optional
+shortcut block. That is how new commands, such as the zoom controls, reach an
+existing install.
+
+Re-running the installer is safe. If you never accepted the shortcuts, it does
+not touch `~/.config/hypr/bindings.lua` unless you accept at the prompt; pass
+`--no-binds` to skip it explicitly or `--yes` to accept non-interactively.
+
 ### Default shortcuts
 
 These are the shortcuts Reel offers to install. **They are not set by
@@ -77,10 +94,7 @@ They are added as a marked block in `~/.config/hypr/bindings.lua`; run
 `hyprctl reload` after adding them. The block uses keycodes, so the shortcuts
 keep working after switching keyboard layouts. Delete the block to remove them.
 
-If `~/.local/bin` is not on your `PATH`, add it. Re-running `install.sh` is
-safe. Update with `omarchy plugin update io.github.tahadx.reel`, then re-run
-`install.sh` if you accepted the optional shortcuts so new commands (such as
-the zoom binds) are added to the marked block.
+If `~/.local/bin` is not on your `PATH`, add it.
 
 CLI options, files, uninstall, and troubleshooting are in
 [docs/REFERENCE.md](docs/REFERENCE.md).
