@@ -87,6 +87,9 @@ the installer prompt or run it with `--yes`.
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
 
+The full block, ready to copy, is in
+[docs/BINDINGS.md](docs/BINDINGS.md).
+
 Touchpad pinch zoom needs no shortcut: Reel registers it at the start of each
 take. The zoom binds only act while a take is recording.
 

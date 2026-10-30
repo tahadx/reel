@@ -124,6 +124,8 @@ keycodes, so they keep working after switching keyboard layouts.
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
 
+The full block, ready to copy, is in [Hyprland bindings](BINDINGS.md).
+
 Re-running the installer replaces the marked block, so an install from before
 the zoom commands gains them at the next run. It does not touch the rest of the
 file.
