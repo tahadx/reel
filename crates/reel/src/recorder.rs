@@ -180,7 +180,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
                 .get("zoomMax")
                 .and_then(Value::as_f64)
         })
-        .unwrap_or(2.5)
+        .unwrap_or(2.0)
         .clamp(1.1, 4.0);
 
     Ok(Settings {
@@ -1089,7 +1089,7 @@ mod tests {
             output_dir: "/tmp".into(),
             filename_prefix: "reel-".into(),
             manual_zoom: false,
-            zoom_max: 2.5,
+            zoom_max: 2.0,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);

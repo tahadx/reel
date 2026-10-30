@@ -66,7 +66,7 @@ Panel {
     "notifications": "off",
     "openWithOmacut": "on",
     "manualZoom": "off",
-    "zoomMax": "2.5",
+    "zoomMax": "2.0",
     "outputDir": "",
     "webcamDevice": ""
   })

@@ -38,7 +38,7 @@
       "notifications": "off",
       "openWithOmacut": "on",
       "manualZoom": "off",
-      "zoomMax": 2.5
+      "zoomMax": 2.0
     },
     "schema": [
       {
@@ -234,7 +234,7 @@
           2.5,
           3.0
         ],
-        "defaultValue": 2.5,
+        "defaultValue": 2.0,
         "description": "Maximum magnification level when zooming in."
       }
     ]

@@ -25,7 +25,7 @@ pub fn defaults() -> Value {
         "notifications": false,
         "openWithOmacut": true,
         "manualZoom": "off",
-        "zoomMax": 2.5
+        "zoomMax": 2.0
     })
 }
 
