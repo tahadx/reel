@@ -122,6 +122,7 @@ pub fn reconcile(paths: &Paths) {
     state["status"] = json!("idle");
     state["error"] = json!("The recorder exited without a stop.");
     let _ = write(paths, &state);
+    crate::zoom::disable_recording_zoom(paths);
 }
 
 fn paths_pid_alive(pid: i32) -> bool {

@@ -23,7 +23,9 @@ pub fn defaults() -> Value {
         "filenamePrefix": "",
         "webcamDevice": "",
         "notifications": false,
-        "openWithOmacut": true
+        "openWithOmacut": true,
+        "manualZoom": "on",
+        "zoomMax": 2.0
     })
 }
 

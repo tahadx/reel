@@ -352,3 +352,129 @@ pub fn doctor(paths: &Paths) {
         }
     }
 }
+
+pub fn is_manual_zoom_active(paths: &Paths) -> bool {
+    state::reconcile(paths);
+    let Some(st) = state::read(paths) else {
+        return false;
+    };
+    is_manual_zoom_active_in_state(&st)
+}
+
+pub fn is_manual_zoom_active_in_state(st: &serde_json::Value) -> bool {
+    let status = state::field_str(st, "status").unwrap_or_default();
+    if status != "recording" {
+        return false;
+    }
+    if let Some(settings) = st.get("settings") {
+        if let Some(mz) = settings.get("manualZoom") {
+            if let Some(b) = mz.as_bool() {
+                return b;
+            }
+            if let Some(s) = mz.as_str() {
+                return s == "on" || s == "true" || s == "1";
+            }
+        }
+    }
+    false
+}
+
+pub fn zoom_in(paths: &Paths, step: f64) -> Result<()> {
+    if !is_manual_zoom_active(paths) {
+        return Ok(());
+    }
+    let current = crate::zoom::compositor_zoom();
+    let step = if step > 0.01 { step } else { 0.25 };
+    let target = (current + step).min(4.0);
+    let immediate = step <= 0.16;
+    let new_z = crate::zoom::animate_compositor_zoom(target, immediate);
+    println!("Reel zoom: {:.2}x", new_z);
+    Ok(())
+}
+
+pub fn zoom_out(paths: &Paths, step: f64) -> Result<()> {
+    if !is_manual_zoom_active(paths) {
+        return Ok(());
+    }
+    let current = crate::zoom::compositor_zoom();
+    let step = if step > 0.01 { step } else { 0.25 };
+    let target = (current - step).max(1.0);
+    let immediate = step <= 0.16;
+    let new_z = crate::zoom::animate_compositor_zoom(target, immediate);
+    println!("Reel zoom: {:.2}x", new_z);
+    Ok(())
+}
+
+pub fn zoom_reset(paths: &Paths) -> Result<()> {
+    if !is_manual_zoom_active(paths) {
+        return Ok(());
+    }
+    crate::zoom::reset_compositor_zoom();
+    println!("Reel zoom: 1.00x");
+    Ok(())
+}
+
+pub fn zoom_toggle(paths: &Paths, factor: f64) -> Result<()> {
+    if !is_manual_zoom_active(paths) {
+        return Ok(());
+    }
+    let current = crate::zoom::compositor_zoom();
+    let factor = if factor > 1.05 { factor } else { 2.0 };
+    let target = if current > 1.05 { 1.0 } else { factor };
+    let new_z = crate::zoom::animate_compositor_zoom(target, false);
+    println!("Reel zoom: {:.2}x", new_z);
+    Ok(())
+}
+
+pub fn zoom_status(_paths: &Paths, as_json: bool) -> Result<()> {
+    let current = crate::zoom::compositor_zoom();
+    if as_json {
+        println!("{}", serde_json::json!({ "zoom": current, "active": current > 1.01 }));
+    } else {
+        println!("Reel zoom: {:.2}x", current);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_zoom_active_only_when_recording() {
+        // Idle state -> inactive
+        let idle_state = serde_json::json!({
+            "status": "idle",
+            "settings": { "manualZoom": true }
+        });
+        assert!(!is_manual_zoom_active_in_state(&idle_state));
+
+        // Paused state -> inactive (zoom resets on pause)
+        let paused_state = serde_json::json!({
+            "status": "paused",
+            "settings": { "manualZoom": true }
+        });
+        assert!(!is_manual_zoom_active_in_state(&paused_state));
+
+        // Recording with manualZoom = false -> inactive
+        let rec_off_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": false }
+        });
+        assert!(!is_manual_zoom_active_in_state(&rec_off_state));
+
+        // Recording with manualZoom = true -> active
+        let rec_on_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": true }
+        });
+        assert!(is_manual_zoom_active_in_state(&rec_on_state));
+
+        // Recording with manualZoom = "on" -> active
+        let rec_str_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": "on" }
+        });
+        assert!(is_manual_zoom_active_in_state(&rec_str_state));
+    }
+}
