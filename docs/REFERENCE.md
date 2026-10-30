@@ -119,6 +119,34 @@ keycodes, so they keep working after switching keyboard layouts.
 | `Super + R` | Start or stop a take |
 | `Super + Shift + R` | Open or close the Reel panel |
 | `Super + Alt + O` | Pause or resume |
+| `Ctrl + Alt + =` / `Ctrl + Alt + -` | Zoom in / out during a take |
+| `Ctrl + Alt + 0` | Reset zoom to 1× |
+| `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
+| `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+
+Re-running the installer replaces the marked block, so an install from before
+the zoom commands gains them at the next run. It does not touch the rest of the
+file.
+
+## Manual zoom
+
+Manual zoom is enabled by the **Manual zoom** setting (on by default) and only
+acts while a take is recording. Pausing or stopping resets the compositor to
+1×.
+
+- Touchpad pinch zooms at the pointer and is registered when a take starts.
+  Once zoomed in, a pinch that reads as a pan moves the viewport instead.
+- `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
+  `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
+- `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
+- **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×; the engine
+  clamps to 1×–4× regardless.
+
+The keyboard and scroll bindings come from the optional shortcut block. Pinch
+does not. If the user already had a two-finger pinch gesture, Hyprland rejects a
+second one, so Reel removes it for the take, records that it did, and runs
+`hyprctl reload` when the take ends to restore the binding from the user's
+config.
 
 ## Troubleshooting
 
@@ -148,6 +176,13 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **Slow motion looks like normal speed** — slow motion needs a 120 fps capture.
   Reel raises the capture rate automatically when the setting is enabled.
   Existing takes can be converted with `reel slowmo <file> 0.5`.
+- **Zoom shortcuts do nothing** — zoom only acts while a take is recording, and
+  the `Ctrl + Alt` binds are optional: re-run `install.sh` after an update and
+  accept the shortcut prompt (or add the block by hand). Touchpad pinch does
+  not need a bind. Check that **Manual zoom** is on in Settings.
+- **Pinch stops working after a take** — Reel unsets its gesture when the take
+  ends. If a custom pinch binding was overridden for the take, the config is
+  reloaded to restore it; if it is still missing, run `hyprctl reload`.
 - **The live preview is black** — the panel uses the compositor's screencopy
   support (`wlr-screencopy` or `ext-image-copy-capture`). On Hyprland this
   should work; restart the shell if the panel was loaded before the compositor

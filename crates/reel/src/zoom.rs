@@ -32,19 +32,49 @@ pub fn set_compositor_zoom(zoom: f64) -> bool {
     util::run_ok("hyprctl", &["eval", &lua])
 }
 
-/// Activate manual zoom for recording: enables live tracking and registers touchpad pinch gestures.
-pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
-    let marker = paths.runtime.join("zoom_gestures");
-    let max_z = max_zoom.clamp(1.5, 4.0);
+const ZOOM_MARKER: &str = "zoom_gestures";
+/// Marker content for a take that did not override a user gesture.
+const MARKER_OURS: &str = "1";
+/// Marker content for a take that had to remove a user pinch binding first.
+const MARKER_PRIOR: &str = "prior";
 
-    // Unset any dangling gesture first to guarantee clean registration
-    let _ = util::run_ok(
+/// Removes the two-finger pinch gesture. Returns true when one was registered,
+/// which also means the user had their own binding for Reel to override.
+fn unset_pinch_gesture() -> bool {
+    util::run_ok(
         "hyprctl",
         &[
             "eval",
             "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })",
         ],
-    );
+    )
+}
+
+/// Re-registers the gestures declared in the user's Lua config. Reloading is
+/// the only way to recover a pinch binding; Hyprland has no gesture getter.
+fn restore_config_gestures() {
+    let _ = util::run_ok("hyprctl", &["reload"]);
+}
+
+fn marker_restores_prior(contents: &str) -> bool {
+    contents.trim() == MARKER_PRIOR
+}
+
+/// Activate manual zoom for recording: enables live tracking and registers touchpad pinch gestures.
+pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
+    let marker = paths.runtime.join(ZOOM_MARKER);
+    let max_z = max_zoom.clamp(1.5, 4.0);
+
+    // A marker from a take that crashed still points at Reel's gesture. Undo it
+    // first so the probe below sees the user's own binding rather than ours.
+    if marker.exists() {
+        disable_recording_zoom(paths);
+    }
+
+    // Hyprland rejects a second gesture on the same fingers and direction, so a
+    // user's pinch binding has to come off for the take. Remember that and put
+    // it back when the take ends.
+    let had_prior = unset_pinch_gesture();
 
     let lua = format!(
         r#"
@@ -126,22 +156,24 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
     "#
     );
     if util::run_ok("hyprctl", &["eval", &lua]) {
-        let _ = std::fs::write(&marker, b"1");
+        let state = if had_prior { MARKER_PRIOR } else { MARKER_OURS };
+        let _ = std::fs::write(&marker, state);
+    } else if had_prior {
+        // Registration failed after the user's gesture came off; put it back.
+        restore_config_gestures();
     }
 }
 
 /// Deactivate manual zoom: unsets touchpad pinch gestures and restores default cursor options.
 pub fn disable_recording_zoom(paths: &Paths) {
-    let marker = paths.runtime.join("zoom_gestures");
+    let marker = paths.runtime.join(ZOOM_MARKER);
     if marker.exists() {
-        let _ = util::run_ok(
-            "hyprctl",
-            &[
-                "eval",
-                "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })",
-            ],
-        );
+        let contents = std::fs::read_to_string(&marker).unwrap_or_default();
+        let _ = unset_pinch_gesture();
         let _ = util::run_ok("hyprctl", &["eval", "_G.reel_zoom_handler = nil"]);
+        if marker_restores_prior(&contents) {
+            restore_config_gestures();
+        }
         let _ = std::fs::remove_file(&marker);
     }
     reset_compositor_zoom();
@@ -212,5 +244,13 @@ mod tests {
         assert_eq!(high, 4.0);
         let normal = 2.2f64.clamp(1.0, 4.0);
         assert_eq!(normal, 2.2);
+    }
+
+    #[test]
+    fn marker_marks_overridden_user_gesture() {
+        assert!(super::marker_restores_prior("prior"));
+        assert!(super::marker_restores_prior("prior\n"));
+        assert!(!super::marker_restores_prior("1"));
+        assert!(!super::marker_restores_prior(""));
     }
 }

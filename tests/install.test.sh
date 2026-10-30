@@ -86,6 +86,12 @@ grep -qxF -- '-- Reel: begin. Written by install.sh; delete this block to remove
   "$BINDINGS" || fail "installer did not add the marked block"
 grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
   || fail "installer did not add the layout-independent start/stop binding"
+grep -qxF -- 'o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+  || fail "installer did not add the zoom-in binding"
+grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+  || fail "installer did not add the layout-independent zoom-in binding"
+grep -qxF -- 'o.bind("CTRL + ALT + mouse_up", "Reel zoom in", "reel zoom-in --step 0.15")' "$BINDINGS" \
+  || fail "installer did not add the scroll zoom binding"
 [[ "$(grep -c '^-- Reel: begin' "$BINDINGS")" -eq 1 ]] || fail "binding block duplicated"
 [[ "$(tail -c 1 -- "$BINDINGS" | wc -l)" -eq 1 ]] || fail "bindings file lost its final newline"
 assert_file "$BINDINGS.bak."*
@@ -100,6 +106,17 @@ BACKUPS_BEFORE="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.b
 BACKUPS_AFTER="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.bak.*' | wc -l)"
 [[ "$BACKUPS_BEFORE" -eq "$BACKUPS_AFTER" ]] || fail "rerun made another backup"
 grep -q 'already present' "$TEST_ROOT/install-2.log" || fail "rerun is not quiet about the binding"
+assert_no_file "$TEST_ROOT/hyprctl.log"
+
+# An install from before the zoom commands only has the three SUPER binds. The
+# next run must replace the block so the new commands show up.
+sed -i '/CTRL + ALT/d' "$BINDINGS"
+"$REPO/install.sh" --yes >"$TEST_ROOT/install-upgrade.log"
+grep -qxF -- 'o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+  || fail "installer did not upgrade a pre-zoom shortcut block"
+grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+  || fail "upgraded block is missing the layout-independent zoom binding"
+[[ "$(grep -c '^-- Reel: begin' "$BINDINGS")" -eq 1 ]] || fail "upgrade duplicated the block"
 assert_no_file "$TEST_ROOT/hyprctl.log"
 
 "$REPO/bin/uninstall" >"$TEST_ROOT/uninstall-1.log"

@@ -12,6 +12,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Pick a window, monitor, or region with Omarchy's picker; recording starts
   after the countdown.
 - Pause and resume without ending the file.
+- Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
+  `Ctrl+Alt+Scroll`, capped by a configurable zoom depth.
 - Slow motion at half or quarter speed; the save pass retimes video and audio
   together.
 - Desktop audio, microphone, pointer capture, 30/60/120 fps, quality presets,
@@ -63,13 +65,22 @@ the installer prompt or run it with `--yes`.
 | `Super + R` | Start or stop a take |
 | `Super + Shift + R` | Open or close the Reel panel |
 | `Super + Alt + O` | Pause or resume |
+| `Ctrl + Alt + =` / `Ctrl + Alt + -` | Zoom in / out during a take |
+| `Ctrl + Alt + 0` | Reset zoom to 1× |
+| `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
+| `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+
+Touchpad pinch zoom needs no shortcut: Reel registers it at the start of each
+take. The zoom binds only act while a take is recording.
 
 They are added as a marked block in `~/.config/hypr/bindings.lua`; run
 `hyprctl reload` after adding them. The block uses keycodes, so the shortcuts
 keep working after switching keyboard layouts. Delete the block to remove them.
 
 If `~/.local/bin` is not on your `PATH`, add it. Re-running `install.sh` is
-safe. Update with `omarchy plugin update io.github.tahadx.reel`.
+safe. Update with `omarchy plugin update io.github.tahadx.reel`, then re-run
+`install.sh` if you accepted the optional shortcuts so new commands (such as
+the zoom binds) are added to the marked block.
 
 CLI options, files, uninstall, and troubleshooting are in
 [docs/REFERENCE.md](docs/REFERENCE.md).
@@ -110,6 +121,23 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `u` | Share the selected take with LocalSend |
 | `c` | Copy the selected take's path |
 | `o` | Open the recordings folder |
+
+### Zoom during a take
+
+Manual zoom is on by default (Settings → **Manual zoom**). It only acts while a
+take is recording; pausing or stopping resets the view to 1×.
+
+- Touchpad pinch zooms at the pointer. Once already zoomed, a pinch that reads
+  as a pan moves the viewport instead of changing the factor.
+- `Ctrl + Alt + =` / `Ctrl + Alt + -` zoom in and out, `Ctrl + Alt + 0` resets,
+  and `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
+- `Ctrl + Alt + Scroll` zooms in and out.
+
+**Zoom depth** in Settings caps the maximum magnification (1.5×–3×, 2× by
+default). The keyboard and scroll controls come from the optional shortcut
+block; touchpad pinch is registered by Reel when a take starts. If you already
+have your own two-finger pinch binding, Reel overrides it for the take and
+reloads your config afterwards so it comes back.
 
 The settings page covers all capture options and the filename prefix. Turn off
 **Open takes in Omacut** there to open history takes in `mpv` instead.
