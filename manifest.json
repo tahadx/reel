@@ -36,7 +36,9 @@
       "filenamePrefix": "",
       "webcamDevice": "",
       "notifications": "off",
-      "openWithOmacut": "on"
+      "openWithOmacut": "on",
+      "manualZoom": "off",
+      "zoomMax": 2.5
     },
     "schema": [
       {
@@ -210,6 +212,30 @@
         ],
         "defaultValue": "on",
         "description": "Off opens history takes in mpv instead."
+      },
+      {
+        "key": "manualZoom",
+        "type": "enum",
+        "label": "Manual zoom",
+        "options": [
+          "on",
+          "off"
+        ],
+        "defaultValue": "off",
+        "description": "Allows live magnifier zoom with keyboard shortcuts (Ctrl+Alt + =/-), mouse wheel (Ctrl+Alt + Scroll), or touchpad pinch gestures."
+      },
+      {
+        "key": "zoomMax",
+        "type": "enum",
+        "label": "Zoom depth",
+        "options": [
+          1.5,
+          2.0,
+          2.5,
+          3.0
+        ],
+        "defaultValue": 2.5,
+        "description": "Maximum magnification level when zooming in."
       }
     ]
   }

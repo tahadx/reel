@@ -32,6 +32,8 @@ struct Settings {
     container: String,
     output_dir: String,
     filename_prefix: String,
+    manual_zoom: bool,
+    zoom_max: f64,
 }
 
 impl Settings {
@@ -51,6 +53,8 @@ impl Settings {
             "container": self.container,
             "outputDir": self.output_dir,
             "filenamePrefix": self.filename_prefix,
+            "manualZoom": self.manual_zoom,
+            "zoomMax": self.zoom_max,
         })
     }
 }
@@ -163,6 +167,21 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         util::expand_home(&configured_dir)
     };
     let filename_prefix = effective(&options.filename_prefix, &stored, "filenamePrefix", "");
+    let manual_zoom = util::normalize_switch(&effective(
+        &options.manual_zoom,
+        &stored,
+        "manualZoom",
+        "off",
+    ));
+    let zoom_max = options
+        .zoom_max
+        .or_else(|| {
+            stored
+                .get("zoomMax")
+                .and_then(Value::as_f64)
+        })
+        .unwrap_or(2.5)
+        .clamp(1.1, 4.0);
 
     Ok(Settings {
         desktop,
@@ -179,6 +198,8 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         container,
         output_dir: dir,
         filename_prefix,
+        manual_zoom,
+        zoom_max,
     })
 }
 
@@ -395,6 +416,7 @@ fn stop_child(child: &mut std::process::Child, grace: Duration) {
 }
 
 fn fail_start(paths: &Paths, message: &str) {
+    crate::zoom::disable_recording_zoom(paths);
     let _ = state::write(
         paths,
         &state::idle_with_error_preserving_last(paths, message),
@@ -794,6 +816,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     }
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);
+    if settings.manual_zoom {
+        crate::zoom::enable_recording_zoom(paths, settings.zoom_max);
+    }
     println!("{file}");
     Ok(true)
 }
@@ -953,6 +978,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
 
     restore_cursor_mode(paths);
     webcam::cleanup(paths);
+    crate::zoom::disable_recording_zoom(paths);
     paths::remove_quiet(&paths.pid_file);
     paths::remove_quiet(&paths.socket);
 
@@ -965,6 +991,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
                 .map(|e| e.to_string_lossy().to_string())
                 .unwrap_or_default();
             paths::remove_quiet(path);
+            paths::remove_quiet(&path.with_extension("zoom.json"));
             paths::remove_quiet(&paths.preview_path(path));
             paths::remove_quiet(&paths::legacy_preview_path(path));
             paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
@@ -1061,6 +1088,8 @@ mod tests {
             container: "mp4".into(),
             output_dir: "/tmp".into(),
             filename_prefix: "reel-".into(),
+            manual_zoom: false,
+            zoom_max: 2.5,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);

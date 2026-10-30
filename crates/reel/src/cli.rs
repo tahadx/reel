@@ -65,6 +65,41 @@ pub enum Command {
     Output,
     /// Check the tools Reel needs.
     Doctor,
+    /// Zoom in on the pointer during recording.
+    #[command(name = "zoom-in")]
+    ZoomIn {
+        #[arg(short, long)]
+        step: Option<f64>,
+        #[arg(value_name = "STEP")]
+        pos_step: Option<f64>,
+    },
+    /// Zoom out during recording.
+    #[command(name = "zoom-out")]
+    ZoomOut {
+        #[arg(short, long)]
+        step: Option<f64>,
+        #[arg(value_name = "STEP")]
+        pos_step: Option<f64>,
+    },
+    /// Reset zoom to 1.0x (full frame) during recording.
+    #[command(name = "zoom-reset")]
+    ZoomReset,
+    /// Toggle zoom between 1.0x and magnification level during recording.
+    #[command(name = "zoom-toggle")]
+    ZoomToggle {
+        #[arg(short, long)]
+        factor: Option<f64>,
+        #[arg(value_name = "FACTOR")]
+        pos_factor: Option<f64>,
+    },
+    /// Check current manual zoom level during recording.
+    #[command(name = "zoom-status")]
+    ZoomStatus {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Manual zoom controls.
+    Zoom(ZoomActionArgs),
     /// Internal child process that owns the save pass.
     #[command(name = "__finalize", hide = true)]
     Finalize(FinalizeArgs),
@@ -102,6 +137,10 @@ pub struct StartArgs {
     /// Prefix for the saved filename. Empty uses `reel-<date>`.
     #[arg(long = "filename-prefix")]
     pub filename_prefix: Option<String>,
+    #[arg(long = "manual-zoom")]
+    pub manual_zoom: Option<String>,
+    #[arg(long = "zoom-max")]
+    pub zoom_max: Option<f64>,
 }
 
 #[derive(Args, Debug)]
@@ -143,4 +182,42 @@ pub struct FinalizeArgs {
     pub target_kind: String,
     #[arg(long = "target-label", default_value = "")]
     pub target_label: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ZoomActionArgs {
+    #[command(subcommand)]
+    pub action: Option<ZoomSubcommand>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ZoomSubcommand {
+    /// Zoom in on pointer during recording.
+    In {
+        #[arg(short, long)]
+        step: Option<f64>,
+        #[arg(value_name = "STEP")]
+        pos_step: Option<f64>,
+    },
+    /// Zoom out during recording.
+    Out {
+        #[arg(short, long)]
+        step: Option<f64>,
+        #[arg(value_name = "STEP")]
+        pos_step: Option<f64>,
+    },
+    /// Reset zoom to 1.0x (full frame) during recording.
+    Reset,
+    /// Toggle zoom between 1.0x and target magnification.
+    Toggle {
+        #[arg(short, long)]
+        factor: Option<f64>,
+        #[arg(value_name = "FACTOR")]
+        pos_factor: Option<f64>,
+    },
+    /// Query current zoom level during recording.
+    Status {
+        #[arg(long)]
+        json: bool,
+    },
 }

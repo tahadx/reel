@@ -1,0 +1,214 @@
+use std::time::Duration;
+use crate::paths::Paths;
+use crate::util;
+
+/// Reads current live compositor zoom factor from Hyprland.
+pub fn compositor_zoom() -> f64 {
+    let out = util::run_stdout_within(
+        "hyprctl",
+        &["getoption", "cursor:zoom_factor"],
+        Duration::from_millis(400),
+    ).unwrap_or_default();
+
+    for line in out.lines() {
+        if let Some(rest) = line.strip_prefix("float:") {
+            if let Ok(val) = rest.trim().parse::<f64>() {
+                if val.is_finite() && val >= 1.0 {
+                    return val;
+                }
+            }
+        }
+    }
+    1.0
+}
+
+/// Sets live compositor zoom factor in Hyprland.
+/// Always ensures camera is detached and non-rigid so single-finger cursor movement
+/// can freely highlight text without the camera sliding.
+pub fn set_compositor_zoom(zoom: f64) -> bool {
+    let z = zoom.clamp(1.0, 4.0);
+    let lua = format!("hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = true, zoom_rigid = false }} }})");
+    util::run_ok("hyprctl", &["eval", &lua])
+}
+
+/// Activate manual zoom for recording: enables live tracking and registers touchpad pinch gestures.
+pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
+    let marker = paths.runtime.join("zoom_gestures");
+    let max_z = max_zoom.clamp(1.5, 4.0);
+    let lua = format!(r#"
+        _G.reel_zoom_handler = function()
+            local start_z = 1.0
+            local last_z = 1.0
+            local mode = 'undecided'
+            local accum_dx = 0
+            local accum_dy = 0
+
+            return {{
+                start = function(ev)
+                    start_z = hl.get_config('cursor:zoom_factor') or 1.0
+                    last_z = start_z
+                    mode = 'undecided'
+                    accum_dx = 0
+                    accum_dy = 0
+                end,
+                update = function(ev)
+                    if not ev then return end
+
+                    local dx = (ev.delta and ev.delta.x) or 0
+                    local dy = (ev.delta and ev.delta.y) or 0
+                    local scale = ev.scale or 1.0
+                    local scale_diff = math.abs(scale - 1.0)
+
+                    accum_dx = accum_dx + dx
+                    accum_dy = accum_dy + dy
+                    local pan_dist = math.sqrt(accum_dx * accum_dx + accum_dy * accum_dy)
+
+                    -- Intent arbitration: lock into zoom vs pan with deadzone & hysteresis
+                    if mode == 'undecided' then
+                        if start_z <= 1.05 then
+                            -- Fullscreen (1.0x): only pinch-to-zoom is meaningful
+                            if scale_diff >= 0.025 then
+                                mode = 'zoom'
+                            end
+                        else
+                            -- Already zoomed in: disambiguate cleanly between pinch and pan
+                            if scale_diff >= 0.035 and scale_diff > (pan_dist / 300.0) then
+                                mode = 'zoom'
+                            elseif pan_dist >= 12.0 and (pan_dist / 300.0) >= scale_diff then
+                                mode = 'pan'
+                                hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})
+                            end
+                        end
+                    end
+
+                    if mode == 'zoom' then
+                        -- Zoom mode: smooth scaling; zero out cursor translation so anchor is rock solid
+                        if scale > 0 then
+                            local z = math.max(1.0, math.min({max_z:.2}, start_z * scale))
+                            if math.abs(z - last_z) >= 0.005 then
+                                last_z = z
+                                hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                            end
+                        end
+                    elseif mode == 'pan' then
+                        -- Pan mode: translate viewport via cursor move; keep zoom factor locked
+                        if dx ~= 0 or dy ~= 0 then
+                            local p = hl.get_cursor_pos()
+                            if p and p.x and p.y then
+                                hl.dispatch(hl.dsp.cursor.move({{
+                                    x = p.x + dx,
+                                    y = p.y + dy
+                                }}))
+                            end
+                        end
+                    end
+                end,
+                finish = function(ev)
+                    local current = hl.get_config('cursor:zoom_factor') or 1.0
+                    local z = current <= 1.01 and 1.0 or current
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                    mode = 'undecided'
+                end,
+                ['end'] = function(ev)
+                    local current = hl.get_config('cursor:zoom_factor') or 1.0
+                    local z = current <= 1.01 and 1.0 or current
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                    mode = 'undecided'
+                end
+            }}
+        end
+
+        hl.gesture({{ fingers = 2, direction = 'pinch', action = _G.reel_zoom_handler() }})
+        hl.gesture({{ fingers = 3, direction = 'pinch', action = _G.reel_zoom_handler() }})
+        hl.config({{ cursor = {{ zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false }} }})
+    "#);
+    if util::run_ok("hyprctl", &["eval", &lua]) {
+        let _ = std::fs::write(&marker, b"1");
+    }
+}
+
+/// Deactivate manual zoom: unsets touchpad pinch gestures and restores default cursor options.
+pub fn disable_recording_zoom(paths: &Paths) {
+    let marker = paths.runtime.join("zoom_gestures");
+    if marker.exists() {
+        let lua = r#"
+            hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })
+            hl.gesture({ fingers = 3, direction = 'pinch', action = 'unset' })
+            _G.reel_zoom_handler = nil
+            hl.config({ cursor = { zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false } })
+        "#;
+        util::run_ok("hyprctl", &["eval", lua]);
+        let _ = std::fs::remove_file(&marker);
+    } else {
+        let lua = "hl.config({ cursor = { zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false } })";
+        util::run_ok("hyprctl", &["eval", lua]);
+    }
+}
+
+/// Smoothly animates compositor zoom factor to target value.
+pub fn animate_compositor_zoom(target: f64, immediate: bool) -> f64 {
+    let target = target.clamp(1.0, 4.0);
+    let current = compositor_zoom();
+
+    if (current - target).abs() < 0.01 {
+        set_compositor_zoom(target);
+        return target;
+    }
+
+    if immediate {
+        set_compositor_zoom(target);
+        return target;
+    }
+
+    // 6-step smooth ease-out micro-animation (~84ms total)
+    let steps = 6;
+    for i in 1..steps {
+        let f = i as f64 / steps as f64;
+        let t = 3.0 * f * f - 2.0 * f * f * f; // smoothstep
+        let z = current + (target - current) * t;
+        set_compositor_zoom(z);
+        std::thread::sleep(Duration::from_millis(14));
+    }
+    set_compositor_zoom(target);
+    target
+}
+
+/// Reset compositor zoom back to 1.0x (full frame) and restore default cursor options.
+pub fn reset_compositor_zoom() -> bool {
+    let current = compositor_zoom();
+    if (current - 1.0).abs() > 0.01 {
+        animate_compositor_zoom(1.0, false);
+    } else {
+        set_compositor_zoom(1.0);
+    }
+    true
+}
+
+// ---------- unit tests --------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parse_float_zoom() {
+        let text = "float: 1.500000\nset: true\n";
+        let mut parsed = 1.0;
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("float:") {
+                if let Ok(val) = rest.trim().parse::<f64>() {
+                    parsed = val;
+                }
+            }
+        }
+        assert_eq!(parsed, 1.5);
+    }
+
+    #[test]
+    fn zoom_clamp_bounds() {
+        let low = 0.5f64.clamp(1.0, 4.0);
+        assert_eq!(low, 1.0);
+        let high = 5.5f64.clamp(1.0, 4.0);
+        assert_eq!(high, 4.0);
+        let normal = 2.2f64.clamp(1.0, 4.0);
+        assert_eq!(normal, 2.2);
+    }
+}

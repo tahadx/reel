@@ -65,6 +65,8 @@ Panel {
     "container": "mp4",
     "notifications": "off",
     "openWithOmacut": "on",
+    "manualZoom": "off",
+    "zoomMax": "2.5",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -76,6 +78,7 @@ Panel {
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
+    { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
   readonly property var advancedSettingRows: [
@@ -84,6 +87,7 @@ Panel {
     { key: "codec", label: "Video codec", glyph: "󰈙" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
     { key: "container", label: "Container", glyph: "󰉋" },
+    { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
     { key: "notifications", label: "Saved notification", glyph: "󰂚" },
     { key: "openWithOmacut", label: "Open takes in Omacut", glyph: "󰐊" }
   ]
@@ -208,6 +212,8 @@ Panel {
     case "container": return ["mp4", "mkv"]
     case "notifications": return ["on", "off"]
     case "openWithOmacut": return ["on", "off"]
+    case "manualZoom": return ["off", "on"]
+    case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -235,7 +241,7 @@ Panel {
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-        || key === "notifications" || key === "openWithOmacut")
+        || key === "notifications" || key === "openWithOmacut" || key === "manualZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -250,7 +256,10 @@ Panel {
     case "cursor":
     case "notifications":
     case "openWithOmacut":
+    case "manualZoom":
       return value === "on" ? "On" : "Off"
+    case "zoomMax":
+      return value + "x"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "slowmo":

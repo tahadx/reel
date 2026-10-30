@@ -104,13 +104,27 @@ else
 o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")
 o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '{}'")
 o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")
+
+-- Zoom controls (Apple-style: non-conflicting Ctrl+Alt, mouse wheel, & touchpad gestures)
+o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")
+o.bind("CTRL + ALT + minus", "Reel zoom out", "reel zoom-out")
+o.bind("CTRL + ALT + 0", "Reel zoom reset", "reel zoom-reset")
+o.bind("CTRL + ALT + 8", "Reel zoom toggle", "reel zoom-toggle")
+o.bind("CTRL + ALT + mouse_up", "Reel zoom in", "reel zoom-in --step 0.15")
+o.bind("CTRL + ALT + mouse_down", "Reel zoom out", "reel zoom-out --step 0.15")
+
+-- Keycodes for zoom shortcuts (works across any active keyboard layout)
+o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")
+o.bind("CTRL + ALT + code:20", "Reel zoom out", "reel zoom-out")
+o.bind("CTRL + ALT + code:19", "Reel zoom reset", "reel zoom-reset")
+o.bind("CTRL + ALT + code:17", "Reel zoom toggle", "reel zoom-toggle")
 -- Reel: end.
 LUA
   )
   if [[ -f "$BINDINGS" ]] \
     && grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
-    && grep -qxF -- 'o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '\''{}'\''")' "$BINDINGS" \
-    && grep -qxF -- 'o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")' "$BINDINGS"; then
+    && grep -qxF -- 'o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS"; then
     echo "  Reel shortcuts are already present."
   elif ask "Add or update the optional Reel shortcuts?"; then
     mkdir -p -- "$(dirname -- "$BINDINGS")"
@@ -123,7 +137,7 @@ LUA
     if have hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
       hyprctl reload >/dev/null 2>&1 || true
     fi
-    echo "  added. Super+R records, Super+Shift+R opens the panel, Super+Alt+O pauses."
+    echo "  added. Super+R records, Super+Shift+R opens panel, Ctrl+Alt+=/- and Ctrl+Alt+Scroll zooms during takes."
   else
     echo "  not added. These are optional; if you want them, add this to"
     echo "  $BINDINGS and run \`hyprctl reload\`:"
