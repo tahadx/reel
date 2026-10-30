@@ -429,7 +429,10 @@ pub fn zoom_toggle(paths: &Paths, factor: f64) -> Result<()> {
 pub fn zoom_status(_paths: &Paths, as_json: bool) -> Result<()> {
     let current = crate::zoom::compositor_zoom();
     if as_json {
-        println!("{}", serde_json::json!({ "zoom": current, "active": current > 1.01 }));
+        println!(
+            "{}",
+            serde_json::json!({ "zoom": current, "active": current > 1.01 })
+        );
     } else {
         println!("Reel zoom: {:.2}x", current);
     }

@@ -175,11 +175,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     ));
     let zoom_max = options
         .zoom_max
-        .or_else(|| {
-            stored
-                .get("zoomMax")
-                .and_then(Value::as_f64)
-        })
+        .or_else(|| stored.get("zoomMax").and_then(Value::as_f64))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
 
@@ -936,7 +932,12 @@ pub fn resume(paths: &Paths) -> Result<()> {
     let manual_zoom = next
         .get("settings")
         .and_then(|s| s.get("manualZoom"))
-        .map(|v| v.as_bool().unwrap_or(false) || v.as_str() == Some("on") || v.as_str() == Some("true") || v.as_str() == Some("1"))
+        .map(|v| {
+            v.as_bool().unwrap_or(false)
+                || v.as_str() == Some("on")
+                || v.as_str() == Some("true")
+                || v.as_str() == Some("1")
+        })
         .unwrap_or(false);
     if manual_zoom {
         let zoom_max = next

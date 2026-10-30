@@ -1,6 +1,6 @@
-use std::time::Duration;
 use crate::paths::Paths;
 use crate::util;
+use std::time::Duration;
 
 /// Reads current live compositor zoom factor from Hyprland.
 pub fn compositor_zoom() -> f64 {
@@ -8,7 +8,8 @@ pub fn compositor_zoom() -> f64 {
         "hyprctl",
         &["getoption", "cursor:zoom_factor"],
         Duration::from_millis(400),
-    ).unwrap_or_default();
+    )
+    .unwrap_or_default();
 
     for line in out.lines() {
         if let Some(rest) = line.strip_prefix("float:") {
@@ -37,9 +38,16 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
     let max_z = max_zoom.clamp(1.5, 4.0);
 
     // Unset any dangling gesture first to guarantee clean registration
-    let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })"]);
+    let _ = util::run_ok(
+        "hyprctl",
+        &[
+            "eval",
+            "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })",
+        ],
+    );
 
-    let lua = format!(r#"
+    let lua = format!(
+        r#"
         _G.reel_zoom_handler = function()
             local start_z = 1.0
             local last_z = 1.0
@@ -115,7 +123,8 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
 
         hl.gesture({{ fingers = 2, direction = 'pinch', action = _G.reel_zoom_handler() }})
         hl.config({{ cursor = {{ zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false }} }})
-    "#);
+    "#
+    );
     if util::run_ok("hyprctl", &["eval", &lua]) {
         let _ = std::fs::write(&marker, b"1");
     }
@@ -125,7 +134,13 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
 pub fn disable_recording_zoom(paths: &Paths) {
     let marker = paths.runtime.join("zoom_gestures");
     if marker.exists() {
-        let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })"]);
+        let _ = util::run_ok(
+            "hyprctl",
+            &[
+                "eval",
+                "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })",
+            ],
+        );
         let _ = util::run_ok("hyprctl", &["eval", "_G.reel_zoom_handler = nil"]);
         let _ = std::fs::remove_file(&marker);
     }
