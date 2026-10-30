@@ -894,6 +894,7 @@ pub fn pause(paths: &Paths) -> Result<()> {
     state::set(&mut next, "paused", json!(true));
     state::set(&mut next, "pausedAt", json!(now));
     state::write(paths, &next)?;
+    crate::zoom::disable_recording_zoom(paths);
     Ok(())
 }
 
@@ -931,6 +932,21 @@ pub fn resume(paths: &Paths) -> Result<()> {
         json!(paused_total + now - paused_at),
     );
     state::write(paths, &next)?;
+
+    let manual_zoom = next
+        .get("settings")
+        .and_then(|s| s.get("manualZoom"))
+        .map(|v| v.as_bool().unwrap_or(false) || v.as_str() == Some("on") || v.as_str() == Some("true") || v.as_str() == Some("1"))
+        .unwrap_or(false);
+    if manual_zoom {
+        let zoom_max = next
+            .get("settings")
+            .and_then(|s| s.get("zoomMax"))
+            .and_then(|v| v.as_f64())
+            .unwrap_or(2.0);
+        crate::zoom::enable_recording_zoom(paths, zoom_max);
+    }
+
     Ok(())
 }
 
@@ -959,9 +975,11 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         if status == "starting" {
             let _ = paths::write_atomic(&paths.cancel, "");
             let _ = util::run_ok("pkill", &["-x", "slurp"]);
+            crate::zoom::disable_recording_zoom(paths);
             return Ok(());
         }
         if status != "recording" && status != "paused" {
+            crate::zoom::disable_recording_zoom(paths);
             anyhow::bail!("Reel is not recording.");
         }
         if !file.is_empty() && Path::new(&file).is_file() && !discard {
@@ -971,6 +989,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     }
 
     paths::kill(pid, libc::SIGINT);
+    crate::zoom::disable_recording_zoom(paths);
     if !wait_for_exit(pid, Duration::from_secs(8)) {
         paths::log(paths, "stop: encoder ignored SIGINT, escalating to SIGKILL");
         paths::kill(pid, libc::SIGKILL);
@@ -978,7 +997,6 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
 
     restore_cursor_mode(paths);
     webcam::cleanup(paths);
-    crate::zoom::disable_recording_zoom(paths);
     paths::remove_quiet(&paths.pid_file);
     paths::remove_quiet(&paths.socket);
 
@@ -1095,6 +1113,8 @@ mod tests {
         assert_eq!(value["fps"], 60);
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
+        assert_eq!(value["manualZoom"], false);
+        assert_eq!(value["zoomMax"], 2.0);
     }
 
     #[test]

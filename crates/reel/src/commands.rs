@@ -358,8 +358,12 @@ pub fn is_manual_zoom_active(paths: &Paths) -> bool {
     let Some(st) = state::read(paths) else {
         return false;
     };
-    let status = state::field_str(&st, "status").unwrap_or_default();
-    if status != "recording" && status != "paused" {
+    is_manual_zoom_active_in_state(&st)
+}
+
+pub fn is_manual_zoom_active_in_state(st: &serde_json::Value) -> bool {
+    let status = state::field_str(st, "status").unwrap_or_default();
+    if status != "recording" {
         return false;
     }
     if let Some(settings) = st.get("settings") {
@@ -430,4 +434,47 @@ pub fn zoom_status(_paths: &Paths, as_json: bool) -> Result<()> {
         println!("Reel zoom: {:.2}x", current);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manual_zoom_active_only_when_recording() {
+        // Idle state -> inactive
+        let idle_state = serde_json::json!({
+            "status": "idle",
+            "settings": { "manualZoom": true }
+        });
+        assert!(!is_manual_zoom_active_in_state(&idle_state));
+
+        // Paused state -> inactive (zoom resets on pause)
+        let paused_state = serde_json::json!({
+            "status": "paused",
+            "settings": { "manualZoom": true }
+        });
+        assert!(!is_manual_zoom_active_in_state(&paused_state));
+
+        // Recording with manualZoom = false -> inactive
+        let rec_off_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": false }
+        });
+        assert!(!is_manual_zoom_active_in_state(&rec_off_state));
+
+        // Recording with manualZoom = true -> active
+        let rec_on_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": true }
+        });
+        assert!(is_manual_zoom_active_in_state(&rec_on_state));
+
+        // Recording with manualZoom = "on" -> active
+        let rec_str_state = serde_json::json!({
+            "status": "recording",
+            "settings": { "manualZoom": "on" }
+        });
+        assert!(is_manual_zoom_active_in_state(&rec_str_state));
+    }
 }

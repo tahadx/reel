@@ -131,18 +131,12 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
 pub fn disable_recording_zoom(paths: &Paths) {
     let marker = paths.runtime.join("zoom_gestures");
     if marker.exists() {
-        let lua = r#"
-            hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })
-            hl.gesture({ fingers = 3, direction = 'pinch', action = 'unset' })
-            _G.reel_zoom_handler = nil
-            hl.config({ cursor = { zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false } })
-        "#;
-        util::run_ok("hyprctl", &["eval", lua]);
+        let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })"]);
+        let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 3, direction = 'pinch', action = 'unset' })"]);
+        let _ = util::run_ok("hyprctl", &["eval", "_G.reel_zoom_handler = nil"]);
         let _ = std::fs::remove_file(&marker);
-    } else {
-        let lua = "hl.config({ cursor = { zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false } })";
-        util::run_ok("hyprctl", &["eval", lua]);
     }
+    reset_compositor_zoom();
 }
 
 /// Smoothly animates compositor zoom factor to target value.
