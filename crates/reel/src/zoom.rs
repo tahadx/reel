@@ -35,11 +35,15 @@ pub fn set_compositor_zoom(zoom: f64) -> bool {
 pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
     let marker = paths.runtime.join("zoom_gestures");
     let max_z = max_zoom.clamp(1.5, 4.0);
+
+    // Unset any dangling gesture first to guarantee clean registration
+    let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })"]);
+
     let lua = format!(r#"
         _G.reel_zoom_handler = function()
             local start_z = 1.0
             local last_z = 1.0
-            local mode = 'undecided'
+            local mode = 'zoom'
             local accum_dx = 0
             local accum_dy = 0
 
@@ -47,7 +51,7 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                 start = function(ev)
                     start_z = hl.get_config('cursor:zoom_factor') or 1.0
                     last_z = start_z
-                    mode = 'undecided'
+                    mode = (start_z <= 1.02) and 'zoom' or 'undecided'
                     accum_dx = 0
                     accum_dy = 0
                 end,
@@ -63,35 +67,26 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                     accum_dy = accum_dy + dy
                     local pan_dist = math.sqrt(accum_dx * accum_dx + accum_dy * accum_dy)
 
-                    -- Intent arbitration: lock into zoom vs pan with deadzone & hysteresis
+                    -- Intent arbitration: at 1.0x, zoom responds immediately with zero deadzone.
+                    -- When already zoomed in, disambiguate smoothly between zoom and viewport pan.
                     if mode == 'undecided' then
-                        if start_z <= 1.05 then
-                            -- Fullscreen (1.0x): only pinch-to-zoom is meaningful
-                            if scale_diff >= 0.025 then
-                                mode = 'zoom'
-                            end
-                        else
-                            -- Already zoomed in: disambiguate cleanly between pinch and pan
-                            if scale_diff >= 0.035 and scale_diff > (pan_dist / 300.0) then
-                                mode = 'zoom'
-                            elseif pan_dist >= 12.0 and (pan_dist / 300.0) >= scale_diff then
-                                mode = 'pan'
-                                hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})
-                            end
+                        if scale_diff >= 0.008 then
+                            mode = 'zoom'
+                        elseif pan_dist >= 8.0 and pan_dist > (scale_diff * 400.0) then
+                            mode = 'pan'
+                            hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})
                         end
                     end
 
                     if mode == 'zoom' then
-                        -- Zoom mode: smooth scaling; zero out cursor translation so anchor is rock solid
                         if scale > 0 then
                             local z = math.max(1.0, math.min({max_z:.2}, start_z * scale))
-                            if math.abs(z - last_z) >= 0.005 then
+                            if math.abs(z - last_z) >= 0.002 then
                                 last_z = z
                                 hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
                             end
                         end
                     elseif mode == 'pan' then
-                        -- Pan mode: translate viewport via cursor move; keep zoom factor locked
                         if dx ~= 0 or dy ~= 0 then
                             local p = hl.get_cursor_pos()
                             if p and p.x and p.y then
@@ -119,7 +114,6 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
         end
 
         hl.gesture({{ fingers = 2, direction = 'pinch', action = _G.reel_zoom_handler() }})
-        hl.gesture({{ fingers = 3, direction = 'pinch', action = _G.reel_zoom_handler() }})
         hl.config({{ cursor = {{ zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false }} }})
     "#);
     if util::run_ok("hyprctl", &["eval", &lua]) {
@@ -132,7 +126,6 @@ pub fn disable_recording_zoom(paths: &Paths) {
     let marker = paths.runtime.join("zoom_gestures");
     if marker.exists() {
         let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 2, direction = 'pinch', action = 'unset' })"]);
-        let _ = util::run_ok("hyprctl", &["eval", "hl.gesture({ fingers = 3, direction = 'pinch', action = 'unset' })"]);
         let _ = util::run_ok("hyprctl", &["eval", "_G.reel_zoom_handler = nil"]);
         let _ = std::fs::remove_file(&marker);
     }
