@@ -171,7 +171,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         &options.manual_zoom,
         &stored,
         "manualZoom",
-        "off",
+        "on",
     ));
     let zoom_max = options
         .zoom_max
@@ -1106,14 +1106,14 @@ mod tests {
             container: "mp4".into(),
             output_dir: "/tmp".into(),
             filename_prefix: "reel-".into(),
-            manual_zoom: false,
+            manual_zoom: true,
             zoom_max: 2.0,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
-        assert_eq!(value["manualZoom"], false);
+        assert_eq!(value["manualZoom"], true);
         assert_eq!(value["zoomMax"], 2.0);
     }
 

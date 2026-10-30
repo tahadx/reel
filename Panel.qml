@@ -65,7 +65,7 @@ Panel {
     "container": "mp4",
     "notifications": "off",
     "openWithOmacut": "on",
-    "manualZoom": "off",
+    "manualZoom": "on",
     "zoomMax": "2.0",
     "outputDir": "",
     "webcamDevice": ""

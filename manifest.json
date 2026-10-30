@@ -37,7 +37,7 @@
       "webcamDevice": "",
       "notifications": "off",
       "openWithOmacut": "on",
-      "manualZoom": "off",
+      "manualZoom": "on",
       "zoomMax": 2.0
     },
     "schema": [
@@ -221,7 +221,7 @@
           "on",
           "off"
         ],
-        "defaultValue": "off",
+        "defaultValue": "on",
         "description": "Allows live magnifier zoom with keyboard shortcuts (Ctrl+Alt + =/-), mouse wheel (Ctrl+Alt + Scroll), or touchpad pinch gestures."
       },
       {

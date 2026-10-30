@@ -24,7 +24,7 @@ pub fn defaults() -> Value {
         "webcamDevice": "",
         "notifications": false,
         "openWithOmacut": true,
-        "manualZoom": "off",
+        "manualZoom": "on",
         "zoomMax": 2.0
     })
 }
