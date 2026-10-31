@@ -66,15 +66,15 @@ PLUGIN_DIR="$XDG_CONFIG_HOME/omarchy/plugins/io.github.tahadx.reel"
 BINDINGS="$XDG_CONFIG_HOME/hypr/bindings.lua"
 USER_BIND='o.bind("SUPER + Return", "Terminal", "foot")'
 
-# The copy-paste block in docs/BINDINGS.md must be exactly what install.sh
+# The copy-paste block in docs/bindings.md must be exactly what install.sh
 # writes, or the documentation silently hands out a stale shortcut set.
 sed -n "/^[[:space:]]*cat <<'LUA'$/,/^LUA$/p" "$REPO/install.sh" | sed '1d;$d' \
   >"$TEST_ROOT/install-binds.lua"
 # shellcheck disable=SC2016  # the backticks are Markdown fences, not commands
-sed -n '/^```lua$/,/^```$/p' "$REPO/docs/BINDINGS.md" | sed '1d;$d' \
+sed -n '/^```lua$/,/^```$/p' "$REPO/docs/bindings.md" | sed '1d;$d' \
   >"$TEST_ROOT/docs-binds.lua"
 diff -u "$TEST_ROOT/install-binds.lua" "$TEST_ROOT/docs-binds.lua" \
-  || fail "docs/BINDINGS.md drifted from install.sh"
+  || fail "docs/bindings.md drifted from install.sh"
 
 # No trailing newline: the installer must not glue its block onto this line.
 printf '%s' "$USER_BIND" >"$BINDINGS"

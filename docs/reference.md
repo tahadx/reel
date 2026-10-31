@@ -126,7 +126,7 @@ keycodes, so they keep working after switching keyboard layouts.
 | `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
-The full block, ready to copy, is in [Hyprland bindings](BINDINGS.md).
+The full block, ready to copy, is in [Hyprland bindings](bindings.md).
 
 Re-running the installer replaces the marked block, so an install from before
 the zoom commands gains them at the next run. It does not touch the rest of the
@@ -185,7 +185,7 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   or add `~/.local/bin` to your `PATH`.
 - **The bar says the native engine is missing** — the plugin is built for
   linux-x86_64. Reinstall it, or build the engine for your machine and place it
-  at the plugin's `bin/dist/reel-native`. See [Development](DEVELOPMENT.md).
+  at the plugin's `bin/dist/reel-native`. See [Development](development.md).
 - **The panel does not appear after an update** — restart the shell:
   `omarchy-restart-shell`.
 - **The picker does not open** — `omarchy-capture-region` or `slurp` is

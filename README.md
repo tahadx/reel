@@ -35,7 +35,7 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - LocalSend for sharing takes through `omarchy share`.
 - Optional: `omacut` for opening takes in its trimmer.
 - Linux x86_64 for the prebuilt engine. Other architectures must build from
-  source; see [Development](docs/DEVELOPMENT.md).
+  source; see [Development](docs/development.md).
 
 ```sh
 sudo pacman -S --needed gpu-screen-recorder ffmpeg grim slurp mpv wl-clipboard
@@ -90,7 +90,7 @@ the installer prompt or run it with `--yes`.
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
 The full block, ready to copy, is in
-[docs/BINDINGS.md](docs/BINDINGS.md).
+[docs/bindings.md](docs/bindings.md).
 
 Touchpad pinch zoom needs no shortcut: Reel registers it at the start of each
 take. The zoom binds only act while a take is recording.
@@ -102,7 +102,7 @@ keep working after switching keyboard layouts. Delete the block to remove them.
 If `~/.local/bin` is not on your `PATH`, add it.
 
 CLI options, files, uninstall, and troubleshooting are in
-[docs/REFERENCE.md](docs/REFERENCE.md).
+[docs/reference.md](docs/reference.md).
 
 ## Usage and keyboard shortcuts
 
@@ -183,7 +183,7 @@ bin/test-qml
 ```
 
 The plugin ships `bin/dist/reel-native`, so users do not need a Rust toolchain.
-[Release builds and architecture notes](docs/DEVELOPMENT.md) cover
+[Release builds and architecture notes](docs/development.md) cover
 `bin/refresh-dist` and the release process.
 
 ## License
