@@ -35,6 +35,16 @@ o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")
 o.bind("CTRL + ALT + code:20", "Reel zoom out", "reel zoom-out")
 o.bind("CTRL + ALT + code:19", "Reel zoom reset", "reel zoom-reset")
 o.bind("CTRL + ALT + code:17", "Reel zoom toggle", "reel zoom-toggle")
+
+-- Pan the zoomed view; hold to keep moving, Shift to cover more ground
+o.bind_hold("CTRL + ALT + code:113", "Reel pan left", "reel zoom-pan left --hold", "Reel pan left release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:114", "Reel pan right", "reel zoom-pan right --hold", "Reel pan right release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:111", "Reel pan up", "reel zoom-pan up --hold", "Reel pan up release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:116", "Reel pan down", "reel zoom-pan down --hold", "Reel pan down release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:113", "Reel pan left fast", "reel zoom-pan left --hold --fast", "Reel pan left fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:114", "Reel pan right fast", "reel zoom-pan right --hold --fast", "Reel pan right fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:111", "Reel pan up fast", "reel zoom-pan up --hold --fast", "Reel pan up fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pan down --hold --fast", "Reel pan down fast release", "reel zoom-pan --stop")
 -- Reel: end.
 ```
 
@@ -49,6 +59,8 @@ o.bind("CTRL + ALT + code:17", "Reel zoom toggle", "reel zoom-toggle")
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+| `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
+| `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
 The block binds physical keycodes as well as keysyms, so the shortcuts keep
 working after switching keyboard layouts. The zoom binds only act while a take

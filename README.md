@@ -86,6 +86,8 @@ the installer prompt or run it with `--yes`.
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+| `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
+| `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
 The full block, ready to copy, is in
 [docs/BINDINGS.md](docs/BINDINGS.md).
@@ -149,6 +151,12 @@ take is recording; pausing or stopping resets the view to 1×.
 - `Ctrl + Alt + =` / `Ctrl + Alt + -` zoom in and out, `Ctrl + Alt + 0` resets,
   and `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` zooms in and out.
+- While zoomed, the camera follows the pointer: moving the mouse pans the view
+  and keeps the cursor near the middle of the crop. `Ctrl + Alt + ←/→/↑/↓`
+  nudges the view from the keyboard (hold to keep moving, `Shift` for a longer
+  step), and **Pan step** in Settings sets how far one nudge goes. Panning never
+  changes the zoom depth, and it stays inside the recorded window, area, or
+  monitor.
 
 **Zoom depth** in Settings caps the maximum magnification (1.5×–3×, 2× by
 default). The keyboard and scroll controls come from the optional shortcut

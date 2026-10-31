@@ -123,6 +123,8 @@ keycodes, so they keep working after switching keyboard layouts.
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+| `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
+| `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
 The full block, ready to copy, is in [Hyprland bindings](BINDINGS.md).
 
@@ -143,6 +145,25 @@ acts while a take is recording. Pausing or stopping resets the compositor to
 - `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
 - **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×; the engine
   clamps to 1×–4× regardless.
+
+### Panning
+
+While zoomed, the camera is attached to the pointer: moving the mouse pans the
+view and keeps the cursor near the centre of the crop. This is a tight,
+one-to-one pan with no smoothing, so it cannot feel floaty.
+
+- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves **Pan step**
+  pixels (30, 60, or 120; 60 by default), holding keeps panning at a steady
+  speed, and `Shift` covers three times as much. The view moves immediately and
+  the cursor stays over the point being panned toward.
+- Panning never changes the zoom factor, so the depth stays locked.
+- The pan target is clamped to the recorded window, area, or monitor, so the
+  view cannot walk off the capture. The compositor additionally clamps it to
+  the monitor.
+- Returning to 1×, pausing, or stopping restores the detached camera, which is
+  the normal desktop state.
+- A pinch that reads as a pan uses the same pointer movement, so gesture zoom
+  and manual pan do not fight each other.
 
 The keyboard and scroll bindings come from the optional shortcut block. Pinch
 does not. If the user already had a two-finger pinch gesture, Hyprland rejects a

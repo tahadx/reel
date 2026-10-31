@@ -23,12 +23,62 @@ pub fn compositor_zoom() -> f64 {
     1.0
 }
 
-/// Sets live compositor zoom factor in Hyprland.
-/// Always ensures camera is detached and non-rigid so single-finger cursor movement
-/// can freely highlight text without the camera sliding.
-pub fn set_compositor_zoom(zoom: f64) -> bool {
+/// The live zoom camera. While zoomed it is attached to the pointer and
+/// rigid, so moving the pointer pans the view and the pointer stays near the
+/// centre of the crop. At 1x the camera detaches again, which is the normal
+/// desktop state.
+fn camera_lua(zoom: f64) -> String {
     let z = zoom.clamp(1.0, 4.0);
-    let lua = format!("hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = true, zoom_rigid = false }} }})");
+    let zoomed = z > 1.01;
+    format!(
+        "hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = {}, zoom_rigid = {} }} }})",
+        if zoomed { "false" } else { "true" },
+        if zoomed { "true" } else { "false" },
+    )
+}
+
+/// Sets live compositor zoom factor in Hyprland.
+pub fn set_compositor_zoom(zoom: f64) -> bool {
+    util::run_ok("hyprctl", &["eval", &camera_lua(zoom)])
+}
+
+/// Pointer position in compositor coordinates.
+pub fn cursor_position() -> Option<(f64, f64)> {
+    let out = util::run_stdout_within("hyprctl", &["cursorpos"], Duration::from_millis(400))?;
+    let (x, y) = out.trim().split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+}
+
+/// Where a pan step lands, kept inside `bounds` (the recorded target) when it
+/// is known so the view cannot walk off the capture.
+pub fn pan_target(
+    x: f64,
+    y: f64,
+    dx: f64,
+    dy: f64,
+    bounds: Option<(f64, f64, f64, f64)>,
+) -> (f64, f64) {
+    let mut next_x = x + dx;
+    let mut next_y = y + dy;
+    if let Some((bx, by, bw, bh)) = bounds {
+        if bw > 0.0 && bh > 0.0 {
+            next_x = next_x.clamp(bx, bx + bw - 1.0);
+            next_y = next_y.clamp(by, by + bh - 1.0);
+        }
+    }
+    (next_x, next_y)
+}
+
+/// Pan the live view by moving the pointer while the camera is attached. The
+/// zoom factor is never touched, so a pan cannot change the depth by accident.
+pub fn pan_view(dx: f64, dy: f64, bounds: Option<(f64, f64, f64, f64)>) -> bool {
+    let Some((x, y)) = cursor_position() else {
+        return false;
+    };
+    let (next_x, next_y) = pan_target(x, y, dx, dy, bounds);
+    let lua = format!(
+        "hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})\nhl.dispatch(hl.dsp.cursor.move({{ x = {next_x:.1}, y = {next_y:.1} }}))"
+    );
     util::run_ok("hyprctl", &["eval", &lua])
 }
 
@@ -121,7 +171,7 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                             local z = math.max(1.0, math.min({max_z:.2}, start_z * scale))
                             if math.abs(z - last_z) >= 0.002 then
                                 last_z = z
-                                hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                                hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
                             end
                         end
                     elseif mode == 'pan' then
@@ -139,13 +189,13 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                 finish = function(ev)
                     local current = hl.get_config('cursor:zoom_factor') or 1.0
                     local z = current <= 1.01 and 1.0 or current
-                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
                     mode = 'undecided'
                 end,
                 ['end'] = function(ev)
                     local current = hl.get_config('cursor:zoom_factor') or 1.0
                     local z = current <= 1.01 and 1.0 or current
-                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = true, zoom_rigid = false }} }})
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
                     mode = 'undecided'
                 end
             }}
@@ -252,5 +302,33 @@ mod tests {
         assert!(super::marker_restores_prior("prior\n"));
         assert!(!super::marker_restores_prior("1"));
         assert!(!super::marker_restores_prior(""));
+    }
+
+    #[test]
+    fn the_camera_follows_the_pointer_only_while_zoomed() {
+        let zoomed = super::camera_lua(2.0);
+        assert!(zoomed.contains("zoom_detached_camera = false"));
+        assert!(zoomed.contains("zoom_rigid = true"));
+        let full = super::camera_lua(1.0);
+        assert!(full.contains("zoom_detached_camera = true"));
+        assert!(full.contains("zoom_rigid = false"));
+    }
+
+    #[test]
+    fn pan_steps_stay_inside_the_recording() {
+        let bounds = Some((0.0, 0.0, 200.0, 200.0));
+        assert_eq!(
+            super::pan_target(100.0, 100.0, -50.0, 0.0, bounds),
+            (50.0, 100.0)
+        );
+        assert_eq!(
+            super::pan_target(10.0, 10.0, -50.0, -50.0, bounds),
+            (0.0, 0.0)
+        );
+        assert_eq!(
+            super::pan_target(10.0, 10.0, 500.0, 500.0, bounds),
+            (199.0, 199.0)
+        );
+        assert_eq!(super::pan_target(10.0, 10.0, 5.0, 5.0, None), (15.0, 15.0));
     }
 }

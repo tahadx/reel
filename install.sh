@@ -118,13 +118,24 @@ o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")
 o.bind("CTRL + ALT + code:20", "Reel zoom out", "reel zoom-out")
 o.bind("CTRL + ALT + code:19", "Reel zoom reset", "reel zoom-reset")
 o.bind("CTRL + ALT + code:17", "Reel zoom toggle", "reel zoom-toggle")
+
+-- Pan the zoomed view; hold to keep moving, Shift to cover more ground
+o.bind_hold("CTRL + ALT + code:113", "Reel pan left", "reel zoom-pan left --hold", "Reel pan left release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:114", "Reel pan right", "reel zoom-pan right --hold", "Reel pan right release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:111", "Reel pan up", "reel zoom-pan up --hold", "Reel pan up release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + code:116", "Reel pan down", "reel zoom-pan down --hold", "Reel pan down release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:113", "Reel pan left fast", "reel zoom-pan left --hold --fast", "Reel pan left fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:114", "Reel pan right fast", "reel zoom-pan right --hold --fast", "Reel pan right fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:111", "Reel pan up fast", "reel zoom-pan up --hold --fast", "Reel pan up fast release", "reel zoom-pan --stop")
+o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pan down --hold --fast", "Reel pan down fast release", "reel zoom-pan --stop")
 -- Reel: end.
 LUA
   )
   if [[ -f "$BINDINGS" ]] \
     && grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
     && grep -qxF -- 'o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
-    && grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS"; then
+    && grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind_hold("CTRL + ALT + code:113", "Reel pan left", "reel zoom-pan left --hold", "Reel pan left release", "reel zoom-pan --stop")' "$BINDINGS"; then
     echo "  Reel shortcuts are already present."
   elif ask "Add or update the optional Reel shortcuts?"; then
     mkdir -p -- "$(dirname -- "$BINDINGS")"

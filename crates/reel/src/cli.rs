@@ -98,6 +98,23 @@ pub enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Pan the zoomed view during recording.
+    #[command(name = "zoom-pan")]
+    ZoomPan {
+        /// left, right, up, or down.
+        direction: Option<String>,
+        #[arg(short, long)]
+        step: Option<f64>,
+        /// Use the larger step, for covering ground quickly.
+        #[arg(long)]
+        fast: bool,
+        /// Keep panning until stopped (used by the hold binds).
+        #[arg(long)]
+        hold: bool,
+        /// Stop a held pan.
+        #[arg(long)]
+        stop: bool,
+    },
     /// Manual zoom controls.
     Zoom(ZoomActionArgs),
     /// Internal child process that owns the save pass.
@@ -219,5 +236,18 @@ pub enum ZoomSubcommand {
     Status {
         #[arg(long)]
         json: bool,
+    },
+    /// Pan the zoomed view during recording.
+    Pan {
+        /// left, right, up, or down.
+        direction: Option<String>,
+        #[arg(short, long)]
+        step: Option<f64>,
+        #[arg(long)]
+        fast: bool,
+        #[arg(long)]
+        hold: bool,
+        #[arg(long)]
+        stop: bool,
     },
 }

@@ -66,6 +66,7 @@ Panel {
     "openWithOmacut": "on",
     "manualZoom": "on",
     "zoomMax": "2.0",
+    "panStep": "60",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -87,6 +88,7 @@ Panel {
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
     { key: "container", label: "Container", glyph: "󰉋" },
     { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
+    { key: "panStep", label: "Pan step", glyph: "󰆞" },
     { key: "notifications", label: "Saved notification", glyph: "󰂚" },
     { key: "openWithOmacut", label: "Open takes in Omacut", glyph: "󰐊" }
   ]
@@ -213,6 +215,7 @@ Panel {
     case "openWithOmacut": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
     case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
+    case "panStep": return ["30", "60", "120"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -259,6 +262,8 @@ Panel {
       return value === "on" ? "On" : "Off"
     case "zoomMax":
       return value + "x"
+    case "panStep":
+      return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "slowmo":

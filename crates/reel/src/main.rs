@@ -56,6 +56,20 @@ fn run() -> anyhow::Result<u8> {
             commands::zoom_toggle(&paths, f)?;
         }
         Command::ZoomStatus { json } => commands::zoom_status(&paths, json)?,
+        Command::ZoomPan {
+            direction,
+            step,
+            fast,
+            hold,
+            stop,
+        } => commands::zoom_pan(
+            &paths,
+            direction.as_deref().unwrap_or_default(),
+            step.unwrap_or(0.0),
+            fast,
+            hold,
+            stop,
+        )?,
         Command::Zoom(args) => match args.action {
             Some(cli::ZoomSubcommand::In { step, pos_step }) => {
                 let s = step.or(pos_step).unwrap_or(0.25);
@@ -71,6 +85,20 @@ fn run() -> anyhow::Result<u8> {
                 commands::zoom_toggle(&paths, f)?;
             }
             Some(cli::ZoomSubcommand::Status { json }) => commands::zoom_status(&paths, json)?,
+            Some(cli::ZoomSubcommand::Pan {
+                direction,
+                step,
+                fast,
+                hold,
+                stop,
+            }) => commands::zoom_pan(
+                &paths,
+                direction.as_deref().unwrap_or_default(),
+                step.unwrap_or(0.0),
+                fast,
+                hold,
+                stop,
+            )?,
             None => commands::zoom_status(&paths, false)?,
         },
         Command::Finalize(args) => finalize::run_job(&paths, args)?,

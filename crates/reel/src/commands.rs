@@ -8,7 +8,7 @@ use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
     if as_json {
@@ -439,9 +439,108 @@ pub fn zoom_status(_paths: &Paths, as_json: bool) -> Result<()> {
     Ok(())
 }
 
+fn pan_delta(direction: &str, distance: f64) -> Option<(f64, f64)> {
+    match direction {
+        "left" => Some((-distance, 0.0)),
+        "right" => Some((distance, 0.0)),
+        "up" => Some((0.0, -distance)),
+        "down" => Some((0.0, distance)),
+        _ => None,
+    }
+}
+
+/// The recorded target, so a pan cannot walk the view past the capture.
+fn pan_bounds(paths: &Paths) -> Option<(f64, f64, f64, f64)> {
+    let state = state::read(paths)?;
+    let target = state::field_str(&state, "target")?;
+    let (x, y, width, height) = crate::target::geometry(&target)?;
+    Some((x as f64, y as f64, width as f64, height as f64))
+}
+
+/// Pan the zoomed view by one step, or keep panning until the key is released
+/// when `hold` is set. The zoom factor is never touched.
+pub fn zoom_pan(
+    paths: &Paths,
+    direction: &str,
+    step: f64,
+    fast: bool,
+    hold: bool,
+    stop: bool,
+) -> Result<()> {
+    let stop_marker = paths.runtime.join("zoom-pan.stop");
+    let holder = paths.runtime.join("zoom-pan.pid");
+
+    if stop {
+        let _ = paths::write_atomic(&stop_marker, "");
+        if let Some(pid) = paths::read_pid(&holder) {
+            let deadline = std::time::Instant::now() + Duration::from_millis(400);
+            while std::time::Instant::now() < deadline && paths::alive(pid) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        paths::remove_quiet(&stop_marker);
+        paths::remove_quiet(&holder);
+        return Ok(());
+    }
+
+    if !is_manual_zoom_active(paths) {
+        return Ok(());
+    }
+    if crate::zoom::compositor_zoom() <= 1.01 {
+        return Ok(());
+    }
+    let configured = config::cfg(paths, "panStep", "60")
+        .trim()
+        .parse::<f64>()
+        .unwrap_or(60.0);
+    let base = if step > 1.0 { step } else { configured };
+    let distance = if fast { base * 3.0 } else { base };
+    let Some((dx, dy)) = pan_delta(direction, distance) else {
+        anyhow::bail!("zoom-pan expects left, right, up, or down.");
+    };
+    let bounds = pan_bounds(paths);
+
+    if !hold {
+        if crate::zoom::pan_view(dx, dy, bounds) {
+            println!("Reel zoom: pan {direction}");
+        }
+        return Ok(());
+    }
+
+    // Hold: one process pans at ~30 Hz until the key comes up. A tap still
+    // gets a full step because the first move happens immediately.
+    let _ = paths::write_pid(&holder, std::process::id());
+    paths::remove_quiet(&stop_marker);
+    let (hold_x, hold_y) = pan_delta(direction, (distance / 3.0).max(6.0)).unwrap_or((dx, dy));
+    let mut first = true;
+    loop {
+        if stop_marker.exists() || state::status(paths) != "recording" {
+            break;
+        }
+        let (step_x, step_y) = if first { (dx, dy) } else { (hold_x, hold_y) };
+        if !crate::zoom::pan_view(step_x, step_y, bounds) {
+            break;
+        }
+        first = false;
+        std::thread::sleep(Duration::from_millis(33));
+    }
+    paths::remove_quiet(&holder);
+    paths::remove_quiet(&stop_marker);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pan_directions_map_to_steps() {
+        assert_eq!(pan_delta("left", 60.0), Some((-60.0, 0.0)));
+        assert_eq!(pan_delta("right", 60.0), Some((60.0, 0.0)));
+        assert_eq!(pan_delta("up", 60.0), Some((0.0, -60.0)));
+        assert_eq!(pan_delta("down", 60.0), Some((0.0, 60.0)));
+        assert_eq!(pan_delta("sideways", 60.0), None);
+    }
 
     #[test]
     fn manual_zoom_active_only_when_recording() {
