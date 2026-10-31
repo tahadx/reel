@@ -36,7 +36,6 @@ Panel {
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
   readonly property bool busy: Model.isBusy(root.state)
-  readonly property bool barTimer: root.status === "recording" || root.starting || root.finalizing
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
     : root.home + "/Videos/Reel"
@@ -372,14 +371,14 @@ Panel {
   }
 
   function previewTitle(plan) {
-    if (!plan) return "Preview unavailable"
-    if (plan.mode === "idle") return "Full monitor preview"
+    if (!plan) return "Preview"
+    if (plan.mode === "idle") return "Preview"
     var state = root.state || ({})
     if (root.previewTarget() !== "" && state.targetLabel) {
       var label = String(state.targetLabel)
       return plan.kind === "monitor" ? label.replace(/ · focused$/, "") : label
     }
-    return plan.title ? String(plan.title) : "Capture target"
+    return plan.title ? String(plan.title) : "Preview"
   }
 
   function audioSummary() {
@@ -396,20 +395,21 @@ Panel {
   }
 
   function barGlyph() {
-    // Idle and recording use the drawn icon or the timer alone. Only pause
-    // keeps a glyph, because the bar should say "paused" at a glance.
-    return root.paused ? "󰏤" : ""
+    // The bar answers "what is happening?" with a mark rather than a word:
+    // pause, save, target pick, or countdown. Recording speaks with the clock.
+    if (root.paused) return "󰏤"
+    if (root.finalizing) return "󰆓"
+    if (root.starting) {
+      var stage = String(root.state.stage || "select")
+      if (stage === "countdown") return "󰔟"
+      if (stage === "select") return "󰒉"
+    }
+    return ""
   }
 
   function barLabel() {
-    if (root.finalizing) return "saving"
-    if (root.starting) {
-      var stage = String(root.state.stage || "")
-      if (stage === "capture") return Model.clock(root.elapsed)
-      return stage === "countdown" ? "…" : "pick"
-    }
     if (root.paused) return ""
-    if (root.active) return Model.clock(root.elapsed)
+    if (root.active || root.capturing) return Model.clock(root.elapsed)
     return ""
   }
 
@@ -423,21 +423,15 @@ Panel {
   }
 
   function stateMeta() {
-    if (root.page === "settings") return "settings · s toggles · esc goes back · q closes"
+    if (root.page === "settings") return "s toggles · esc goes back · q closes"
     if (root.page === "history") {
-      if (root.visibleRecents.length === 0) return "no takes yet · open the recordings folder · esc goes back"
+      if (root.visibleRecents.length === 0) return "no takes yet · esc goes back"
       return root.visibleRecents.length + " takes · enter opens · a actions · esc goes back"
     }
-    if (root.finalizing) return "trimming the first frame · normalizing audio"
-    if (root.paused) return "paused at " + Model.clock(root.elapsed) + " · press p to resume"
-    if (root.starting) {
-      var stage = String(root.state.stage || "select")
-      if (stage === "capture") return Model.clock(root.elapsed) + " · recording"
-      if (stage === "countdown") return "starting in a moment"
-      return "click a window or monitor, or drag an area"
-    }
-    if (root.active) return Model.clock(root.elapsed) + " · recording"
-    return "ready · pick a window, area, or monitor · " + root.currentValue("fps") + " fps"
+    // Live states speak through the timer row and the bar mark; the header only
+    // keeps the setting that matters when nothing is running.
+    if (root.busy) return ""
+    return root.currentValue("fps") + " fps"
   }
 
   function primaryLabel() {
@@ -448,7 +442,7 @@ Panel {
   }
 
   function primaryGlyph() {
-    if (root.finalizing) return "󰔟"
+    if (root.finalizing) return "󰆓"
     if (root.starting) return "󰅖"
     if (root.active) return "󰓛"
     return "󰻂"
@@ -999,10 +993,8 @@ Panel {
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.barTimer
-      ? barLabelMetrics.advanceWidth(root.barLabel())
-        + (root.status === "recording" || root.capturing
-          ? Style.space(30) : Style.space(20))
+    fixedWidth: root.status === "recording" || root.capturing
+      ? barLabelMetrics.advanceWidth(root.barLabel()) + Style.space(30)
       : Style.bar.iconSlot
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
@@ -1057,20 +1049,22 @@ Panel {
       }
     }
 
-    Text {
-      visible: root.paused
-      anchors.centerIn: parent
-      textFormat: Text.PlainText
-      text: root.barGlyph()
-      color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.bar.iconFont
-    }
-
     Row {
-      visible: root.barTimer
+      visible: root.busy
       anchors.centerIn: parent
       spacing: Style.space(6)
+
+      // Pause, save, target pick, and countdown are marks, not words. The
+      // clock and the pulsing dot carry the recording state on their own.
+      Text {
+        visible: text !== ""
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: root.barGlyph()
+        color: root.paused || root.finalizing ? root.dim : root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.bar.iconFont
+      }
 
       // The capture warmup is a real take, so the recording dot appears as
       // soon as the clock starts rather than a second or two later.
@@ -1091,6 +1085,7 @@ Panel {
       }
 
       Text {
+        visible: text !== ""
         textFormat: Text.PlainText
         text: root.barLabel()
         color: root.status === "recording" || root.capturing
@@ -1300,10 +1295,11 @@ Panel {
 
               Text {
                 textFormat: Text.PlainText
-                text: root.active ? Model.clock(root.elapsed) : "saving"
-                color: root.paused ? root.dim : root.foreground
+                text: root.active ? Model.clock(root.elapsed) : "󰆓"
+                color: root.paused || root.finalizing ? root.dim : root.foreground
                 font.family: root.fontFamily
-                font.pixelSize: Math.round(Style.font.display * 1.55)
+                font.pixelSize: root.active ? Math.round(Style.font.display * 1.55)
+                  : Math.round(Style.font.display * 1.35)
                 font.bold: true
                 anchors.verticalCenter: parent.verticalCenter
               }
@@ -1314,7 +1310,7 @@ Panel {
 
                 Text {
                   textFormat: Text.PlainText
-                  text: root.paused ? "PAUSED" : (root.finalizing ? "SAVING TAKE" : "RECORDING")
+                  text: root.paused ? "PAUSED" : (root.finalizing ? "SAVING" : "RECORDING")
                   color: root.paused ? root.dim : root.urgent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -1565,7 +1561,6 @@ Panel {
                       }
                       if (plan.mode === "idle") {
                         if (plan.screenRect) parts.push(plan.screenRect.name)
-                        parts.push("choose a target when recording")
                         return parts.join(" · ")
                       }
                       if (!screenView.hasContent) parts.push("Starting preview…")
