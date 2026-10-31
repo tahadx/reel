@@ -375,17 +375,6 @@ Panel {
     return Model.idlePlan(screens, focused)
   }
 
-  function previewTitle(plan) {
-    if (!plan) return "Preview"
-    if (plan.mode === "idle") return "Preview"
-    var state = root.state || ({})
-    if (root.previewTarget() !== "" && state.targetLabel) {
-      var label = String(state.targetLabel)
-      return plan.kind === "monitor" ? label.replace(/ · focused$/, "") : label
-    }
-    return plan.title ? String(plan.title) : "Preview"
-  }
-
   function audioSummary() {
     var desktop = root.currentValue("desktopAudio") === "on"
     var mic = root.currentValue("microphoneAudio") === "on"
@@ -1397,12 +1386,6 @@ Panel {
             visible: root.page === "home"
             spacing: Style.space(8)
 
-            PanelSectionHeader {
-              text: "Next take"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-            }
-
             Loader {
               id: previewLoader
               width: parent.width
@@ -1533,55 +1516,31 @@ Panel {
                   }
                 }
 
-                Column {
+                // The preview speaks for itself. Only a real problem gets a line.
+                Text {
                   width: parent.width
-                  spacing: Style.space(2)
-
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    text: root.previewTitle(previewRoot.plan)
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    font.bold: true
-                    elide: Text.ElideMiddle
-                  }
-
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    visible: text !== ""
-                    text: {
-                      var plan = previewRoot.plan
-                      if (!plan) return ""
-                      if (plan.unavailable) return String(plan.reason || "Preview unavailable.")
-                      var parts = []
-                      if (screenView.sourceStopped) {
-                        return "Preview stopped · close and reopen the panel to retry"
-                      }
-                      if (screenView.sourceTimedOut) {
-                        return "Preview unavailable · no frames from "
-                          + (plan.screenRect ? plan.screenRect.name : "the source")
-                      }
-                      if (plan.mode === "idle") {
-                        if (plan.screenRect) parts.push(plan.screenRect.name)
-                        return parts.join(" · ")
-                      }
-                      if (!screenView.hasContent) parts.push("Starting preview…")
-                      var title = root.previewTitle(plan)
-                      if (screenView.hasContent && previewRoot.dimensions
-                          && !/[0-9]+\s*×\s*[0-9]+/.test(title)) {
-                        parts.push(previewRoot.dimensions.width + " × "
-                          + previewRoot.dimensions.height)
-                      }
-                      return parts.join(" · ")
+                  textFormat: Text.PlainText
+                  visible: text !== ""
+                  text: {
+                    var plan = previewRoot.plan
+                    if (!plan) return ""
+                    if (plan.unavailable) return String(plan.reason || "Preview unavailable.")
+                    if (screenView.sourceStopped) {
+                      return "Preview stopped · close and reopen the panel to retry"
                     }
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    elide: Text.ElideRight
+                    if (screenView.sourceTimedOut) {
+                      return "Preview unavailable · no frames from "
+                        + (plan.screenRect ? plan.screenRect.name : "the source")
+                    }
+                    if (!screenView.hasContent && plan.mode !== "idle") {
+                      return "Starting preview…"
+                    }
+                    return ""
                   }
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideRight
                 }
               }
             }
