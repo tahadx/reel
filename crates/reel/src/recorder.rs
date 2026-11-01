@@ -203,11 +203,11 @@ fn require_tools() -> Result<()> {
     if !util::have("gpu-screen-recorder") {
         util::notify(
             "Reel",
-            Some("gpu-screen-recorder is missing. Install it with: omarchy pkg add gpu-screen-recorder"),
+            Some("gpu-screen-recorder is missing. Install it with Omarchy's package installer"),
             "critical",
         );
         anyhow::bail!(
-            "gpu-screen-recorder is missing. Install it with: omarchy pkg add gpu-screen-recorder"
+            "gpu-screen-recorder is missing. Install it with Omarchy's package installer"
         );
     }
     for tool in ["ffmpeg", "ffprobe"] {

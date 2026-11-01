@@ -51,7 +51,7 @@ for tool in gpu-screen-recorder ffmpeg ffprobe; do
 done
 if ((${#missing[@]})); then
   echo "  missing: ${missing[*]}" >&2
-  echo "  Install with: omarchy pkg add ${missing[*]}" >&2
+  echo "  Install the missing packages with Omarchy's package installer: ${missing[*]}" >&2
   exit 1
 fi
 for tool in slurp mpv grim omarchy-capture-region omacut; do

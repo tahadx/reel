@@ -30,16 +30,15 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - `gpu-screen-recorder` and `ffmpeg` (which provides `ffprobe`).
 - Omarchy's `omarchy-capture-region` picker and `slurp` for selection.
 - `grim` for still previews.
-- `mpv` for the webcam overlay and history playback fallback.
+- `mpv` for history playback and the webcam overlay.
 - `wl-clipboard` if you want the history path-copy action.
 - LocalSend for sharing takes through `omarchy share`.
-- Optional: `omacut` for opening takes in its trimmer.
+- Optional: `omacut` for cutting takes.
 - Linux x86_64 for the prebuilt engine. Other architectures must build from
   source; see [Development](docs/development.md).
 
-```sh
-omarchy pkg add gpu-screen-recorder ffmpeg grim slurp mpv wl-clipboard
-```
+Install these with Omarchy's package installer: `gpu-screen-recorder`,
+`ffmpeg`, `grim`, `slurp`, `mpv`, and `wl-clipboard`.
 
 `omacut` is optional: takes still open in `mpv` without it, but the Cut action
 needs it.
