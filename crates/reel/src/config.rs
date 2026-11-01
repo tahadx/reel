@@ -68,6 +68,21 @@ pub fn cfg_in(settings: &Value, key: &str, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
+/// Zoom depth as the engine understands it. The panel stores the choice as a
+/// numeric string (`"3.0"`) while older configs and the CLI use a number, so
+/// both must parse. Anything outside the supported range is clamped here, which
+/// keeps every caller on the same 1.1x–4x scale.
+pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
+    let parsed = match value? {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    parsed
+        .filter(|zoom| zoom.is_finite())
+        .map(|zoom| zoom.clamp(1.1, 4.0))
+}
+
 pub fn output_dir(paths: &Paths) -> PathBuf {
     let configured = cfg(paths, "outputDir", "");
     if !configured.is_empty() {
@@ -142,5 +157,23 @@ mod tests {
         assert_eq!(cfg_in(&settings, "fps", "60"), "120");
         assert_eq!(cfg_in(&settings, "empty", "fallback"), "fallback");
         assert_eq!(cfg_in(&settings, "missing", "fallback"), "fallback");
+    }
+
+    #[test]
+    fn zoom_max_accepts_numbers_and_numeric_strings() {
+        let number = serde_json::json!(3.0);
+        let string = serde_json::json!("2.5");
+        assert_eq!(zoom_max_value(Some(&number)), Some(3.0));
+        assert_eq!(zoom_max_value(Some(&string)), Some(2.5));
+        assert_eq!(zoom_max_value(Some(&serde_json::json!(" 1.5 "))), Some(1.5));
+    }
+
+    #[test]
+    fn zoom_max_rejects_junk_and_clamps_the_range() {
+        assert_eq!(zoom_max_value(Some(&serde_json::json!("deep"))), None);
+        assert_eq!(zoom_max_value(Some(&serde_json::json!(null))), None);
+        assert_eq!(zoom_max_value(None), None);
+        assert_eq!(zoom_max_value(Some(&serde_json::json!("0.8"))), Some(1.1));
+        assert_eq!(zoom_max_value(Some(&serde_json::json!(9))), Some(4.0));
     }
 }

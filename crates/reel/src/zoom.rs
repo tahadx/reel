@@ -23,23 +23,28 @@ pub fn compositor_zoom() -> f64 {
     1.0
 }
 
-/// The live zoom camera. While zoomed it is attached to the pointer and
-/// rigid, so moving the pointer pans the view and the pointer stays near the
-/// centre of the crop. At 1x the camera detaches again, which is the normal
-/// desktop state.
-fn camera_lua(zoom: f64) -> String {
+/// The live zoom camera.
+///
+/// While a monitor is recorded the camera follows the pointer and is rigid, so
+/// moving the pointer pans the view and the pointer stays near the centre of
+/// the crop. A window or area capture keeps the camera detached instead: the
+/// pointer holds its real position, which is what keeps it inside a small
+/// capture. At 1x the camera is detached again, the normal desktop state.
+fn camera_lua(zoom: f64, follow: bool) -> String {
     let z = zoom.clamp(1.0, 4.0);
     let zoomed = z > 1.01;
+    let detached = !follow || !zoomed;
+    let rigid = follow && zoomed;
     format!(
         "hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = {}, zoom_rigid = {} }} }})",
-        if zoomed { "false" } else { "true" },
-        if zoomed { "true" } else { "false" },
+        detached, rigid,
     )
 }
 
-/// Sets live compositor zoom factor in Hyprland.
-pub fn set_compositor_zoom(zoom: f64) -> bool {
-    util::run_ok("hyprctl", &["eval", &camera_lua(zoom)])
+/// Sets live compositor zoom factor in Hyprland. `follow` is true only for
+/// monitor captures; see `camera_lua`.
+pub fn set_compositor_zoom(zoom: f64, follow: bool) -> bool {
+    util::run_ok("hyprctl", &["eval", &camera_lua(zoom, follow)])
 }
 
 /// Pointer position in compositor coordinates.
@@ -111,9 +116,15 @@ fn marker_restores_prior(contents: &str) -> bool {
 }
 
 /// Activate manual zoom for recording: enables live tracking and registers touchpad pinch gestures.
-pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
+///
+/// `follow` is true for monitor captures, where the camera tracks the pointer.
+/// Window and area captures keep the camera detached so the pointer keeps its
+/// real position instead of being pulled toward the screen centre.
+pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64, follow: bool) {
     let marker = paths.runtime.join(ZOOM_MARKER);
-    let max_z = max_zoom.clamp(1.5, 4.0);
+    let max_z = max_zoom.clamp(1.1, 4.0);
+    let detached = if follow { "false" } else { "true" };
+    let rigid = if follow { "true" } else { "false" };
 
     // A marker from a take that crashed still points at Reel's gesture. Undo it
     // first so the probe below sees the user's own binding rather than ours.
@@ -132,6 +143,7 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
             local start_z = 1.0
             local last_z = 1.0
             local mode = 'zoom'
+            local follow = {follow}
             local accum_dx = 0
             local accum_dy = 0
 
@@ -139,7 +151,8 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                 start = function(ev)
                     start_z = hl.get_config('cursor:zoom_factor') or 1.0
                     last_z = start_z
-                    mode = (start_z <= 1.02) and 'zoom' or 'undecided'
+                    -- A detached camera has no pan gesture: pinch only zooms.
+                    mode = (start_z <= 1.02 or not follow) and 'zoom' or 'undecided'
                     accum_dx = 0
                     accum_dy = 0
                 end,
@@ -171,7 +184,7 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                             local z = math.max(1.0, math.min({max_z:.2}, start_z * scale))
                             if math.abs(z - last_z) >= 0.002 then
                                 last_z = z
-                                hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
+                                hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = {detached}, zoom_rigid = {rigid} }} }})
                             end
                         end
                     elseif mode == 'pan' then
@@ -189,13 +202,13 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64) {
                 finish = function(ev)
                     local current = hl.get_config('cursor:zoom_factor') or 1.0
                     local z = current <= 1.01 and 1.0 or current
-                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = {detached}, zoom_rigid = {rigid} }} }})
                     mode = 'undecided'
                 end,
                 ['end'] = function(ev)
                     local current = hl.get_config('cursor:zoom_factor') or 1.0
                     local z = current <= 1.01 and 1.0 or current
-                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = false, zoom_rigid = true }} }})
+                    hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = {detached}, zoom_rigid = {rigid} }} }})
                     mode = 'undecided'
                 end
             }}
@@ -230,17 +243,17 @@ pub fn disable_recording_zoom(paths: &Paths) {
 }
 
 /// Smoothly animates compositor zoom factor to target value.
-pub fn animate_compositor_zoom(target: f64, immediate: bool) -> f64 {
+pub fn animate_compositor_zoom(target: f64, immediate: bool, follow: bool) -> f64 {
     let target = target.clamp(1.0, 4.0);
     let current = compositor_zoom();
 
     if (current - target).abs() < 0.01 {
-        set_compositor_zoom(target);
+        set_compositor_zoom(target, follow);
         return target;
     }
 
     if immediate {
-        set_compositor_zoom(target);
+        set_compositor_zoom(target, follow);
         return target;
     }
 
@@ -250,20 +263,21 @@ pub fn animate_compositor_zoom(target: f64, immediate: bool) -> f64 {
         let f = i as f64 / steps as f64;
         let t = 3.0 * f * f - 2.0 * f * f * f; // smoothstep
         let z = current + (target - current) * t;
-        set_compositor_zoom(z);
+        set_compositor_zoom(z, follow);
         std::thread::sleep(Duration::from_millis(14));
     }
-    set_compositor_zoom(target);
+    set_compositor_zoom(target, follow);
     target
 }
 
 /// Reset compositor zoom back to 1.0x (full frame) and restore default cursor options.
 pub fn reset_compositor_zoom() -> bool {
     let current = compositor_zoom();
+    // At 1x the camera is always detached, so the follow mode no longer matters.
     if (current - 1.0).abs() > 0.01 {
-        animate_compositor_zoom(1.0, false);
+        animate_compositor_zoom(1.0, false, false);
     } else {
-        set_compositor_zoom(1.0);
+        set_compositor_zoom(1.0, false);
     }
     true
 }
@@ -306,12 +320,22 @@ mod tests {
 
     #[test]
     fn the_camera_follows_the_pointer_only_while_zoomed() {
-        let zoomed = super::camera_lua(2.0);
+        let zoomed = super::camera_lua(2.0, true);
         assert!(zoomed.contains("zoom_detached_camera = false"));
         assert!(zoomed.contains("zoom_rigid = true"));
-        let full = super::camera_lua(1.0);
+        let full = super::camera_lua(1.0, true);
         assert!(full.contains("zoom_detached_camera = true"));
         assert!(full.contains("zoom_rigid = false"));
+    }
+
+    #[test]
+    fn window_and_area_captures_keep_the_camera_detached() {
+        // A detached camera keeps the pointer at its real position, so it stays
+        // inside a small window or area capture instead of drifting to the
+        // screen centre.
+        let zoomed = super::camera_lua(2.0, false);
+        assert!(zoomed.contains("zoom_detached_camera = true"));
+        assert!(zoomed.contains("zoom_rigid = false"));
     }
 
     #[test]

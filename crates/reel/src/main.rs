@@ -52,7 +52,9 @@ fn run() -> anyhow::Result<u8> {
         }
         Command::ZoomReset => commands::zoom_reset(&paths)?,
         Command::ZoomToggle { factor, pos_factor } => {
-            let f = factor.or(pos_factor).unwrap_or(2.0);
+            // No factor means "use the configured zoom depth", resolved by the
+            // command itself.
+            let f = factor.or(pos_factor).unwrap_or(0.0);
             commands::zoom_toggle(&paths, f)?;
         }
         Command::ZoomStatus { json } => commands::zoom_status(&paths, json)?,
@@ -81,7 +83,7 @@ fn run() -> anyhow::Result<u8> {
             }
             Some(cli::ZoomSubcommand::Reset) => commands::zoom_reset(&paths)?,
             Some(cli::ZoomSubcommand::Toggle { factor, pos_factor }) => {
-                let f = factor.or(pos_factor).unwrap_or(2.0);
+                let f = factor.or(pos_factor).unwrap_or(0.0);
                 commands::zoom_toggle(&paths, f)?;
             }
             Some(cli::ZoomSubcommand::Status { json }) => commands::zoom_status(&paths, json)?,

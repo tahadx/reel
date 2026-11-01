@@ -379,15 +379,45 @@ pub fn is_manual_zoom_active_in_state(st: &serde_json::Value) -> bool {
     false
 }
 
+/// The zoom depth resolved for the active take. The state carries the value the
+/// take started with; the config is a fallback for a missing state file.
+fn configured_zoom_max(paths: &Paths) -> f64 {
+    let from_state = state::read(paths)
+        .and_then(|st| st.get("settings").and_then(|s| s.get("zoomMax")).cloned())
+        .and_then(|value| config::zoom_max_value(Some(&value)));
+    let from_config = config::zoom_max_value(config::load(paths).get("zoomMax"));
+    from_state.or(from_config).unwrap_or(2.0)
+}
+
+/// Whether the live camera follows the pointer during this take. Only monitor
+/// captures do; a window or area keeps the camera detached so the pointer is
+/// not pulled out of a small frame.
+fn follow_pointer(paths: &Paths) -> bool {
+    state::read(paths)
+        .and_then(|st| state::field_str(&st, "targetKind"))
+        .as_deref()
+        == Some("monitor")
+}
+
+/// One step up, capped at the configured depth. A zoom that is already above a
+/// lowered cap is left where it is: this only limits increases.
+fn zoom_in_target(current: f64, step: f64, cap: f64) -> f64 {
+    let cap = cap.clamp(1.1, 4.0);
+    if current >= cap {
+        return current;
+    }
+    (current + step).min(cap)
+}
+
 pub fn zoom_in(paths: &Paths, step: f64) -> Result<()> {
     if !is_manual_zoom_active(paths) {
         return Ok(());
     }
     let current = crate::zoom::compositor_zoom();
     let step = if step > 0.01 { step } else { 0.25 };
-    let target = (current + step).min(4.0);
+    let target = zoom_in_target(current, step, configured_zoom_max(paths));
     let immediate = step <= 0.16;
-    let new_z = crate::zoom::animate_compositor_zoom(target, immediate);
+    let new_z = crate::zoom::animate_compositor_zoom(target, immediate, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -400,7 +430,7 @@ pub fn zoom_out(paths: &Paths, step: f64) -> Result<()> {
     let step = if step > 0.01 { step } else { 0.25 };
     let target = (current - step).max(1.0);
     let immediate = step <= 0.16;
-    let new_z = crate::zoom::animate_compositor_zoom(target, immediate);
+    let new_z = crate::zoom::animate_compositor_zoom(target, immediate, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -414,14 +444,24 @@ pub fn zoom_reset(paths: &Paths) -> Result<()> {
     Ok(())
 }
 
+/// The target of a toggle. An explicit factor wins; without one, "zoom in"
+/// means the configured depth rather than a hard-coded 2x.
+fn zoom_toggle_target(current: f64, factor: f64, cap: f64) -> f64 {
+    let factor = if factor > 1.05 { factor } else { cap };
+    if current > 1.05 {
+        1.0
+    } else {
+        factor.clamp(1.1, 4.0)
+    }
+}
+
 pub fn zoom_toggle(paths: &Paths, factor: f64) -> Result<()> {
     if !is_manual_zoom_active(paths) {
         return Ok(());
     }
     let current = crate::zoom::compositor_zoom();
-    let factor = if factor > 1.05 { factor } else { 2.0 };
-    let target = if current > 1.05 { 1.0 } else { factor };
-    let new_z = crate::zoom::animate_compositor_zoom(target, false);
+    let target = zoom_toggle_target(current, factor, configured_zoom_max(paths));
+    let new_z = crate::zoom::animate_compositor_zoom(target, false, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -486,6 +526,11 @@ pub fn zoom_pan(
     if !is_manual_zoom_active(paths) {
         return Ok(());
     }
+    // A window or area capture keeps the camera detached, so moving the pointer
+    // would move the cursor without panning the view. Panning is monitor-only.
+    if !follow_pointer(paths) {
+        return Ok(());
+    }
     if crate::zoom::compositor_zoom() <= 1.01 {
         return Ok(());
     }
@@ -513,10 +558,17 @@ pub fn zoom_pan(
     paths::remove_quiet(&stop_marker);
     let (hold_x, hold_y) = pan_delta(direction, (distance / 3.0).max(6.0)).unwrap_or((dx, dy));
     let mut first = true;
+    let mut ticks: u32 = 0;
     loop {
         if stop_marker.exists() || state::status(paths) != "recording" {
             break;
         }
+        // A reset to 1x during the hold leaves nothing to pan. Probe a few
+        // times a second rather than spawning hyprctl on every 33 ms tick.
+        if ticks.is_multiple_of(10) && crate::zoom::compositor_zoom() <= 1.01 {
+            break;
+        }
+        ticks = ticks.wrapping_add(1);
         let (step_x, step_y) = if first { (dx, dy) } else { (hold_x, hold_y) };
         if !crate::zoom::pan_view(step_x, step_y, bounds) {
             break;
@@ -532,6 +584,31 @@ pub fn zoom_pan(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoom_in_stops_at_the_configured_depth() {
+        assert_eq!(zoom_in_target(1.0, 0.25, 3.0), 1.25);
+        assert_eq!(zoom_in_target(2.75, 0.25, 3.0), 3.0);
+        assert_eq!(zoom_in_target(3.0, 0.25, 3.0), 3.0);
+    }
+
+    #[test]
+    fn a_lowered_cap_does_not_force_a_decrease() {
+        // An existing zoom above a newly lowered cap stays put; only increases
+        // are capped.
+        assert_eq!(zoom_in_target(3.5, 0.25, 2.0), 3.5);
+        assert_eq!(zoom_in_target(1.9, 0.25, 2.0), 2.0);
+    }
+
+    #[test]
+    fn zoom_toggle_uses_the_configured_depth() {
+        assert_eq!(zoom_toggle_target(1.0, 0.0, 3.0), 3.0);
+        assert_eq!(zoom_toggle_target(1.0, 0.0, 1.5), 1.5);
+        // Already zoomed: toggle goes back to full frame.
+        assert_eq!(zoom_toggle_target(2.2, 0.0, 3.0), 1.0);
+        // An explicit factor still wins.
+        assert_eq!(zoom_toggle_target(1.0, 1.8, 3.0), 1.8);
+    }
 
     #[test]
     fn pan_directions_map_to_steps() {

@@ -175,7 +175,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     ));
     let zoom_max = options
         .zoom_max
-        .or_else(|| stored.get("zoomMax").and_then(Value::as_f64))
+        .or_else(|| config::zoom_max_value(stored.get("zoomMax")))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
 
@@ -813,7 +813,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);
     if settings.manual_zoom {
-        crate::zoom::enable_recording_zoom(paths, settings.zoom_max);
+        crate::zoom::enable_recording_zoom(paths, settings.zoom_max, choice.kind == "monitor");
     }
     println!("{file}");
     Ok(true)
@@ -940,12 +940,10 @@ pub fn resume(paths: &Paths) -> Result<()> {
         })
         .unwrap_or(false);
     if manual_zoom {
-        let zoom_max = next
-            .get("settings")
-            .and_then(|s| s.get("zoomMax"))
-            .and_then(|v| v.as_f64())
+        let zoom_max = config::zoom_max_value(next.get("settings").and_then(|s| s.get("zoomMax")))
             .unwrap_or(2.0);
-        crate::zoom::enable_recording_zoom(paths, zoom_max);
+        let follow = state::field_str(&next, "targetKind").as_deref() == Some("monitor");
+        crate::zoom::enable_recording_zoom(paths, zoom_max, follow);
     }
 
     Ok(())

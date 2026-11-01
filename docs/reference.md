@@ -143,23 +143,32 @@ acts while a take is recording. Pausing or stopping resets the compositor to
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
-- **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×; the engine
-  clamps to 1×–4× regardless.
+- **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×. Pinch,
+  keyboard steps, and the toggle all stop at that depth; the engine clamps to
+  1×–4× regardless. Raising or lowering the depth never snaps an existing zoom
+  back on its own.
 
 ### Panning
 
-While zoomed, the camera is attached to the pointer: moving the mouse pans the
-view and keeps the cursor near the centre of the crop. This is a tight,
-one-to-one pan with no smoothing, so it cannot feel floaty.
+Follow mode is for **monitor** takes. While zoomed, the camera is attached to
+the pointer: moving the mouse pans the view and keeps the cursor near the centre
+of the crop. This is a tight, one-to-one pan with no smoothing, so it cannot
+feel floaty.
+
+Window and area takes keep the camera detached while zoomed. The pointer keeps
+its real position, so a take of a small window in a corner still shows the
+pointer inside the frame instead of pulling it toward the screen centre. Pinch
+zoom still works there; only panning is monitor-only, and `zoom-pan` does
+nothing for a window or area.
 
 - `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves **Pan step**
   pixels (30, 60, or 120; 60 by default), holding keeps panning at a steady
   speed, and `Shift` covers three times as much. The view moves immediately and
-  the cursor stays over the point being panned toward.
+  the cursor stays over the point being panned toward. A hold stops as soon as
+  the zoom returns to 1×.
 - Panning never changes the zoom factor, so the depth stays locked.
-- The pan target is clamped to the recorded window, area, or monitor, so the
-  view cannot walk off the capture. The compositor additionally clamps it to
-  the monitor.
+- The pan target is clamped to the recorded monitor, so the view cannot walk off
+  the capture. The compositor additionally clamps it to the monitor.
 - Returning to 1×, pausing, or stopping restores the detached camera, which is
   the normal desktop state.
 - A pinch that reads as a pan uses the same pointer movement, so gesture zoom
