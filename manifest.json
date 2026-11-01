@@ -36,7 +36,6 @@
       "filenamePrefix": "",
       "webcamDevice": "",
       "notifications": "off",
-      "openWithOmacut": "on",
       "manualZoom": "on",
       "zoomMax": 2.0,
       "panStep": 60
@@ -202,17 +201,6 @@
         ],
         "defaultValue": "off",
         "description": "Show a preview toast when a take is ready."
-      },
-      {
-        "key": "openWithOmacut",
-        "type": "enum",
-        "label": "Open takes in Omacut",
-        "options": [
-          "on",
-          "off"
-        ],
-        "defaultValue": "on",
-        "description": "Off opens history takes in mpv instead."
       },
       {
         "key": "manualZoom",

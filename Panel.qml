@@ -63,7 +63,6 @@ Panel {
     "resolution": "0x0",
     "container": "mp4",
     "notifications": "off",
-    "openWithOmacut": "on",
     "manualZoom": "on",
     "zoomMax": "2.0",
     "panStep": "60",
@@ -89,8 +88,7 @@ Panel {
     { key: "container", label: "Container", glyph: "󰉋" },
     { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
     { key: "panStep", label: "Pan step", glyph: "󰆞" },
-    { key: "notifications", label: "Saved notification", glyph: "󰂚" },
-    { key: "openWithOmacut", label: "Open takes in Omacut", glyph: "󰐊" }
+    { key: "notifications", label: "Saved notification", glyph: "󰂚" }
   ]
 
   // ---------- panel state -------------------------------------------------
@@ -129,14 +127,17 @@ Panel {
   readonly property real takeMenuPadding: Style.space(4)
   readonly property var takeMenuBorderSpec: Border.flat(root.dim, 1)
   readonly property var takeMenuItems: [
-    { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
-    { key: "share", label: "Share", glyph: "󰒗" },
+    { key: "open", label: "Open", glyph: "󰐊", shortcut: "Enter" },
+    { key: "cut", label: "Cut in Omacut", glyph: "󰆐", shortcut: "t" },
+    { key: "slowmo", label: "Slow motion", glyph: "󰔟", shortcut: "m" },
+    { key: "share", label: "Share", glyph: "󰒗", shortcut: "u" },
     {
       key: "trash",
       label: root.trashArmedPath !== "" && root.takeMenuRow
         && root.trashArmedPath === String(root.takeMenuRow.path || "")
         ? "Confirm delete" : "Delete",
       glyph: "󰆴",
+      shortcut: "x",
       urgent: root.trashArmedPath !== "" && root.takeMenuRow
         && root.trashArmedPath === String(root.takeMenuRow.path || "")
     }
@@ -212,7 +213,6 @@ Panel {
     case "resolution": return ["0x0", "3840x2160", "2560x1440", "1920x1080", "1280x720"]
     case "container": return ["mp4", "mkv"]
     case "notifications": return ["on", "off"]
-    case "openWithOmacut": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
     case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
     case "panStep": return ["30", "60", "120"]
@@ -243,7 +243,7 @@ Panel {
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-        || key === "notifications" || key === "openWithOmacut" || key === "manualZoom")
+        || key === "notifications" || key === "manualZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -257,7 +257,6 @@ Panel {
     case "microphoneAudio":
     case "cursor":
     case "notifications":
-    case "openWithOmacut":
     case "manualZoom":
       return value === "on" ? "On" : "Off"
     case "zoomMax":
@@ -420,7 +419,7 @@ Panel {
     if (root.page === "settings") return "s toggles · esc goes back · q closes"
     if (root.page === "history") {
       if (root.visibleRecents.length === 0) return "no takes yet · esc goes back"
-      return root.visibleRecents.length + " takes · enter opens · a actions · esc goes back"
+      return root.visibleRecents.length + " takes · enter opens · t cuts · a actions · esc goes back"
     }
     // Live states speak through the timer row and the bar mark; the header only
     // keeps the setting that matters when nothing is running.
@@ -532,9 +531,20 @@ Panel {
   }
 
   function openVideo(row) {
-    var command = Model.openVideoCommand(row && row.path, root.hasOmacut,
-      root.currentValue("openWithOmacut") === "on")
+    var command = Model.playCommand(row && row.path)
     if (command.length > 0) Quickshell.execDetached(command)
+  }
+
+  // Cut is the only history action that launches Omacut. Opening a take always
+  // plays it, so Enter never jumps into the trimmer by surprise.
+  function cutTake(row) {
+    if (!row || !row.path) return
+    var command = Model.cutCommand(row.path, root.hasOmacut)
+    if (command.length === 0) {
+      root.setNotice("Omacut is not installed, so this take cannot be trimmed.", true)
+      return
+    }
+    Quickshell.execDetached(command)
   }
 
   function openFolder() {
@@ -608,7 +618,13 @@ Panel {
     if (!root.takeMenuOpen || !row) return
     var item = root.takeMenuItems[root.takeMenuIndex]
     var key = item ? String(item.key || "") : ""
-    if (key === "slowmo") {
+    if (key === "open") {
+      root.closeTakeMenu()
+      root.openVideo(row)
+    } else if (key === "cut") {
+      root.closeTakeMenu()
+      root.cutTake(row)
+    } else if (key === "slowmo") {
       root.closeTakeMenu()
       root.slowmo(row)
     } else if (key === "share") {
@@ -656,6 +672,11 @@ Panel {
   function slowmoSelected() {
     var row = root.selectedTake()
     if (row) root.slowmo(row)
+  }
+
+  function cutSelected() {
+    var row = root.selectedTake()
+    if (row) root.cutTake(row)
   }
 
   function shareSelected() {
@@ -791,6 +812,7 @@ Panel {
     else if (key === "d") root.discard()
     else if (key === "o") root.openFolder()
     else if (key === "m") root.slowmoSelected()
+    else if (key === "t") root.cutSelected()
     else if (key === "u") root.shareSelected()
     else if (key === "a") {
       if (keyboardPanel.loadedContent
@@ -1734,7 +1756,7 @@ Panel {
                 id: takesHint
                 textFormat: Text.PlainText
                 text: root.visibleRecents.length > 0
-                  ? "enter opens · a actions · x trashes"
+                  ? "enter opens · t cuts · a actions · x trashes"
                   : "takes appear here after the first recording"
                 color: root.dim
                 font.family: root.fontFamily
@@ -1918,6 +1940,7 @@ Panel {
                 itemIndex: index
                 glyph: String(modelData.glyph || "")
                 label: String(modelData.label || "")
+                shortcut: String(modelData.shortcut || "")
                 urgent: !!modelData.urgent
                 selected: root.takeMenuIndex === index
               }
@@ -2132,6 +2155,7 @@ Panel {
     property int itemIndex: 0
     property string glyph: ""
     property string label: ""
+    property string shortcut: ""
     property bool selected: false
     property bool urgent: false
 
@@ -2167,6 +2191,20 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         elide: Text.ElideRight
         width: parent.width - Style.space(28)
+          - (shortcutText.visible ? shortcutText.implicitWidth + Style.space(8) : 0)
+      }
+
+      Text {
+        id: shortcutText
+        visible: menuItem.shortcut !== ""
+        width: visible ? implicitWidth : 0
+        textFormat: Text.PlainText
+        text: menuItem.shortcut
+        color: menuItem.urgent ? root.urgent : root.dim
+        opacity: 0.8
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        anchors.verticalCenter: parent.verticalCenter
       }
     }
 

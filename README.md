@@ -20,8 +20,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   codec and resolution limits, MP4/MKV, and a webcam corner overlay.
 - Live preview of the next take and a bar mark for recording, paused, and
   saving states.
-- Recording history with previews, open in Omacut (or `mpv`), an actions menu
-  with slow-motion copy, share, and trash, plus path copy.
+- Recording history with previews, open in `mpv`, cut in Omacut, an actions
+  menu with slow-motion copy, share, and trash, plus path copy.
 - Keyboard-first panel.
 
 ## Requirements
@@ -38,10 +38,11 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   source; see [Development](docs/development.md).
 
 ```sh
-sudo pacman -S --needed gpu-screen-recorder ffmpeg grim slurp mpv wl-clipboard
+omarchy pkg add gpu-screen-recorder ffmpeg grim slurp mpv wl-clipboard
 ```
 
-`omacut` is optional: without it, history takes open in `mpv` instead.
+`omacut` is optional: takes still open in `mpv` without it, but the Cut action
+needs it.
 
 ## Install
 
@@ -135,6 +136,7 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `d` | Discard the current take (press twice) |
 | `s` | Open or close settings |
 | `a` | Open the selected take's actions menu |
+| `t` | Cut the selected take in Omacut |
 | `x` / `Delete` | Trash the selected take (press twice) |
 | `m` | Save a 0.5× slow-motion copy of the selected take |
 | `u` | Share the selected take with LocalSend |
@@ -151,11 +153,13 @@ take is recording; pausing or stopping resets the view to 1×.
 - `Ctrl + Alt + =` / `Ctrl + Alt + -` zoom in and out, `Ctrl + Alt + 0` resets,
   and `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` zooms in and out.
-- While zoomed, the camera follows the pointer: moving the mouse pans the view
-  and keeps the cursor near the middle of the crop. `Ctrl + Alt + ←/→/↑/↓`
-  nudges the view from the keyboard (hold to keep moving, `Shift` for a longer
-  step), and **Pan step** in Settings sets how far one nudge goes. Panning never
-  changes the zoom depth, and it stays inside the recorded window, area, or
+- Monitor takes follow the pointer: moving the mouse pans the view and keeps the
+  cursor near the middle of the crop. Window and area takes keep the camera
+  detached, so the pointer stays where it really is instead of being pulled to
+  the screen centre and out of a small capture. `Ctrl + Alt + ←/→/↑/↓` nudges a
+  monitor take's view from the keyboard (hold to keep moving, `Shift` for a
+  longer step), and **Pan step** in Settings sets how far one nudge goes.
+  Panning never changes the zoom depth, and it stays inside the recorded
   monitor.
 
 **Zoom depth** in Settings caps the maximum magnification (1.5×–3×, 2× by
@@ -164,8 +168,8 @@ block; touchpad pinch is registered by Reel when a take starts. If you already
 have your own two-finger pinch binding, Reel overrides it for the take and
 reloads your config afterwards so it comes back.
 
-The settings page covers all capture options and the filename prefix. Turn off
-**Open takes in Omacut** there to open history takes in `mpv` instead.
+The settings page covers all capture options and the filename prefix. History
+takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.
 
 Takes are saved in the recordings folder, `~/Videos/Reel` by default. Closing
 the panel with `q` or `Esc` does not stop an active take; use `r` or the stop

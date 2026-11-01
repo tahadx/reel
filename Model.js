@@ -499,12 +499,18 @@ function captureSize(plan, sourceSize) {
   }
 }
 
-// Omacut is the preferred trimmer. Keep mpv as a fallback so history stays
-// useful when Omacut is missing or the preference is turned off.
-function openVideoCommand(path, hasOmacut, openWithOmacut) {
+// History playback always uses mpv. Trimming is the explicit Omacut action,
+// so a take plays the way the user expects even when Omacut is installed.
+function playCommand(path) {
   var value = String(path || "")
   if (value === "") return []
-  return hasOmacut && openWithOmacut
-    ? ["omacut", value]
-    : ["mpv", "--force-window=yes", "--", value]
+  return ["mpv", "--force-window=yes", "--", value]
+}
+
+// Cut is the explicit trimmer action. It is the only history action that
+// launches Omacut.
+function cutCommand(path, hasOmacut) {
+  var value = String(path || "")
+  if (value === "" || !hasOmacut) return []
+  return ["omacut", value]
 }
