@@ -2183,11 +2183,30 @@ Panel {
       : primary ? Border.flat(hasCursor ? Qt.lighter(action.toneColor, 1.2) : "transparent",
           hasCursor ? 1 : 0)
       : Border.flat(hasCursor ? root.accent : root.hairline, 1)
-    implicitHeight: Style.space(42)
+    implicitHeight: Style.space(44)
     opacity: enabled ? 1.0 : 0.35
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
       NumberAnimation { duration: Style.duration(90); easing.type: Easing.OutCubic }
+    }
+
+    Rectangle {
+      visible: action.primary && action.enabled
+      anchors.fill: parent
+      radius: parent.radius
+      gradient: Gradient {
+        GradientStop {
+          position: 0
+          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.94)
+            : hasCursor ? Qt.lighter(action.toneColor, 1.10)
+            : Qt.lighter(action.toneColor, 1.05)
+        }
+        GradientStop {
+          position: 1
+          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.98)
+            : action.toneColor
+        }
+      }
     }
 
     Rectangle {
@@ -2204,51 +2223,54 @@ Panel {
     }
 
     Row {
-      anchors.centerIn: parent
-      spacing: Style.space(8)
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(10)
+      anchors.right: hintSlot.left
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(10)
 
-      Text {
-        textFormat: Text.PlainText
-        text: action.glyph
-        color: action.primary ? action.toneInk : action.toneColor
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+      Rectangle {
+        width: Style.space(24)
+        height: width
         anchors.verticalCenter: parent.verticalCenter
+        color: action.primary ? "transparent" : root.restFill
+        border.width: action.primary ? 0 : 1
+        border.color: root.hairline
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: action.glyph
+          color: action.primary ? action.toneInk : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
       }
 
       Text {
+        width: Math.max(0, parent.width - Style.space(24) - parent.spacing)
         textFormat: Text.PlainText
         text: action.label
         color: action.primary ? action.toneInk : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-        font.letterSpacing: 0.2
+        font.letterSpacing: 0.3
         font.bold: true
+        elide: Text.ElideRight
         anchors.verticalCenter: parent.verticalCenter
       }
     }
 
-    Rectangle {
+    KeyHintChip {
+      id: hintSlot
       visible: action.hint !== "" && action.enabled
       anchors.right: parent.right
       anchors.rightMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
-      width: hintText.implicitWidth + Style.space(6)
-      height: Style.space(18)
-      color: action.primary ? Util.alpha(action.toneInk, 0.16) : root.restFill
-      border.width: action.primary ? 0 : 1
-      border.color: root.hairline
-
-      Text {
-        id: hintText
-        anchors.centerIn: parent
-        textFormat: Text.PlainText
-        text: action.hint
-        color: action.primary ? action.toneInk : root.secondary
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.bold: true
-      }
+      label: action.hint
+      onAccent: action.primary
+      ink: action.toneInk
     }
 
     MouseArea {
@@ -2547,6 +2569,62 @@ Panel {
     }
   }
 
+  component KeyHintChip: Item {
+    id: keyHint
+    property string label: ""
+    property bool onAccent: false
+    property color ink: root.foreground
+    property bool active: false
+    property real minimumWidth: 0
+
+    width: implicitWidth
+    height: implicitHeight
+    implicitWidth: chip.width
+    implicitHeight: chip.height
+
+    Rectangle {
+      visible: !keyHint.onAccent
+      anchors.fill: chip
+      anchors.topMargin: Style.space(2)
+      anchors.leftMargin: Style.space(1)
+      anchors.rightMargin: -Style.space(1)
+      anchors.bottomMargin: -Style.space(2)
+      radius: chip.radius + Style.space(1)
+      color: Util.alpha("#000000", 0.22)
+    }
+
+    Rectangle {
+      visible: !keyHint.onAccent
+      anchors.fill: chip
+      anchors.topMargin: Style.space(1)
+      anchors.bottomMargin: -Style.space(1)
+      radius: chip.radius
+      color: Util.alpha("#000000", 0.18)
+    }
+
+    Rectangle {
+      id: chip
+      width: Math.max(keyHint.minimumWidth, labelText.implicitWidth + Style.space(10))
+      height: Style.space(20)
+      radius: Style.space(5)
+      color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.12) : root.restFill
+      border.width: 1
+      border.color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.26) : root.hairline
+
+      Text {
+        id: labelText
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        text: keyHint.label
+        color: keyHint.onAccent ? keyHint.ink
+          : keyHint.active ? root.foreground : root.secondary
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+    }
+  }
+
   component ShortcutRow: CursorSurface {
     id: shortcut
     property var row: null
@@ -2569,30 +2647,16 @@ Panel {
       anchors.rightMargin: Style.space(8)
       spacing: Style.space(10)
 
-      Rectangle {
-        width: Math.max(Style.space(64), keyLabel.implicitWidth + Style.space(10))
-        height: Style.space(20)
+      KeyHintChip {
+        id: keyChip
         anchors.verticalCenter: parent.verticalCenter
-        color: root.restFill
-        border.width: 1
-        border.color: root.hairline
-
-        Text {
-          id: keyLabel
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: shortcut.row ? String(shortcut.row.keys || "") : ""
-          color: shortcut.selected ? root.foreground : root.secondary
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-        }
+        label: shortcut.row ? String(shortcut.row.keys || "") : ""
+        minimumWidth: Style.space(64)
+        active: shortcut.selected
       }
 
       Text {
-        width: parent.width
-          - Math.max(Style.space(64), keyLabel.implicitWidth + Style.space(10))
-          - parent.spacing
+        width: parent.width - keyChip.width - parent.spacing
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: shortcut.row ? String(shortcut.row.what || "") : ""
