@@ -1487,16 +1487,52 @@ Panel {
               Row {
                 spacing: Style.space(2)
 
-                Text {
-                  width: Style.space(52)
-                  textFormat: Text.PlainText
-                  text: root.active ? Model.clock(root.elapsed) : ""
-                  color: root.paused ? root.secondary : root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  font.bold: true
-                  horizontalAlignment: Text.AlignRight
+                Item {
+                  width: Style.space(60)
+                  height: Style.space(22)
                   anchors.verticalCenter: parent.verticalCenter
+
+                  Rectangle {
+                    anchors.fill: parent
+                    radius: height / 2
+                    color: root.restFill
+                    border.width: 1
+                    border.color: root.hairline
+                    opacity: root.active ? 1 : 0
+                    Behavior on opacity {
+                      NumberAnimation { duration: Style.duration(120) }
+                    }
+
+                    Row {
+                      anchors.centerIn: parent
+                      spacing: Style.space(5)
+
+                      Rectangle {
+                        width: Style.space(6)
+                        height: width
+                        radius: width / 2
+                        color: root.paused ? root.secondary : root.accent
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        SequentialAnimation on opacity {
+                          running: root.active && !root.paused && !Style.reduceMotion
+                          loops: Animation.Infinite
+                          NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                          NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                        }
+                      }
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: Model.clock(root.elapsed)
+                        color: root.paused ? root.secondary : root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                      }
+                    }
+                  }
                 }
 
                 PanelActionButton {
