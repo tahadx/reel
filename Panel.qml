@@ -1014,7 +1014,7 @@ Panel {
       root.page = "home"
       root.focusSection = "primary"
       root.selectedIndex = 0
-      root.cursorActive = false
+      root.cursorActive = true
       root.settingsIndex = 0
       root.notice = ""
       root.discardArmed = false
@@ -2685,6 +2685,7 @@ Panel {
           root.focusSection = "quick"
           root.selectedIndex = setting.rowIndex
         } else {
+          root.focusSection = "settings"
           root.settingsIndex = setting.rowIndex
         }
       }
@@ -2695,6 +2696,7 @@ Panel {
           root.focusSection = "quick"
           root.selectedIndex = setting.rowIndex
         } else {
+          root.focusSection = "settings"
           root.settingsIndex = setting.rowIndex
         }
         root.cycleOption(setting.settingKey, mouse.button === Qt.RightButton ? -1 : 1)
