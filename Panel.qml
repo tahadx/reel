@@ -1110,8 +1110,10 @@ Panel {
     }
     var edge = Style.space(64)
     var maxY = flick.contentHeight - flick.height
-    var top = y < edge && flick.contentY > 0
-    var bottom = y > flick.height - edge && flick.contentY < maxY
+    // The scroll area now sits below the fixed header, so compare in its space.
+    var localY = y - area.y
+    var top = localY >= 0 && localY < edge && flick.contentY > 0
+    var bottom = localY <= area.height && localY > flick.height - edge && flick.contentY < maxY
     if (top !== root.scrollTopHover || bottom !== root.scrollBottomHover) root.edgeScrollTicks = 0
     root.scrollTopHover = top
     root.scrollBottomHover = bottom
@@ -1356,7 +1358,6 @@ Panel {
     content: ReelKeyCatcher {
       id: keyCatcher
       property alias scrollArea: scrollArea
-      implicitHeight: contentColumn.implicitHeight
       anchors.fill: parent
       blocked: root.typingPrefix
 
@@ -1384,492 +1385,496 @@ Panel {
         if (root.takeMenuOpen) root.closeTakeMenu()
         else root.toggleHistory()
       }
-      ScrollView {
-        id: scrollArea
+      ColumnLayout {
         anchors.fill: parent
-        clip: true
-        ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-        ScrollBar.vertical.policy: ScrollBar.AlwaysOff
-        Binding {
-          target: scrollArea.contentItem
-          property: "interactive"
-          value: contentColumn.implicitHeight > scrollArea.height
-        }
+        spacing: Style.space(10)
 
-        Column {
-          id: contentColumn
-          width: scrollArea.availableWidth
-          spacing: Style.space(10)
+        // ---------- hero ----------
 
-          // ---------- hero ----------
-
-          PanelHero {
-            iconComponent: Component {
-              // The same drawn mark the bar uses, at display size. Recording
-              // pulses the dot, pause splits it into two bars, and the save
-              // pass dims it, so the header matches the bar state.
-              Item {
-                id: heroMark
-                width: Style.font.display
-                height: Style.font.display
-                readonly property real unit: width / 24
-                readonly property color markColor: root.finalizing
-                  ? root.dim : root.foreground
-
-                Rectangle {
-                  id: heroScreen
-                  x: 2.5 * heroMark.unit
-                  y: 4 * heroMark.unit
-                  width: 19 * heroMark.unit
-                  height: 15 * heroMark.unit
-                  radius: 4.5 * heroMark.unit
-                  color: "transparent"
-                  border.width: Math.max(1, Math.round(1.5 * heroMark.unit))
-                  border.color: root.foreground
-                  opacity: 0.9
-                }
-
-                // centerIn rounds against the fractional screen geometry and
-                // leaves the mark a pixel off, so center from the dimensions.
-                Row {
-                  visible: root.paused
-                  x: heroScreen.x + (heroScreen.width - width) / 2
-                  y: heroScreen.y + (heroScreen.height - height) / 2
-                  spacing: 2.2 * heroMark.unit
-
-                  Rectangle {
-                    width: 2.6 * heroMark.unit
-                    height: 7 * heroMark.unit
-                    radius: 1 * heroMark.unit
-                    color: root.foreground
-                  }
-
-                  Rectangle {
-                    width: 2.6 * heroMark.unit
-                    height: 7 * heroMark.unit
-                    radius: 1 * heroMark.unit
-                    color: root.foreground
-                  }
-                }
-
-                Rectangle {
-                  visible: !root.paused
-                  x: heroScreen.x + (heroScreen.width - width) / 2
-                  y: heroScreen.y + (heroScreen.height - height) / 2
-                  width: 6.4 * heroMark.unit
-                  height: width
-                  radius: width / 2
-                  color: heroMark.markColor
-
-                  SequentialAnimation on opacity {
-                    running: root.status === "recording" && !Style.reduceMotion
-                    loops: Animation.Infinite
-                    NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                    NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                  }
-                }
-
-                Rectangle {
-                  x: 9.5 * heroMark.unit
-                  y: 21 * heroMark.unit
-                  width: 5 * heroMark.unit
-                  height: Math.max(1, 1.6 * heroMark.unit)
-                  radius: Math.max(0.5, 0.8 * heroMark.unit)
-                  color: root.foreground
-                  opacity: 0.55
-                }
-              }
-            }
-            title: root.page === "history" ? "Reel history" : "Reel"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            trailingControl: Component {
-              Row {
-                spacing: Style.space(2)
-
-                Item {
-                  width: Style.space(60)
-                  height: Style.space(22)
-                  anchors.verticalCenter: parent.verticalCenter
-
-                  Rectangle {
-                    anchors.fill: parent
-                    radius: height / 2
-                    color: root.restFill
-                    border.width: 1
-                    border.color: root.hairline
-                    opacity: root.active ? 1 : 0
-                    Behavior on opacity {
-                      NumberAnimation { duration: Style.duration(120) }
-                    }
-
-                    Row {
-                      anchors.centerIn: parent
-                      spacing: Style.space(5)
-
-                      Rectangle {
-                        width: Style.space(6)
-                        height: width
-                        radius: width / 2
-                        color: root.paused ? root.secondary : root.accent
-                        anchors.verticalCenter: parent.verticalCenter
-
-                        SequentialAnimation on opacity {
-                          running: root.active && !root.paused && !Style.reduceMotion
-                          loops: Animation.Infinite
-                          NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                          NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                        }
-                      }
-
-                      Text {
-                        textFormat: Text.PlainText
-                        text: Model.clock(root.elapsed)
-                        color: root.paused ? root.secondary : root.foreground
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.bodySmall
-                        font.bold: true
-                        anchors.verticalCenter: parent.verticalCenter
-                      }
-                    }
-                  }
-                }
-
-                PanelActionButton {
-                  iconText: "󰋚"
-                  tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
-                  foreground: root.page === "history" ? root.accent : root.foreground
-                  fontFamily: root.fontFamily
-                  hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
-                    || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
-                      && root.hoverSection === "")
-                  onHovered: function(on) {
-                    root.setRowHover("header", 0, on)
-                  }
-                  onClicked: {
-                    root.cursorActive = true
-                    root.focusSection = "header"
-                    root.selectedIndex = 0
-                    root.toggleHistory()
-                  }
-                }
-              }
-            }
-          }
-
-          // ---------- primary actions ----------
-
-          Row {
-            width: parent.width
-            visible: root.page === "home"
-            spacing: Style.space(8)
-
-            ActionButton {
-              width: (parent.width - parent.spacing * 2) / 3
-              rowIndex: 0
-              label: root.primaryLabel()
-              glyph: root.primaryGlyph()
-              tone: root.active || root.starting ? "urgent" : "accent"
-              primary: true
-              enabled: true
-              hint: "r"
-            }
-
-            ActionButton {
-              width: (parent.width - parent.spacing * 2) / 3
-              rowIndex: 1
-              label: root.paused ? "Resume" : "Pause"
-              glyph: root.paused ? "󰐊" : "󰏤"
-              tone: "neutral"
-              enabled: root.active
-              hint: "p"
-            }
-
-            ActionButton {
-              width: (parent.width - parent.spacing * 2) / 3
-              rowIndex: 2
-              label: root.discardArmed ? "Discard?" : "Discard"
-              glyph: "󰆴"
-              tone: "neutral"
-              enabled: root.active
-              hint: "d"
-            }
-          }
-
-          PanelSeparator {
-            visible: root.page === "home"
-            foreground: root.foreground
-          }
-
-  
-
-          // ---------- settings ----------
-
-          Column {
-            visible: root.page === "home"
-            width: parent.width
-            spacing: Style.space(12)
-
+        PanelHero {
+          Layout.fillWidth: true
+          iconComponent: Component {
+            // The same drawn mark the bar uses, at display size. Recording
+            // pulses the dot, pause splits it into two bars, and the save
+            // pass dims it, so the header matches the bar state.
             Item {
-              width: parent.width
-              implicitHeight: Style.space(30)
+              id: heroMark
+              width: Style.font.display
+              height: Style.font.display
+              readonly property real unit: width / 24
+              readonly property color markColor: root.finalizing
+                ? root.dim : root.foreground
 
+              Rectangle {
+                id: heroScreen
+                x: 2.5 * heroMark.unit
+                y: 4 * heroMark.unit
+                width: 19 * heroMark.unit
+                height: 15 * heroMark.unit
+                radius: 4.5 * heroMark.unit
+                color: "transparent"
+                border.width: Math.max(1, Math.round(1.5 * heroMark.unit))
+                border.color: root.foreground
+                opacity: 0.9
+              }
+
+              // centerIn rounds against the fractional screen geometry and
+              // leaves the mark a pixel off, so center from the dimensions.
               Row {
-                id: settingsTabRow
-                anchors.fill: parent
-                spacing: 0
+                visible: root.paused
+                x: heroScreen.x + (heroScreen.width - width) / 2
+                y: heroScreen.y + (heroScreen.height - height) / 2
+                spacing: 2.2 * heroMark.unit
 
-                Repeater {
-                  model: root.settingsTabs
+                Rectangle {
+                  width: 2.6 * heroMark.unit
+                  height: 7 * heroMark.unit
+                  radius: 1 * heroMark.unit
+                  color: root.foreground
+                }
 
-                  delegate: Item {
-                    id: settingsTabItem
-                    required property var modelData
-                    required property int index
-                    width: settingsTabRow.width / root.settingsTabs.length
-                    height: settingsTabRow.height
-
-                    readonly property bool active: root.settingsTab === modelData.id
-                    readonly property bool hot: settingsTabMouse.containsMouse
-
-                    Row {
-                      anchors.centerIn: parent
-                      spacing: Style.space(6)
-
-                      Text {
-                        textFormat: Text.PlainText
-                        text: settingsTabItem.modelData.label
-                        color: settingsTabItem.active ? root.accent
-                          : settingsTabItem.hot ? root.foreground : root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.bodySmall
-                        font.letterSpacing: 0.2
-                        font.bold: settingsTabItem.active
-                        anchors.verticalCenter: parent.verticalCenter
-                        Behavior on color {
-                          ColorAnimation { duration: Style.duration(150) }
-                        }
-                      }
-
-                      KeyHintChip {
-                        label: String(settingsTabItem.index + 1)
-                        active: settingsTabItem.active
-                        anchors.verticalCenter: parent.verticalCenter
-                      }
-                    }
-
-                    Rectangle {
-                      anchors.bottom: parent.bottom
-                      anchors.bottomMargin: 1
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      width: Math.max(0, parent.width - Style.space(16))
-                      height: 1
-                      color: Util.alpha(root.foreground, 0.35)
-                      opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
-                      Behavior on opacity {
-                        NumberAnimation { duration: Style.duration(120) }
-                      }
-                    }
-
-                    Rectangle {
-                      anchors.bottom: parent.bottom
-                      anchors.bottomMargin: 1
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      z: 1
-                      width: settingsTabItem.active
-                        ? Math.max(0, parent.width - Style.space(16)) : 0
-                      height: Math.max(1, Style.space(2))
-                      color: root.accent
-                      Behavior on width {
-                        NumberAnimation {
-                          duration: Style.duration(150)
-                          easing.type: Easing.OutCubic
-                        }
-                      }
-                    }
-
-                    MouseArea {
-                      id: settingsTabMouse
-                      anchors.fill: parent
-                      hoverEnabled: true
-                      cursorShape: Qt.PointingHandCursor
-                      onClicked: {
-                        root.settingsTab = settingsTabItem.modelData.id
-                        root.settingsIndex = 0
-                        root.cursorActive = true
-                        root.typingPrefix = false
-                      }
-                    }
-                  }
+                Rectangle {
+                  width: 2.6 * heroMark.unit
+                  height: 7 * heroMark.unit
+                  radius: 1 * heroMark.unit
+                  color: root.foreground
                 }
               }
 
               Rectangle {
-                anchors.bottom: parent.bottom
-                width: parent.width
-                height: 1
-                color: root.hairline
+                visible: !root.paused
+                x: heroScreen.x + (heroScreen.width - width) / 2
+                y: heroScreen.y + (heroScreen.height - height) / 2
+                width: 6.4 * heroMark.unit
+                height: width
+                radius: width / 2
+                color: heroMark.markColor
+
+                SequentialAnimation on opacity {
+                  running: root.status === "recording" && !Style.reduceMotion
+                  loops: Animation.Infinite
+                  NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+                  NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+                }
+              }
+
+              Rectangle {
+                x: 9.5 * heroMark.unit
+                y: 21 * heroMark.unit
+                width: 5 * heroMark.unit
+                height: Math.max(1, 1.6 * heroMark.unit)
+                radius: Math.max(0.5, 0.8 * heroMark.unit)
+                color: root.foreground
+                opacity: 0.55
               }
             }
+          }
+          title: root.page === "history" ? "Reel history" : "Reel"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          trailingControl: Component {
+            Row {
+              spacing: Style.space(2)
+
+              Item {
+                width: Style.space(60)
+                height: Style.space(22)
+                anchors.verticalCenter: parent.verticalCenter
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: height / 2
+                  color: root.restFill
+                  border.width: 1
+                  border.color: root.hairline
+                  opacity: root.active ? 1 : 0
+                  Behavior on opacity {
+                    NumberAnimation { duration: Style.duration(120) }
+                  }
+
+                  Row {
+                    anchors.centerIn: parent
+                    spacing: Style.space(5)
+
+                    Rectangle {
+                      width: Style.space(6)
+                      height: width
+                      radius: width / 2
+                      color: root.paused ? root.secondary : root.accent
+                      anchors.verticalCenter: parent.verticalCenter
+
+                      SequentialAnimation on opacity {
+                        running: root.active && !root.paused && !Style.reduceMotion
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                        NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                      }
+                    }
+
+                    Text {
+                      textFormat: Text.PlainText
+                      text: Model.clock(root.elapsed)
+                      color: root.paused ? root.secondary : root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: true
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+                }
+              }
+
+              PanelActionButton {
+                iconText: "󰋚"
+                tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
+                foreground: root.page === "history" ? root.accent : root.foreground
+                fontFamily: root.fontFamily
+                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
+                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
+                    && root.hoverSection === "")
+                onHovered: function(on) {
+                  root.setRowHover("header", 0, on)
+                }
+                onClicked: {
+                  root.cursorActive = true
+                  root.focusSection = "header"
+                  root.selectedIndex = 0
+                  root.toggleHistory()
+                }
+              }
+            }
+          }
+        }
+
+        // ---------- primary actions ----------
+
+        Row {
+          Layout.fillWidth: true
+          visible: root.page === "home"
+          spacing: Style.space(8)
+
+          ActionButton {
+            width: (parent.width - parent.spacing * 2) / 3
+            rowIndex: 0
+            label: root.primaryLabel()
+            glyph: root.primaryGlyph()
+            tone: root.active || root.starting ? "urgent" : "accent"
+            primary: true
+            enabled: true
+            hint: "r"
+          }
+
+          ActionButton {
+            width: (parent.width - parent.spacing * 2) / 3
+            rowIndex: 1
+            label: root.paused ? "Resume" : "Pause"
+            glyph: root.paused ? "󰐊" : "󰏤"
+            tone: "neutral"
+            enabled: root.active
+            hint: "p"
+          }
+
+          ActionButton {
+            width: (parent.width - parent.spacing * 2) / 3
+            rowIndex: 2
+            label: root.discardArmed ? "Discard?" : "Discard"
+            glyph: "󰆴"
+            tone: "neutral"
+            enabled: root.active
+            hint: "d"
+          }
+        }
+
+        PanelSeparator {
+          Layout.fillWidth: true
+          visible: root.page === "home"
+          foreground: root.foreground
+        }
+
+        ScrollView {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          id: scrollArea
+          clip: true
+          ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+          ScrollBar.vertical.policy: ScrollBar.AlwaysOff
+          Binding {
+            target: scrollArea.contentItem
+            property: "interactive"
+            value: contentColumn.implicitHeight > scrollArea.height
+          }
+
+          Column {
+            id: contentColumn
+            width: scrollArea.availableWidth
+            spacing: Style.space(10)
+
+            // ---------- settings ----------
 
             Column {
-              id: settingsBody
+              visible: root.page === "home"
               width: parent.width
               spacing: Style.space(12)
 
-              Repeater {
-                model: root.settingsTab === "keys" ? [] : root.settingsRows()
-
-              SettingRow {
-                required property var modelData
-                required property int index
+              Item {
                 width: parent.width
-                settingKey: modelData.key
-                label: modelData.label
-                glyph: modelData.glyph
-                kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
-                infoValue: modelData.value === undefined ? "" : String(modelData.value)
-                rowIndex: index
+                implicitHeight: Style.space(30)
+
+                Row {
+                  id: settingsTabRow
+                  anchors.fill: parent
+                  spacing: 0
+
+                  Repeater {
+                    model: root.settingsTabs
+
+                    delegate: Item {
+                      id: settingsTabItem
+                      required property var modelData
+                      required property int index
+                      width: settingsTabRow.width / root.settingsTabs.length
+                      height: settingsTabRow.height
+
+                      readonly property bool active: root.settingsTab === modelData.id
+                      readonly property bool hot: settingsTabMouse.containsMouse
+
+                      Row {
+                        anchors.centerIn: parent
+                        spacing: Style.space(6)
+
+                        Text {
+                          textFormat: Text.PlainText
+                          text: settingsTabItem.modelData.label
+                          color: settingsTabItem.active ? root.accent
+                            : settingsTabItem.hot ? root.foreground : root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.bodySmall
+                          font.letterSpacing: 0.2
+                          font.bold: settingsTabItem.active
+                          anchors.verticalCenter: parent.verticalCenter
+                          Behavior on color {
+                            ColorAnimation { duration: Style.duration(150) }
+                          }
+                        }
+
+                        KeyHintChip {
+                          label: String(settingsTabItem.index + 1)
+                          active: settingsTabItem.active
+                          anchors.verticalCenter: parent.verticalCenter
+                        }
+                      }
+
+                      Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 1
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: Math.max(0, parent.width - Style.space(16))
+                        height: 1
+                        color: Util.alpha(root.foreground, 0.35)
+                        opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
+                        Behavior on opacity {
+                          NumberAnimation { duration: Style.duration(120) }
+                        }
+                      }
+
+                      Rectangle {
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 1
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        z: 1
+                        width: settingsTabItem.active
+                          ? Math.max(0, parent.width - Style.space(16)) : 0
+                        height: Math.max(1, Style.space(2))
+                        color: root.accent
+                        Behavior on width {
+                          NumberAnimation {
+                            duration: Style.duration(150)
+                            easing.type: Easing.OutCubic
+                          }
+                        }
+                      }
+
+                      MouseArea {
+                        id: settingsTabMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                          root.settingsTab = settingsTabItem.modelData.id
+                          root.settingsIndex = 0
+                          root.cursorActive = true
+                          root.typingPrefix = false
+                        }
+                      }
+                    }
+                  }
+                }
+
+                Rectangle {
+                  anchors.bottom: parent.bottom
+                  width: parent.width
+                  height: 1
+                  color: root.hairline
+                }
               }
-            }
 
-              Repeater {
-                model: root.settingsTab === "keys" ? root.shortcutRows : []
+              Column {
+                id: settingsBody
+                width: parent.width
+                spacing: Style.space(12)
 
-                ShortcutRow {
+                Repeater {
+                  model: root.settingsTab === "keys" ? [] : root.settingsRows()
+
+                SettingRow {
                   required property var modelData
                   required property int index
                   width: parent.width
-                  row: modelData
+                  settingKey: modelData.key
+                  label: modelData.label
+                  glyph: modelData.glyph
+                  kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
+                  infoValue: modelData.value === undefined ? "" : String(modelData.value)
                   rowIndex: index
                 }
               }
 
-            Column {
-              visible: root.settingsTab === "output"
-              width: parent.width
-              spacing: Style.space(4)
+                Repeater {
+                  model: root.settingsTab === "keys" ? root.shortcutRows : []
 
-              PanelSectionHeader {
-                text: "Filename prefix"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-              }
-
-              Rectangle {
-                width: parent.width
-                implicitHeight: Style.space(30)
-                radius: Style.cornerRadius
-                color: root.restFill
-                border.width: 1
-                border.color: prefixInput.activeFocus ? root.accent : root.hairline
-                Behavior on border.color {
-                  ColorAnimation { duration: Style.duration(120) }
+                  ShortcutRow {
+                    required property var modelData
+                    required property int index
+                    width: parent.width
+                    row: modelData
+                    rowIndex: index
+                  }
                 }
 
-                TextInput {
-                  id: prefixInput
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(9)
-                  anchors.rightMargin: Style.space(9)
-                  verticalAlignment: TextInput.AlignVCenter
-                  text: root.currentValue("filenamePrefix")
-                  color: root.foreground
-                  selectionColor: root.accent
-                  selectedTextColor: root.inkOn(root.accent)
+              Column {
+                visible: root.settingsTab === "output"
+                width: parent.width
+                spacing: Style.space(4)
+
+                PanelSectionHeader {
+                  text: "Filename prefix"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                }
+
+                Rectangle {
+                  width: parent.width
+                  implicitHeight: Style.space(30)
+                  radius: Style.cornerRadius
+                  color: root.restFill
+                  border.width: 1
+                  border.color: prefixInput.activeFocus ? root.accent : root.hairline
+                  Behavior on border.color {
+                    ColorAnimation { duration: Style.duration(120) }
+                  }
+
+                  TextInput {
+                    id: prefixInput
+                    anchors.fill: parent
+                    anchors.leftMargin: Style.space(9)
+                    anchors.rightMargin: Style.space(9)
+                    verticalAlignment: TextInput.AlignVCenter
+                    text: root.currentValue("filenamePrefix")
+                    color: root.foreground
+                    selectionColor: root.accent
+                    selectedTextColor: root.inkOn(root.accent)
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    selectByMouse: true
+                    clip: true
+                    onActiveFocusChanged: root.typingPrefix = activeFocus
+                    onEditingFinished: root.writeSetting("filenamePrefix", text)
+                  }
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: root.currentValue("filenamePrefix") === ""
+                    ? "Empty uses reel-<date>. The date is added to every take."
+                    : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
+                  color: root.dim
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  selectByMouse: true
-                  clip: true
-                  onActiveFocusChanged: root.typingPrefix = activeFocus
-                  onEditingFinished: root.writeSetting("filenamePrefix", text)
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.WordWrap
+                  width: parent.width
                 }
               }
 
               Text {
+                visible: root.settingsTab === "output"
                 textFormat: Text.PlainText
-                text: root.currentValue("filenamePrefix") === ""
-                  ? "Empty uses reel-<date>. The date is added to every take."
-                  : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
+                text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
                 color: root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
+                elide: Text.ElideMiddle
                 width: parent.width
               }
-            }
-
-            Text {
-              visible: root.settingsTab === "output"
-              textFormat: Text.PlainText
-              text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideMiddle
-              width: parent.width
-            }
-            }
-          }
-
-          // ---------- history page ----------
-
-          Column {
-            width: parent.width
-            visible: root.page === "history" && root.visibleRecents.length > 0
-            spacing: Style.space(8)
-
-            Item {
-              width: parent.width
-              implicitHeight: Math.max(takesHeader.implicitHeight, takesHint.implicitHeight)
-
-              PanelSectionHeader {
-                id: takesHeader
-                text: root.visibleRecents.length === 0
-                  ? "No takes yet"
-                  : root.visibleRecents.length === 1
-                    ? "1 take"
-                    : root.visibleRecents.length + " takes"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Text {
-                id: takesHint
-                textFormat: Text.PlainText
-                text: root.visibleRecents.length > 0
-                  ? "enter opens · t cuts · a actions · x trashes"
-                  : "takes appear here after the first recording"
-                color: root.secondary
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
               }
             }
 
-            OpenFolderRow {
+            // ---------- history page ----------
+
+            Column {
               width: parent.width
-              rowIndex: 0
-            }
+              visible: root.page === "history" && root.visibleRecents.length > 0
+              spacing: Style.space(8)
 
-            Repeater {
-              id: takesRepeater
-              model: root.visibleRecents
-
-              TakeRow {
-                required property var modelData
-                required property int index
+              Item {
                 width: parent.width
-                row: modelData
-                rowIndex: index + 1
+                implicitHeight: Math.max(takesHeader.implicitHeight, takesHint.implicitHeight)
+
+                PanelSectionHeader {
+                  id: takesHeader
+                  text: root.visibleRecents.length === 0
+                    ? "No takes yet"
+                    : root.visibleRecents.length === 1
+                      ? "1 take"
+                      : root.visibleRecents.length + " takes"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: takesHint
+                  textFormat: Text.PlainText
+                  text: root.visibleRecents.length > 0
+                    ? "enter opens · t cuts · a actions · x trashes"
+                    : "takes appear here after the first recording"
+                  color: root.secondary
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              OpenFolderRow {
+                width: parent.width
+                rowIndex: 0
+              }
+
+              Repeater {
+                id: takesRepeater
+                model: root.visibleRecents
+
+                TakeRow {
+                  required property var modelData
+                  required property int index
+                  width: parent.width
+                  row: modelData
+                  rowIndex: index + 1
+                }
               }
             }
           }
-
-
         }
       }
 
@@ -1879,35 +1884,10 @@ Panel {
         onHoveredChanged: if (!hovered) root.clearScrollEdge()
       }
 
-      Rectangle {
-        anchors.top: parent.top
-        anchors.horizontalCenter: parent.horizontalCenter
-        z: 41
-        width: Style.space(36)
-        height: Math.max(1, Style.space(2))
-        color: root.accent
-        opacity: root.scrollTopHover ? 1 : 0
-        Behavior on opacity {
-          NumberAnimation { duration: Style.duration(120) }
-        }
-      }
-
-      Rectangle {
-        anchors.bottom: parent.bottom
-        anchors.horizontalCenter: parent.horizontalCenter
-        z: 41
-        width: Style.space(36)
-        height: Math.max(1, Style.space(2))
-        color: root.accent
-        opacity: root.scrollBottomHover ? 1 : 0
-        Behavior on opacity {
-          NumberAnimation { duration: Style.duration(120) }
-        }
-      }
-
       Item {
         id: historyEmpty
         anchors.fill: parent
+        anchors.topMargin: scrollArea.y
         visible: root.page === "history" && root.visibleRecents.length === 0
         z: 20
 
