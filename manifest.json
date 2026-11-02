@@ -28,7 +28,7 @@
       "microphoneAudio": "off",
       "cursor": "on",
       "webcam": "off",
-      "countdown": 3,
+      "countdown": 0,
       "fps": 60,
       "quality": "very_high",
       "codec": "auto",
@@ -96,7 +96,7 @@
           5,
           10
         ],
-        "defaultValue": 3,
+        "defaultValue": 0,
         "description": "Seconds shown before the recording starts."
       },
       {
