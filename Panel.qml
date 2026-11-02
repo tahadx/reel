@@ -128,6 +128,7 @@ Panel {
   property bool typingPrefix: false
   property bool scrollTopHover: false
   property bool scrollBottomHover: false
+  property int edgeScrollTicks: 0
   property string focusSection: "primary"
   property int selectedIndex: 0
   property string hoverSection: ""
@@ -1037,6 +1038,28 @@ Panel {
     if (flick && flick.contentY !== undefined) flick.contentY = 0
   }
 
+  function updateScrollEdge(y) {
+    var area = root.scrollArea()
+    var flick = area ? area.contentItem : null
+    if (!flick || (flick.contentHeight || 0) <= flick.height) {
+      root.clearScrollEdge()
+      return
+    }
+    var edge = Style.space(64)
+    var maxY = flick.contentHeight - flick.height
+    var top = y < edge && flick.contentY > 0
+    var bottom = y > flick.height - edge && flick.contentY < maxY
+    if (top !== root.scrollTopHover || bottom !== root.scrollBottomHover) root.edgeScrollTicks = 0
+    root.scrollTopHover = top
+    root.scrollBottomHover = bottom
+  }
+
+  function clearScrollEdge() {
+    root.scrollTopHover = false
+    root.scrollBottomHover = false
+    root.edgeScrollTicks = 0
+  }
+
   function edgeScrollStep() {
     var area = root.scrollArea()
     var flick = area ? area.contentItem : null
@@ -1045,13 +1068,16 @@ Panel {
     if (maxY <= 0) return
     if (root.scrollTopHover && flick.contentY <= 0) {
       root.scrollTopHover = false
+      root.edgeScrollTicks = 0
       return
     }
     if (root.scrollBottomHover && flick.contentY >= maxY) {
       root.scrollBottomHover = false
+      root.edgeScrollTicks = 0
       return
     }
-    var step = Style.space(3)
+    root.edgeScrollTicks += 1
+    var step = Style.space(3) + Math.min(Style.space(4), Math.floor(root.edgeScrollTicks / 10))
     if (root.scrollTopHover) flick.contentY = Math.max(0, flick.contentY - step)
     else if (root.scrollBottomHover) flick.contentY = Math.min(maxY, flick.contentY + step)
   }
@@ -1804,33 +1830,36 @@ Panel {
         }
       }
 
-      MouseArea {
-        id: topScrollEdge
-        anchors.top: scrollArea.top
-        anchors.left: scrollArea.left
-        anchors.right: scrollArea.right
-        height: Style.space(34)
-        hoverEnabled: true
-        acceptedButtons: Qt.NoButton
-        enabled: scrollArea.contentItem
-          && scrollArea.contentItem.contentHeight > scrollArea.height
-          && scrollArea.contentItem.contentY > 0
-        onContainsMouseChanged: root.scrollTopHover = containsMouse
+      HoverHandler {
+        id: scrollEdgeHover
+        onPointChanged: root.updateScrollEdge(point.position.y)
+        onHoveredChanged: if (!hovered) root.clearScrollEdge()
       }
 
-      MouseArea {
-        id: bottomScrollEdge
-        anchors.bottom: scrollArea.bottom
-        anchors.left: scrollArea.left
-        anchors.right: scrollArea.right
-        height: Style.space(34)
-        hoverEnabled: true
-        acceptedButtons: Qt.NoButton
-        enabled: scrollArea.contentItem
-          && scrollArea.contentItem.contentHeight > scrollArea.height
-          && scrollArea.contentItem.contentY
-            < scrollArea.contentItem.contentHeight - scrollArea.contentItem.height
-        onContainsMouseChanged: root.scrollBottomHover = containsMouse
+      Rectangle {
+        anchors.top: parent.top
+        anchors.horizontalCenter: parent.horizontalCenter
+        z: 41
+        width: Style.space(36)
+        height: Math.max(1, Style.space(2))
+        color: root.accent
+        opacity: root.scrollTopHover ? 1 : 0
+        Behavior on opacity {
+          NumberAnimation { duration: Style.duration(120) }
+        }
+      }
+
+      Rectangle {
+        anchors.bottom: parent.bottom
+        anchors.horizontalCenter: parent.horizontalCenter
+        z: 41
+        width: Style.space(36)
+        height: Math.max(1, Style.space(2))
+        color: root.accent
+        opacity: root.scrollBottomHover ? 1 : 0
+        Behavior on opacity {
+          NumberAnimation { duration: Style.duration(120) }
+        }
       }
 
       // ---------- take actions menu ----------
