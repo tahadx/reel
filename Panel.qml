@@ -1367,7 +1367,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyboardPanel.loadedContent
-    contentWidth: keyboardPanel.fittedContentWidth(Style.space(480))
+    contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
     contentHeight: Style.space(450)
 
     content: ReelKeyCatcher {
