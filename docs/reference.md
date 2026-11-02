@@ -108,7 +108,7 @@ by older Reel versions are moved into the cache when history is first read.
 `install.sh` can add these to `~/.config/hypr/bindings.lua`. Answer `y` at the
 prompt, run the installer with `--yes`, or add the marked block yourself and
 run `hyprctl reload`. Use `--no-binds` to skip them. The generated binds use
-keycodes, so they keep working after switching keyboard layouts.
+key names, so they follow the active keyboard layout.
 
 | Shortcut | Action |
 | --- | --- |

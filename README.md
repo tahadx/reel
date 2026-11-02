@@ -93,8 +93,8 @@ Touchpad pinch zoom needs no shortcut: Reel registers it at the start of each
 take. The zoom binds only act while a take is recording.
 
 They are added as a marked block in `~/.config/hypr/bindings.lua`; run
-`hyprctl reload` after adding them. The block uses keycodes, so the shortcuts
-keep working after switching keyboard layouts. Delete the block to remove them.
+`hyprctl reload` after adding them. The block uses key names, so the shortcuts
+follow the active keyboard layout. Delete the block to remove them.
 
 If `~/.local/bin` is not on your `PATH`, add it.
 

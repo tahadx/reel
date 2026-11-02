@@ -8,14 +8,11 @@
   "description": "Screen recorder for Omarchy: record a window, area, or monitor, with pause, webcam, audio, and recording history.",
   "kinds": [
     "bar-widget",
-    "service",
-    "overlay"
+    "service"
   ],
-  "keepLoaded": true,
   "entryPoints": {
     "barWidget": "Panel.qml",
-    "service": "Service.qml",
-    "overlay": "Countdown.qml"
+    "service": "Service.qml"
   },
   "barWidget": {
     "displayName": "Reel",

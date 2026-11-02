@@ -3333,6 +3333,8 @@ Panel {
 
   // ---------- IPC ---------------------------------------------------------
 
+  Countdown { }
+
   IpcHandler {
     target: root.ipcTarget
 

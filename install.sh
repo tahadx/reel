@@ -101,10 +101,10 @@ else
   BIND_BLOCK=$(
     cat <<'LUA'
 -- Reel: begin. Written by install.sh; delete this block to remove the binds.
--- Keycodes keep these binds working after switching keyboard layouts.
-o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")
-o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '{}'")
-o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")
+-- Key names follow the active keyboard layout.
+o.bind("SUPER + R", "Reel start/stop", "reel toggle")
+o.bind("SUPER + SHIFT + R", "Reel panel", { panel = "io.github.tahadx.reel" })
+o.bind("SUPER + ALT + O", "Reel pause/resume", "reel toggle-pause")
 
 -- Zoom controls (Apple-style: non-conflicting Ctrl+Alt, mouse wheel, & touchpad gestures)
 o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")
@@ -133,7 +133,8 @@ o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pa
 LUA
   )
   if [[ -f "$BINDINGS" ]] \
-    && grep -qxF -- 'o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind("SUPER + R", "Reel start/stop", "reel toggle")' "$BINDINGS" \
+    && grep -qxF -- 'o.bind("SUPER + SHIFT + R", "Reel panel", { panel = "io.github.tahadx.reel" })' "$BINDINGS" \
     && grep -qxF -- 'o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
     && grep -qxF -- 'o.bind("CTRL + ALT + code:21", "Reel zoom in", "reel zoom-in")' "$BINDINGS" \
     && grep -qxF -- 'o.bind_hold("CTRL + ALT + code:113", "Reel pan left", "reel zoom-pan left --hold", "Reel pan left release", "reel zoom-pan --stop")' "$BINDINGS"; then
