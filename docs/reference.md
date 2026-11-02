@@ -19,7 +19,6 @@ its own:
 | `reel toggle-pause` | Pause or resume |
 | `reel status [--json]` | Print the current state |
 | `reel recent [--json] [--limit N]` | List recent takes; the default limit is 8 |
-| `reel slowmo <file> [0.5\|0.25]` | Write a slow-motion copy; the default factor is 0.5 |
 | `reel trash <file>` | Move a take to the trash |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
@@ -38,7 +37,6 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--cursor` | `on`, `off` | `on` |
 | `--webcam` | `off`, `small`, `medium`, `large` | `off` |
 | `--webcam-device` | camera path, such as `/dev/video0` | first camera |
-| `--slowmo` | `off`, `0.5`, `0.25` | `off` |
 | `--countdown` | seconds, clamped to 0–60 | `0` |
 | `--fps` | `30`, `60`, `120` | `60` |
 | `--quality` | `very_low`, `low`, `medium`, `high`, `very_high`, `ultra` | `very_high` |
@@ -48,16 +46,14 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--output-dir` | folder path; `~` expands | XDG Videos `/Reel` |
 | `--filename-prefix` | text prepended to the timestamp | empty (`reel-`) |
 
-`0x0` keeps the selected crop or monitor at native size. Enabling slow motion
-raises the capture rate to 120 fps when needed, then retimes video and audio in
-the save pass. `--microphone-audio` also has the alias `--mic`, and `--slowmo`
-also accepts `0.5x`/`half` and `0.25x`/`quarter`. `reel preview --note-only`
-resolves the monitor and note without writing a still.
+`0x0` keeps the selected crop or monitor at native size.
+`--microphone-audio` also has the alias `--mic`.
+`reel preview --note-only` resolves the monitor and note without writing a still.
 
 Examples:
 
 ```sh
-reel start --slowmo 0.5 --countdown 0
+reel start --countdown 0
 reel start --microphone-audio on
 reel toggle-pause
 reel stop
@@ -80,7 +76,7 @@ settings there before the next take, so a change made in the panel is what
 ```sh
 reel config path
 reel config set filenamePrefix Demo
-reel config apply '{"slowmo": "0.5"}'
+reel config apply '{"fps": 60}'
 ```
 
 If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
@@ -205,9 +201,6 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **A take has no audio** — takes shorter than 0.8 seconds are saved silent
   rather than failing the loudness pass. For longer takes, check that the
   selected desktop-output or microphone source exists.
-- **Slow motion looks like normal speed** — slow motion needs a 120 fps capture.
-  Reel raises the capture rate automatically when the setting is enabled.
-  Existing takes can be converted with `reel slowmo <file> 0.5`.
 - **Zoom shortcuts do nothing** — zoom only acts while a take is recording, and
   the `Ctrl + Alt` binds are optional: re-run `install.sh` after an update and
   accept the shortcut prompt (or add the block by hand). Touchpad pinch does

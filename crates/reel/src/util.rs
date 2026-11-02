@@ -256,12 +256,6 @@ pub fn notifications_on(paths: &Paths) -> bool {
     is_on(&crate::config::cfg(paths, "notifications", "off"))
 }
 
-pub fn file_stem_name(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().to_string())
-        .unwrap_or_default()
-}
-
 /// Spawn the internal save pass without keeping the caller alive.
 // The fields all come from one finished take; grouping them adds a type that
 // would be constructed only here.
@@ -269,7 +263,6 @@ pub fn file_stem_name(path: &Path) -> String {
 pub fn spawn_finalize(
     paths: &Paths,
     file: &Path,
-    slowmo: &str,
     preview: &std::path::Path,
     started_at: i64,
     target: &str,
@@ -286,8 +279,6 @@ pub fn spawn_finalize(
         .arg("__finalize")
         .arg("--file")
         .arg(file)
-        .arg("--slowmo")
-        .arg(slowmo)
         .arg("--preview")
         .arg(preview)
         .arg("--started-at")

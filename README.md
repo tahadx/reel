@@ -14,14 +14,11 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Pause and resume without ending the file.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Alt+Scroll`, capped by a configurable zoom depth.
-- Slow motion at half or quarter speed; the save pass retimes video and audio
-  together.
 - Desktop audio, microphone, pointer capture, 30/60/120 fps, quality presets,
   codec and resolution limits, MP4/MKV, and a webcam corner overlay.
-- Live preview of the next take and a bar mark for recording, paused, and
-  saving states.
+- A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
-  menu with slow-motion copy, share, and trash, plus path copy.
+  menu with share and trash, plus path copy.
 - Keyboard-first panel.
 
 ## Requirements
@@ -102,7 +99,8 @@ keep working after switching keyboard layouts. Delete the block to remove them.
 If `~/.local/bin` is not on your `PATH`, add it.
 
 CLI options, files, uninstall, and troubleshooting are in
-[docs/reference.md](docs/reference.md).
+[docs/reference.md](docs/reference.md). The visual language is in
+[docs/ui-design.md](docs/ui-design.md).
 
 ## Usage and keyboard shortcuts
 
@@ -137,7 +135,6 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `a` | Open the selected take's actions menu |
 | `t` | Cut the selected take in Omacut |
 | `x` / `Delete` | Trash the selected take (press twice) |
-| `m` | Save a 0.5× slow-motion copy of the selected take |
 | `u` | Share the selected take with LocalSend |
 | `c` | Copy the selected take's path |
 | `o` | Open the recordings folder |

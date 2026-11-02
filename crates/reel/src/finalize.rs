@@ -8,40 +8,6 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// `off`, `0.5x`, `0.25x`.
-pub fn label(value: &str) -> &'static str {
-    match factor(value) {
-        0.5 => "0.5x",
-        0.25 => "0.25x",
-        _ => "off",
-    }
-}
-
-/// `1`, `0.5`, `0.25` — the number used by ffmpeg.
-pub fn factor_str(value: &str) -> &'static str {
-    match factor(value) {
-        0.5 => "0.5",
-        0.25 => "0.25",
-        _ => "1",
-    }
-}
-
-pub fn factor(value: &str) -> f64 {
-    match value.to_ascii_lowercase().as_str() {
-        "0.5" | "0.5x" | "half" => 0.5,
-        "0.25" | "0.25x" | "quarter" => 0.25,
-        _ => 1.0,
-    }
-}
-
-fn atempo(value: &str) -> Option<&'static str> {
-    match factor(value) {
-        0.5 => Some("atempo=0.5"),
-        0.25 => Some("atempo=0.5,atempo=0.5"),
-        _ => None,
-    }
-}
-
 pub fn make_preview(file: &Path, preview: &Path) -> bool {
     if !file.is_file() {
         return false;
@@ -149,7 +115,6 @@ fn valid_video(file: &Path) -> bool {
 pub fn finalize_video(
     paths: &Paths,
     file: &Path,
-    slowmo: &str,
     output: Option<&Path>,
 ) -> Result<()> {
     if !file.is_file() {
@@ -161,15 +126,7 @@ pub fn finalize_video(
         .unwrap_or_default();
     let work = work_path(file, output);
 
-    let factor = factor(slowmo);
-    let mut needs_video_reencode = false;
-    let mut video_filter = String::new();
-    if factor != 1.0 {
-        needs_video_reencode = true;
-        video_filter = format!("setpts={:.4}*PTS", 1.0 / factor);
-    } else if first_gop_has_discard(file) {
-        needs_video_reencode = true;
-    }
+    let needs_video_reencode = first_gop_has_discard(file);
 
     let mut audio_present = util::has_audio_stream(file);
     let src_duration = util::duration_of(file);
@@ -185,13 +142,9 @@ pub fn finalize_video(
         }
     }
 
-    let mut audio_filter = String::from(
+    let audio_filter = String::from(
         "volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05,loudnorm=I=-14:TP=-1.5:LRA=11",
     );
-    if let Some(atempo) = atempo(slowmo) {
-        audio_filter.push(',');
-        audio_filter.push_str(atempo);
-    }
 
     let attempt = |use_audio: bool| -> bool {
         let mut args: Vec<String> = vec![
@@ -202,14 +155,6 @@ pub fn finalize_video(
             file.display().to_string(),
         ];
         if needs_video_reencode {
-            if !video_filter.is_empty() {
-                args.extend([
-                    "-vf".into(),
-                    video_filter.clone(),
-                    "-fps_mode".into(),
-                    "vfr".into(),
-                ]);
-            }
             args.extend([
                 "-c:v".into(),
                 "libx264".into(),
@@ -301,7 +246,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     // Render the thumbnail before the save pass. It comes from the raw capture
     // either way, and generating it first means history keeps an image even if
-    // the save (a slow re-encode with slow motion) is interrupted. An existing
+    // the save is interrupted. An existing
     // cache file from an earlier pass is reused.
     let mut preview = args.preview;
     if preview.is_empty() || !Path::new(&preview).is_file() {
@@ -314,7 +259,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     }
 
     let mut error = String::new();
-    if let Err(err) = finalize_video(paths, &file, &args.slowmo, None) {
+    if let Err(err) = finalize_video(paths, &file, None) {
         let _ = err;
         error = "The take was saved, but the final pass failed.".into();
     }
@@ -332,7 +277,6 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         "size": size,
         "startedAt": args.started_at,
         "finishedAt": paths::now_secs(),
-        "slowmo": label(&args.slowmo),
         "error": error,
     });
     paths::write_atomic(&paths.last, &serde_json::to_string(&last)?)?;

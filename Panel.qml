@@ -67,7 +67,6 @@ Panel {
     "microphoneAudio": "off",
     "cursor": "on",
     "webcam": "off",
-    "slowmo": "off",
     "countdown": 0,
     "fps": 60,
     "quality": "very_high",
@@ -87,7 +86,6 @@ Panel {
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
-    { key: "slowmo", label: "Slow motion", glyph: "󰔟" },
     { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
@@ -105,7 +103,6 @@ Panel {
     { keys: "s", what: "focus the settings tabs" },
     { keys: "a", what: "open the take actions menu" },
     { keys: "x / delete", what: "trash the selected take" },
-    { keys: "m", what: "make a slow-motion copy" },
     { keys: "u", what: "share the selected take" },
     { keys: "c", what: "copy the selected take's path" },
     { keys: "o", what: "open the recordings folder" },
@@ -182,7 +179,6 @@ Panel {
   readonly property var takeMenuItems: [
     { key: "open", label: "Open", glyph: "󰐊", shortcut: "Enter" },
     { key: "cut", label: "Cut in Omacut", glyph: "󰆐", shortcut: "t" },
-    { key: "slowmo", label: "Slow motion", glyph: "󰔟", shortcut: "m" },
     { key: "share", label: "Share", glyph: "󰒗", shortcut: "u" },
     {
       key: "trash",
@@ -264,7 +260,6 @@ Panel {
     case "microphoneAudio": return ["on", "off"]
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
-    case "slowmo": return ["off", "0.5", "0.25"]
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
     case "quality": return ["very_low", "low", "medium", "high", "very_high", "ultra"]
@@ -324,8 +319,6 @@ Panel {
       return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
-    case "slowmo":
-      return value === "off" ? "Off" : value + "x"
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -478,7 +471,6 @@ Panel {
       "--cursor", root.currentValue("cursor"),
       "--webcam", root.currentValue("webcam"),
       "--webcam-device", root.valueString("webcamDevice", ""),
-      "--slowmo", root.currentValue("slowmo"),
       "--countdown", String(root.currentValue("countdown")),
       "--fps", String(root.currentValue("fps")),
       "--quality", root.currentValue("quality"),
@@ -584,14 +576,6 @@ Panel {
     root.setNotice("Path copied.")
   }
 
-  function slowmo(row) {
-    if (!row || !row.path) return
-    if (slowmoProc.running) return
-    slowmoProc.command = ["reel", "slowmo", String(row.path), "0.5"]
-    slowmoProc.running = true
-    root.setNotice("Building a half-speed copy…")
-  }
-
   function share(row) {
     if (!row || !row.path) return
     if (shareProc.running) return
@@ -651,9 +635,6 @@ Panel {
     } else if (key === "cut") {
       root.closeTakeMenu()
       root.cutTake(row)
-    } else if (key === "slowmo") {
-      root.closeTakeMenu()
-      root.slowmo(row)
     } else if (key === "share") {
       root.closeTakeMenu()
       root.share(row)
@@ -781,11 +762,6 @@ Panel {
 
   function trashSelected() {
     root.trashTake(root.selectedTake())
-  }
-
-  function slowmoSelected() {
-    var row = root.selectedTake()
-    if (row) root.slowmo(row)
   }
 
   function cutSelected() {
@@ -960,7 +936,6 @@ Panel {
     else if (key === "p") root.togglePause()
     else if (key === "d") root.discard()
     else if (key === "o") root.openFolder()
-    else if (key === "m") root.slowmoSelected()
     else if (key === "t") root.cutSelected()
     else if (key === "u") root.shareSelected()
     else if (key === "a") {
@@ -1368,7 +1343,7 @@ Panel {
     open: root.opened
     focusTarget: keyboardPanel.loadedContent
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
-    contentHeight: Style.space(450)
+    contentHeight: Style.space(410)
 
     content: ReelKeyCatcher {
       id: keyCatcher
@@ -3280,19 +3255,6 @@ Panel {
         root.setNotice(message.replace(/^reel:\s*/, "") || "The recording could not be stopped.", true)
       }
       root.cancelling = false
-      if (root.service) root.service.refresh()
-    }
-  }
-
-  Process {
-    id: slowmoProc
-    running: false
-    stdout: StdioCollector { waitForEnd: true }
-    stderr: StdioCollector { id: slowmoErr; waitForEnd: true }
-    onExited: function(code) {
-      var message = String(slowmoErr.text || "").trim()
-      if (code === 0) root.setNotice("Slow-motion copy saved.")
-      else root.setNotice(message.replace(/^reel:\s*/, "") || "The slow-motion copy failed.", true)
       if (root.service) root.service.refresh()
     }
   }

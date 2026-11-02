@@ -1,6 +1,5 @@
 use crate::cli::StartArgs;
 use crate::config;
-use crate::finalize::{factor_str, label};
 use crate::paths::{self, Lock, Paths};
 use crate::state;
 use crate::target;
@@ -23,7 +22,6 @@ struct Settings {
     cursor: bool,
     webcam: String,
     webcam_device: String,
-    slowmo: String,
     countdown: i64,
     fps: i64,
     quality: String,
@@ -44,7 +42,6 @@ impl Settings {
             "cursor": self.cursor,
             "webcam": self.webcam,
             "webcamDevice": self.webcam_device,
-            "slowmo": self.slowmo,
             "countdown": self.countdown,
             "fps": self.fps,
             "quality": self.quality,
@@ -124,11 +121,6 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         &["off", "small", "medium", "large"],
     );
     let webcam_device = effective(&options.webcam_device, &stored, "webcamDevice", "");
-    let slowmo = util::pick_choice(
-        label(&effective(&options.slowmo, &stored, "slowmo", "off")),
-        "off",
-        &["off", "0.5x", "0.25x"],
-    );
     let countdown =
         util::at_least_int(&effective(&options.countdown, &stored, "countdown", "0"), 0).min(60);
     let fps = util::pick_choice(
@@ -185,7 +177,6 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         cursor,
         webcam,
         webcam_device,
-        slowmo,
         countdown,
         fps,
         quality,
@@ -579,12 +570,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         &settings.container,
         &settings.filename_prefix,
     );
-    let slowmo_value = factor_str(&settings.slowmo);
-    let capture_fps = if slowmo_value != "1" && settings.fps < 120 {
-        120
-    } else {
-        settings.fps
-    };
+    let capture_fps = settings.fps;
 
     let mut capture: Vec<String> = vec![
         "-w".into(),
@@ -660,10 +646,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} slowmo={} cursor={} output={}",
+            "capture: target={} fps={} cursor={} output={}",
             target,
             capture_fps,
-            slowmo_value,
             if settings.cursor { "on" } else { "off" },
             file
         ),
@@ -796,7 +781,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "monitor": &choice.monitor,
                 "quality": settings.quality,
                 "codec": settings.codec,
-                "slowmo": settings.slowmo,
                 "desktopAudio": settings.desktop,
                 "microphoneAudio": settings.mic,
                 "cursor": settings.cursor,
@@ -958,14 +942,13 @@ pub fn toggle_pause(paths: &Paths) -> Result<()> {
 }
 
 pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
-    let (status, pid, file, slowmo, started_at, target, target_kind, target_label);
+    let (status, pid, file, started_at, target, target_kind, target_label);
     {
         let _lock = Lock::acquire(paths)?;
         let current = state::read_or_idle(paths);
         status = state::field_str(&current, "status").unwrap_or_default();
         pid = state::field_i64(&current, "pid").unwrap_or(0) as i32;
         file = state::field_str(&current, "file").unwrap_or_default();
-        slowmo = state::field_str(&current, "slowmo").unwrap_or_else(|| "off".into());
         started_at = state::field_i64(&current, "startedAt").unwrap_or_else(paths::now_secs);
         target = state::field_str(&current, "target").unwrap_or_default();
         target_kind = state::field_str(&current, "targetKind").unwrap_or_default();
@@ -1050,7 +1033,6 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     let job = util::spawn_finalize(
         paths,
         Path::new(&file),
-        &slowmo,
         &preview,
         started_at,
         &target,
@@ -1096,7 +1078,6 @@ mod tests {
             cursor: true,
             webcam: "off".into(),
             webcam_device: String::new(),
-            slowmo: "off".into(),
             countdown: 3,
             fps: 60,
             quality: "very_high".into(),

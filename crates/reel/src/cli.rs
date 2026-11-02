@@ -43,12 +43,6 @@ pub enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
-    /// Write a half-speed or quarter-speed copy of a take.
-    Slowmo {
-        file: PathBuf,
-        #[arg(default_value = "0.5")]
-        factor: String,
-    },
     /// Move a take to the trash.
     Trash { file: PathBuf },
     /// Read or write the settings file.
@@ -135,8 +129,6 @@ pub struct StartArgs {
     #[arg(long = "webcam-device")]
     pub webcam_device: Option<String>,
     #[arg(long)]
-    pub slowmo: Option<String>,
-    #[arg(long)]
     pub countdown: Option<String>,
     #[arg(long)]
     pub fps: Option<String>,
@@ -187,8 +179,6 @@ pub enum ConfigAction {
 pub struct FinalizeArgs {
     #[arg(long)]
     pub file: PathBuf,
-    #[arg(long)]
-    pub slowmo: String,
     #[arg(long, default_value = "")]
     pub preview: String,
     #[arg(long = "started-at", default_value_t = 0)]

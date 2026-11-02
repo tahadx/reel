@@ -36,7 +36,6 @@ fn run() -> anyhow::Result<u8> {
         Command::TogglePause => recorder::toggle_pause(&paths)?,
         Command::Status { json } => commands::status(&paths, json)?,
         Command::Recent { json, limit } => commands::recent(&paths, json, limit)?,
-        Command::Slowmo { file, factor } => commands::slowmo(&paths, file, &factor)?,
         Command::Trash { file } => commands::trash(&paths, file)?,
         Command::Config(args) => config::run(&paths, args)?,
         Command::Preview { json, note_only } => commands::preview(&paths, json, note_only)?,

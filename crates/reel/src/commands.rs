@@ -1,5 +1,4 @@
 use crate::config;
-use crate::finalize;
 use crate::paths::{self, Paths};
 use crate::state;
 use crate::util;
@@ -133,48 +132,6 @@ pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
             println!("{}\t{}", take.path.display(), take.duration);
         }
     }
-    Ok(())
-}
-
-pub fn slowmo(paths: &Paths, file: PathBuf, factor: &str) -> Result<()> {
-    if !file.is_file() {
-        anyhow::bail!("Usage: reel slowmo <recording> [0.5|0.25]");
-    }
-    let value = finalize::factor(factor);
-    if value == 1.0 {
-        anyhow::bail!("Slow motion needs 0.5 or 0.25.");
-    }
-    let ext = file
-        .extension()
-        .map(|ext| ext.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let stem = file.with_extension("").display().to_string();
-    let factor = finalize::factor_str(factor);
-    let output = PathBuf::from(format!("{stem}-slowmo-{factor}x.{ext}"));
-    let preview = paths.preview_path(&output);
-
-    finalize::finalize_video(paths, &file, factor, Some(&output))
-        .map_err(|_| anyhow::anyhow!("The slow-motion copy could not be written."))?;
-    let _ = finalize::make_preview(&output, &preview);
-
-    if util::notifications_on(paths) && util::have("omarchy-notification-send") {
-        let mut cmd = Command::new("omarchy-notification-send");
-        cmd.arg("Slow motion saved")
-            .arg(util::file_stem_name(&output))
-            .arg("-t")
-            .arg("8000");
-        if preview.is_file() {
-            cmd.arg("--image").arg(&preview);
-        }
-        cmd.arg("--exec").arg("mpv").arg("--").arg(&output);
-        let _ = cmd
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-
-    println!("{}", output.display());
     Ok(())
 }
 
