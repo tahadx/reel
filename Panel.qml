@@ -133,6 +133,7 @@ Panel {
   property string hoverSection: ""
   property int hoverIndex: -1
   property bool cursorActive: false
+  property bool keyboardScroll: false
   property int settingsIndex: 0
   property string settingsTab: "quick"
   property bool hasOmacut: false
@@ -761,6 +762,7 @@ Panel {
 
   function moveSection(delta) {
     root.clearHover()
+    root.beginKeyboardScroll()
     if (root.focusSection === "settings") {
       root.switchSettingsTab(delta)
       return
@@ -774,6 +776,7 @@ Panel {
 
   function moveCursor(dx, dy) {
     root.clearHover()
+    root.beginKeyboardScroll()
     if (root.focusSection === "settings") {
       root.moveSettings(dy, dx)
       return
@@ -798,6 +801,15 @@ Panel {
     root.moveSection(dy)
   }
 
+  function beginKeyboardScroll() {
+    root.keyboardScroll = true
+    Qt.callLater(root.endKeyboardScroll)
+  }
+
+  function endKeyboardScroll() {
+    root.keyboardScroll = false
+  }
+
   function clearHover() {
     root.hoverSection = ""
     root.hoverIndex = -1
@@ -815,7 +827,9 @@ Panel {
     }
   }
 
-  function adjust(direction) {    if (root.focusSection === "header") {
+  function adjust(direction) {
+    root.beginKeyboardScroll()
+    if (root.focusSection === "header") {
       var headers = root.sectionCount("header")
       root.selectedIndex = (root.selectedIndex + direction + headers) % headers
       return
@@ -934,6 +948,7 @@ Panel {
   function openSettings() {
     if (root.page === "history") root.page = "home"
     root.clearHover()
+    root.beginKeyboardScroll()
     root.focusSection = "settings"
     root.settingsIndex = 0
     root.typingPrefix = false
@@ -973,6 +988,7 @@ Panel {
 
   function switchSettingsTab(delta) {
     root.clearHover()
+    root.beginKeyboardScroll()
     var index = 0
     for (var i = 0; i < root.settingsTabs.length; i++)
       if (root.settingsTabs[i].id === root.settingsTab) index = i
@@ -1027,6 +1043,14 @@ Panel {
     if (!flick) return
     var maxY = Math.max(0, (flick.contentHeight || 0) - flick.height)
     if (maxY <= 0) return
+    if (root.scrollTopHover && flick.contentY <= 0) {
+      root.scrollTopHover = false
+      return
+    }
+    if (root.scrollBottomHover && flick.contentY >= maxY) {
+      root.scrollBottomHover = false
+      return
+    }
     var step = Style.space(3)
     if (root.scrollTopHover) flick.contentY = Math.max(0, flick.contentY - step)
     else if (root.scrollBottomHover) flick.contentY = Math.min(maxY, flick.contentY + step)
@@ -2057,7 +2081,7 @@ Panel {
       && root.focusSection === "primary" && root.selectedIndex === rowIndex
 
     hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(action)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(action)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
@@ -2282,7 +2306,7 @@ Panel {
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
 
     hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(take)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(take)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
@@ -2415,7 +2439,7 @@ Panel {
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
 
     hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(folder)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(folder)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
@@ -2552,7 +2576,7 @@ Panel {
       && root.focusSection === "settings" && root.settingsIndex === rowIndex
 
     hasCursor: pointerHovered || (selected && root.hoverSection === "")
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(shortcut)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(shortcut)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
@@ -2625,7 +2649,7 @@ Panel {
       && root.settingsIndex === rowIndex
 
     hasCursor: pointerHovered || (selected && root.hoverSection === "")
-    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(setting)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
