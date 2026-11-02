@@ -10,7 +10,7 @@ import qs.Commons as Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Reel: a bar widget, recording history, and a small settings page. The recording
+// Reel: a bar widget, recording history, and inline settings tabs. The recording
 // itself belongs to bin/reel; everything here drives it and reads its state.
 Panel {
   id: root
@@ -46,6 +46,11 @@ Panel {
   readonly property color dim: Commons.Color.muted
   readonly property color accentSoft: Util.alpha(root.accent, 0.16)
   readonly property color urgentSoft: Util.alpha(root.urgent, 0.16)
+  readonly property color restFill: Util.alpha(root.foreground, 0.04)
+  readonly property color hoverFill: Util.alpha(root.foreground, 0.08)
+  readonly property color selectedFill: Util.alpha(root.foreground, 0.14)
+  readonly property color hairline: Util.alpha(root.foreground, 0.12)
+  readonly property color strongBorder: Util.alpha(root.foreground, 0.24)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property color onAccent: root.inkOn(root.accent)
   readonly property color onUrgent: root.inkOn(root.urgent)
@@ -80,15 +85,22 @@ Panel {
     { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
-  readonly property var advancedSettingRows: [
-    { key: "fps", label: "Frame rate", glyph: "󰈫" },
-    { key: "quality", label: "Quality", glyph: "󰓅" },
-    { key: "codec", label: "Video codec", glyph: "󰈙" },
-    { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
-    { key: "container", label: "Container", glyph: "󰉋" },
-    { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
-    { key: "panStep", label: "Pan step", glyph: "󰆞" },
-    { key: "notifications", label: "Saved notification", glyph: "󰂚" }
+  readonly property var settingsTabs: [
+    { id: "quick", label: "Quick", rows: root.quickSettingRows },
+    { id: "video", label: "Video", rows: [
+      { key: "fps", label: "Frame rate", glyph: "󰈫" },
+      { key: "quality", label: "Quality", glyph: "󰓅" },
+      { key: "codec", label: "Video codec", glyph: "󰈙" },
+      { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
+      { key: "container", label: "Container", glyph: "󰉋" }
+    ] },
+    { id: "zoom", label: "Zoom", rows: [
+      { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
+      { key: "panStep", label: "Pan step", glyph: "󰆞" }
+    ] },
+    { id: "output", label: "Output", rows: [
+      { key: "notifications", label: "Saved notification", glyph: "󰂚" }
+    ] }
   ]
 
   // ---------- panel state -------------------------------------------------
@@ -100,6 +112,7 @@ Panel {
   property int selectedIndex: 0
   property bool cursorActive: false
   property int settingsIndex: 0
+  property string settingsTab: "quick"
   property bool hasOmacut: false
 
   property string notice: ""
@@ -288,6 +301,8 @@ Panel {
         : "720p"
     case "container":
       return value.toUpperCase()
+    case "outputDir":
+      return Model.shortPath(root.outputDir, root.home)
     default:
       return String(value)
     }
@@ -416,7 +431,6 @@ Panel {
   }
 
   function stateMeta() {
-    if (root.page === "settings") return "s toggles · esc goes back · q closes"
     if (root.page === "history") {
       if (root.visibleRecents.length === 0) return "no takes yet · esc goes back"
       return root.visibleRecents.length + " takes · enter opens · t cuts · a actions · esc goes back"
@@ -700,21 +714,21 @@ Panel {
 
   readonly property var sections: root.page === "history"
     ? ["header", "recents"]
-    : ["header", "primary", "quick"]
+    : ["header", "primary", "settings"]
 
   function sectionCount(section) {
     switch (section) {
-    case "header": return 2
+    case "header": return 1
     case "primary": return 3
-    case "quick": return root.quickSettingRows.length
+    case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
     default: return 0
     }
   }
 
   function moveSection(delta) {
-    if (root.page === "settings") {
-      root.moveSettings(delta, 0)
+    if (root.focusSection === "settings") {
+      root.switchSettingsTab(delta)
       return
     }
     var index = root.sections.indexOf(root.focusSection)
@@ -725,7 +739,7 @@ Panel {
   }
 
   function moveCursor(dx, dy) {
-    if (root.page === "settings") {
+    if (root.focusSection === "settings") {
       root.moveSettings(dy, dx)
       return
     }
@@ -738,7 +752,7 @@ Panel {
       return
     }
     if (dy === 0) return
-    if (root.focusSection === "quick" || root.focusSection === "recents") {
+    if (root.focusSection === "recents") {
       var count = root.sectionCount(root.focusSection)
       var next = root.selectedIndex + dy
       if (next >= 0 && next < count) {
@@ -760,29 +774,18 @@ Panel {
       root.selectedIndex = (root.selectedIndex + direction + count) % count
       return
     }
-    if (root.focusSection === "quick") {
-      var row = root.quickSettingRows[root.selectedIndex]
-      if (row) root.cycleOption(row.key, direction)
-      return
-    }
   }
 
   function activateCursor() {
-    if (root.page === "settings") {
-      root.activateSettings()
-      return
-    }
     switch (root.focusSection) {
     case "header":
-      if (root.selectedIndex === 0) root.toggleHistory()
-      else root.toggleSettings()
+      root.toggleHistory()
       break
     case "primary":
       root.primaryAction(root.selectedIndex)
       break
-    case "quick":
-      var row = root.quickSettingRows[root.selectedIndex]
-      if (row) root.cycleOption(row.key, 1)
+    case "settings":
+      root.activateSettings()
       break
     case "recents":
       if (root.selectedIndex === 0) root.openFolder()
@@ -797,7 +800,7 @@ Panel {
   function onTextKey(text) {
     var key = String(text || "").toLowerCase()
     if (root.takeMenuOpen) return
-    if (root.page === "settings" && root.typingPrefix) return
+    if (root.typingPrefix) return
     if (key === "q") {
       root.close()
       return
@@ -806,7 +809,6 @@ Panel {
       root.toggleSettings()
       return
     }
-    if (root.page === "settings") return
     if (key === "r") root.toggleRecording()
     else if (key === "p") root.togglePause()
     else if (key === "d") root.discard()
@@ -826,7 +828,7 @@ Panel {
   }
 
   function back() {
-    if (root.page === "settings") {
+    if (root.focusSection === "settings") {
       root.closeSettings()
       return
     }
@@ -843,7 +845,7 @@ Panel {
     root.close()
   }
 
-  // ---------- settings page cursor ---------------------------------------
+  // ---------- settings cursor --------------------------------------------
 
   function openHistory() {
     if (root.page === "history") return
@@ -872,18 +874,19 @@ Panel {
   }
 
   function openSettings() {
-    root.page = "settings"
-    root.typingPrefix = false
+    if (root.page === "history") root.page = "home"
+    root.focusSection = "settings"
     root.settingsIndex = 0
+    root.typingPrefix = false
     root.cursorActive = true
     Qt.callLater(root.focusPanelKeys)
   }
 
   function closeSettings() {
-    root.page = "home"
-    root.typingPrefix = false
-    root.focusSection = "header"
+    root.focusSection = "primary"
     root.selectedIndex = 0
+    root.typingPrefix = false
+    root.cursorActive = true
     Qt.callLater(root.focusPanelKeys)
   }
 
@@ -892,12 +895,32 @@ Panel {
   }
 
   function toggleSettings() {
-    if (root.page === "settings") root.closeSettings()
+    if (root.focusSection === "settings") root.closeSettings()
     else root.openSettings()
   }
 
+  function settingsTabData() {
+    for (var i = 0; i < root.settingsTabs.length; i++)
+      if (root.settingsTabs[i].id === root.settingsTab) return root.settingsTabs[i]
+    return root.settingsTabs[0]
+  }
+
+  function settingsRows() {
+    return root.settingsTabData().rows
+  }
+
+  function switchSettingsTab(delta) {
+    var index = 0
+    for (var i = 0; i < root.settingsTabs.length; i++)
+      if (root.settingsTabs[i].id === root.settingsTab) index = i
+    index = (index + delta + root.settingsTabs.length) % root.settingsTabs.length
+    root.settingsTab = root.settingsTabs[index].id
+    root.settingsIndex = 0
+    root.cursorActive = true
+  }
+
   function settingsCount() {
-    return root.advancedSettingRows.length
+    return root.settingsRows().length
   }
 
   function moveSettings(dy, dx) {
@@ -909,15 +932,15 @@ Panel {
       root.settingsIndex = Model.clamp(root.settingsIndex + dy, 0, root.settingsCount() - 1)
       return
     }
-    if (dx !== 0 && root.settingsIndex < root.advancedSettingRows.length) {
-      var row = root.advancedSettingRows[root.settingsIndex]
-      root.cycleOption(row.key, dx)
+    if (dx !== 0) {
+      var row = root.settingsRows()[root.settingsIndex]
+      if (row && row.kind !== "info") root.cycleOption(row.key, dx)
     }
   }
 
   function activateSettings() {
-    var row = root.advancedSettingRows[root.settingsIndex]
-    if (row) root.cycleOption(row.key, 1)
+    var row = root.settingsRows()[root.settingsIndex]
+    if (row && row.kind !== "info") root.cycleOption(row.key, 1)
   }
 
   // ---------- scroll ------------------------------------------------------
@@ -1093,10 +1116,10 @@ Panel {
         color: root.foreground
 
         SequentialAnimation on opacity {
-          running: root.status === "recording" || root.capturing
+          running: (root.status === "recording" || root.capturing) && !Style.reduceMotion
           loops: Animation.Infinite
-          NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
-          NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
         }
       }
 
@@ -1131,7 +1154,7 @@ Panel {
       property alias scrollArea: scrollArea
       implicitHeight: contentColumn.implicitHeight
       anchors.fill: parent
-      blocked: root.page === "settings" && root.typingPrefix
+      blocked: root.typingPrefix
 
       onMoveRequested: function(dx, dy) {
         if (root.takeMenuOpen) root.moveTakeMenu(dy)
@@ -1235,10 +1258,10 @@ Panel {
                   color: heroMark.markColor
 
                   SequentialAnimation on opacity {
-                    running: root.status === "recording"
+                    running: root.status === "recording" && !Style.reduceMotion
                     loops: Animation.Infinite
-                    NumberAnimation { to: 0.3; duration: 700; easing.type: Easing.InOutQuad }
-                    NumberAnimation { to: 1.0; duration: 700; easing.type: Easing.InOutQuad }
+                    NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+                    NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
                   }
                 }
 
@@ -1253,8 +1276,7 @@ Panel {
                 }
               }
             }
-            title: root.page === "settings" ? "Reel settings"
-              : root.page === "history" ? "Reel history" : "Reel"
+            title: root.page === "history" ? "Reel history" : "Reel"
             meta: root.stateMeta()
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -1276,22 +1298,6 @@ Panel {
                     root.selectedIndex = 0
                   }
                   onClicked: root.toggleHistory()
-                }
-
-                PanelActionButton {
-                  iconText: "󰒓"
-                  tooltipText: root.page === "settings" ? "Back to takes (s)" : "Settings (s)"
-                  foreground: root.page === "settings" ? root.accent : root.foreground
-                  fontFamily: root.fontFamily
-                  hasCursor: root.cursorActive && root.focusSection === "header"
-                    && root.selectedIndex === 1
-                  onHovered: function(on) {
-                    if (!on) return
-                    root.cursorActive = true
-                    root.focusSection = "header"
-                    root.selectedIndex = 1
-                  }
-                  onClicked: root.toggleSettings()
                 }
               }
             }
@@ -1326,12 +1332,12 @@ Panel {
 
                 Text {
                   textFormat: Text.PlainText
-                  text: root.paused ? "PAUSED" : (root.finalizing ? "SAVING" : "RECORDING")
-                  color: root.paused ? root.dim : root.urgent
+                  text: root.paused ? "Paused" : (root.finalizing ? "Saving" : "Recording")
+                  color: root.paused || root.finalizing ? root.dim : root.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   font.bold: true
-                  font.letterSpacing: 1.4
+                  font.letterSpacing: 0.4
                 }
 
                 Text {
@@ -1349,15 +1355,11 @@ Panel {
 
           // ---------- notice ----------
 
-          Text {
-            textFormat: Text.PlainText
+          NoticeBar {
+            width: parent.width
             visible: root.page === "home" && root.notice !== ""
             text: root.notice
-            color: root.noticeUrgent ? root.urgent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
-            width: parent.width
+            urgent: root.noticeUrgent
           }
 
           // ---------- primary actions ----------
@@ -1400,6 +1402,8 @@ Panel {
             visible: root.page === "home"
             foreground: root.foreground
           }
+
+  
 
           // ---------- preview ----------
 
@@ -1451,9 +1455,9 @@ Panel {
                     height: (previewRoot.layout ? previewRoot.layout.frameHeight : 0) + 2
                     anchors.horizontalCenter: parent.horizontalCenter
                     radius: Style.cornerRadius
-                    color: Util.alpha(root.foreground, 0.07)
+                    color: root.restFill
                     border.width: 1
-                    border.color: Util.alpha(root.foreground, 0.10)
+                    border.color: root.hairline
                   }
 
                   Item {
@@ -1568,21 +1572,102 @@ Panel {
             }
           }
 
-          // ---------- quick settings ----------
+          // ---------- settings ----------
 
           Column {
-            width: parent.width
             visible: root.page === "home"
-            spacing: Style.space(4)
+            width: parent.width
+            spacing: Style.space(12)
 
-            PanelSectionHeader {
-              text: "Quick settings"
-              foreground: root.foreground
-              fontFamily: root.fontFamily
+            Item {
+              width: parent.width
+              implicitHeight: Style.space(32)
+
+              Row {
+                id: settingsTabRow
+                anchors.fill: parent
+                spacing: 0
+
+                Repeater {
+                  model: root.settingsTabs
+
+                  delegate: Item {
+                    id: settingsTabItem
+                    required property var modelData
+                    required property int index
+                    width: settingsTabRow.width / root.settingsTabs.length
+                    height: settingsTabRow.height
+
+                    readonly property bool active: root.settingsTab === modelData.id
+                    readonly property bool hot: settingsTabMouse.containsMouse
+
+                    Rectangle {
+                      anchors.fill: parent
+                      radius: Style.cornerRadius
+                      color: settingsTabItem.hot && !settingsTabItem.active
+                        ? root.hoverFill : "transparent"
+                      Behavior on color {
+                        ColorAnimation { duration: Style.duration(120) }
+                      }
+                    }
+
+                    Text {
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      text: settingsTabItem.modelData.label
+                      color: settingsTabItem.active ? root.accent
+                        : settingsTabItem.hot ? root.foreground : root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.bold: settingsTabItem.active
+                      Behavior on color {
+                        ColorAnimation { duration: Style.duration(120) }
+                      }
+                    }
+
+                    Rectangle {
+                      anchors.bottom: parent.bottom
+                      anchors.horizontalCenter: parent.horizontalCenter
+                      z: 1
+                      width: settingsTabItem.active
+                        ? Math.max(0, parent.width - Style.space(16)) : 0
+                      height: Math.max(1, Style.space(2))
+                      radius: height / 2
+                      color: root.accent
+                      Behavior on width {
+                        NumberAnimation {
+                          duration: Style.duration(120)
+                          easing.type: Easing.OutCubic
+                        }
+                      }
+                    }
+
+                    MouseArea {
+                      id: settingsTabMouse
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onClicked: {
+                        root.settingsTab = settingsTabItem.modelData.id
+                        root.settingsIndex = 0
+                        root.cursorActive = true
+                        root.typingPrefix = false
+                      }
+                    }
+                  }
+                }
+              }
+
+              Rectangle {
+                anchors.bottom: parent.bottom
+                width: parent.width
+                height: 1
+                color: root.hairline
+              }
             }
 
             Repeater {
-              model: root.quickSettingRows
+              model: root.settingsRows()
 
               SettingRow {
                 required property var modelData
@@ -1591,9 +1676,75 @@ Panel {
                 settingKey: modelData.key
                 label: modelData.label
                 glyph: modelData.glyph
+                kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
+                infoValue: modelData.value === undefined ? "" : String(modelData.value)
                 rowIndex: index
-                quick: true
               }
+            }
+
+            Column {
+              visible: root.settingsTab === "output"
+              width: parent.width
+              spacing: Style.space(4)
+
+              PanelSectionHeader {
+                text: "Filename prefix"
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+
+              Rectangle {
+                width: parent.width
+                implicitHeight: Style.space(34)
+                radius: Style.cornerRadius
+                color: root.restFill
+                border.width: 1
+                border.color: prefixInput.activeFocus ? root.accent : root.hairline
+                Behavior on border.color {
+                  ColorAnimation { duration: Style.duration(120) }
+                }
+
+                TextInput {
+                  id: prefixInput
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(9)
+                  anchors.rightMargin: Style.space(9)
+                  verticalAlignment: TextInput.AlignVCenter
+                  text: root.currentValue("filenamePrefix")
+                  color: root.foreground
+                  selectionColor: root.accent
+                  selectedTextColor: root.inkOn(root.accent)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  selectByMouse: true
+                  clip: true
+                  onActiveFocusChanged: root.typingPrefix = activeFocus
+                  onEditingFinished: root.writeSetting("filenamePrefix", text)
+                }
+              }
+
+              Text {
+                textFormat: Text.PlainText
+                text: root.currentValue("filenamePrefix") === ""
+                  ? "Empty uses reel-<date>. The date is added to every take."
+                  : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
+                width: parent.width
+              }
+            }
+
+            Text {
+              visible: root.settingsTab === "output"
+              textFormat: Text.PlainText
+              text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideMiddle
+              width: parent.width
             }
           }
 
@@ -1653,7 +1804,7 @@ Panel {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.title
                 Behavior on rotation {
-                  NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                  NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
                 }
               }
             }
@@ -1677,7 +1828,7 @@ Panel {
                 { keys: "← →", what: "move across the action row" },
                 { keys: "h / l", what: "move horizontally or cycle the focused option" },
                 { keys: "enter / space", what: "start, stop, save, or open" },
-                { keys: "tab", what: "move between sections" },
+                { keys: "tab", what: "move between sections or settings tabs" },
                 { keys: "r", what: "start or stop a take" },
                 { keys: "p", what: "pause or resume" },
                 { keys: "d", what: "discard the current take" },
@@ -1784,109 +1935,14 @@ Panel {
               }
             }
 
-            Text {
-              textFormat: Text.PlainText
-              visible: root.notice !== ""
+            NoticeBar {
+              width: parent.width
               text: root.notice
-              color: root.noticeUrgent ? root.urgent : root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-              width: parent.width
+              urgent: root.noticeUrgent
             }
           }
 
-          // ---------- settings page ----------
 
-          Column {
-            visible: root.page === "settings"
-            width: parent.width
-            spacing: Style.space(10)
-
-            Repeater {
-              model: root.advancedSettingRows
-
-              SettingRow {
-                required property var modelData
-                required property int index
-                width: parent.width
-                settingKey: modelData.key
-                label: modelData.label
-                glyph: modelData.glyph
-                rowIndex: index
-              }
-            }
-
-            Column {
-              width: parent.width
-              spacing: Style.space(4)
-
-              PanelSectionHeader {
-                text: "Filename prefix"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-              }
-
-              Rectangle {
-                width: parent.width
-                implicitHeight: Style.space(34)
-                radius: Style.cornerRadius
-                color: Util.alpha(root.foreground, 0.06)
-                border.width: prefixInput.activeFocus ? 1 : 0
-                border.color: root.accent
-
-                TextInput {
-                  id: prefixInput
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(9)
-                  anchors.rightMargin: Style.space(9)
-                  verticalAlignment: TextInput.AlignVCenter
-                  text: root.currentValue("filenamePrefix")
-                  color: root.foreground
-                  selectionColor: root.accent
-                  selectedTextColor: root.inkOn(root.accent)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  selectByMouse: true
-                  clip: true
-                  onActiveFocusChanged: root.typingPrefix = activeFocus
-                  onEditingFinished: root.writeSetting("filenamePrefix", text)
-                }
-              }
-
-              Text {
-                textFormat: Text.PlainText
-                text: root.currentValue("filenamePrefix") === ""
-                  ? "Empty uses reel-<date>. The date is added to every take."
-                  : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                wrapMode: Text.WordWrap
-                width: parent.width
-              }
-            }
-
-            Text {
-              textFormat: Text.PlainText
-              text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              elide: Text.ElideMiddle
-              width: parent.width
-            }
-
-            Text {
-              textFormat: Text.PlainText
-              text: "Folder, webcam device and panel placement live in the Omarchy bar settings."
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              wrapMode: Text.WordWrap
-              width: parent.width
-            }
-          }
         }
       }
 
@@ -2060,6 +2116,44 @@ Panel {
     }
   }
 
+  // A one-line status strip. The leading rule carries info vs error without
+  // turning the whole row into an alarm.
+  component NoticeBar: Rectangle {
+    id: notice
+    property string text: ""
+    property bool urgent: false
+
+    visible: text !== ""
+    implicitHeight: noticeText.implicitHeight + Style.space(10)
+    radius: Style.cornerRadius
+    color: notice.urgent ? root.urgentSoft : root.restFill
+
+    Rectangle {
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(8))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(4)
+      anchors.verticalCenter: parent.verticalCenter
+      radius: width / 2
+      color: notice.urgent ? root.urgent : root.accent
+    }
+
+    Text {
+      id: noticeText
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.leftMargin: Style.space(14)
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: notice.text
+      color: notice.urgent ? root.urgent : root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      wrapMode: Text.WordWrap
+    }
+  }
+
   // A horizontal pair of chevrons keeps the cycle rows readable at a glance.
   component CycleChevrons: Row {
     property color foreground: root.foreground
@@ -2099,8 +2193,8 @@ Panel {
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(action)
     foreground: root.foreground
     accent: root.accent
-    fill: root.bar ? Style.hoverFillFor(root.foreground, root.accent) : root.accentSoft
-    currentFill: root.accentSoft
+    fill: Style.hoverFillFor(root.foreground, root.accent)
+    currentFill: root.selectedFill
     color: !enabled ? "transparent"
       : primary ? action.toneColor
       : hasCursor ? action.fill
@@ -2239,8 +2333,8 @@ Panel {
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(take)
     foreground: root.foreground
     accent: root.accent
-    fill: root.bar ? Style.hoverFillFor(root.foreground, root.accent) : root.accentSoft
-    implicitHeight: Style.space(56)
+    fill: Style.hoverFillFor(root.foreground, root.accent)
+    implicitHeight: Style.space(64)
     radius: Style.cornerRadius
 
     Row {
@@ -2250,8 +2344,8 @@ Panel {
       spacing: Style.space(9)
 
       Item {
-        width: Style.space(72)
-        height: Style.space(42)
+        width: Style.space(96)
+        height: Style.space(54)
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
@@ -2285,7 +2379,7 @@ Panel {
       }
 
       Column {
-        width: parent.width - Style.space(72) - actions.width - parent.spacing * 2
+        width: parent.width - Style.space(96) - actions.width - parent.spacing * 2
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(2)
 
@@ -2356,7 +2450,7 @@ Panel {
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(folder)
     foreground: root.foreground
     accent: root.accent
-    fill: root.bar ? Style.hoverFillFor(root.foreground, root.accent) : root.accentSoft
+    fill: Style.hoverFillFor(root.foreground, root.accent)
     implicitHeight: Style.space(34)
     radius: Style.cornerRadius
 
@@ -2409,16 +2503,19 @@ Panel {
     property string glyph: ""
     property int rowIndex: 0
     property bool quick: false
+    property string kind: "cycle"
+    property string infoValue: ""
 
-    readonly property bool selected: root.cursorActive && (quick
-      ? root.page === "home" && root.focusSection === "quick" && root.selectedIndex === rowIndex
-      : root.page === "settings" && root.settingsIndex === rowIndex)
+    readonly property bool selected: root.cursorActive
+      && root.page === "home"
+      && root.focusSection === "settings"
+      && root.settingsIndex === rowIndex
 
     hasCursor: selected
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
-    fill: root.bar ? Style.hoverFillFor(root.foreground, root.accent) : root.accentSoft
+    fill: Style.hoverFillFor(root.foreground, root.accent)
     implicitHeight: Style.space(34)
     radius: Style.cornerRadius
 
@@ -2453,15 +2550,21 @@ Panel {
       Text {
         id: valueText
         textFormat: Text.PlainText
-        text: root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
+        text: setting.kind === "info"
+          ? (setting.infoValue !== "" ? setting.infoValue
+            : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey)))
+          : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
         color: setting.selected ? root.foreground : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         font.bold: true
         anchors.verticalCenter: parent.verticalCenter
+        width: Math.min(implicitWidth, Style.space(150))
+        elide: Text.ElideMiddle
       }
 
       CycleChevrons {
+        visible: setting.kind !== "info" && setting.selected
         foreground: setting.selected ? root.foreground : root.dim
         anchors.verticalCenter: parent.verticalCenter
       }
@@ -2470,7 +2573,7 @@ Panel {
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: Qt.PointingHandCursor
+      cursorShape: setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       onContainsMouseChanged: if (containsMouse) {
         root.cursorActive = true
@@ -2482,6 +2585,7 @@ Panel {
         }
       }
       onClicked: function(mouse) {
+        if (setting.kind === "info") return
         root.cursorActive = true
         if (setting.quick) {
           root.focusSection = "quick"
