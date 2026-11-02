@@ -1355,9 +1355,7 @@ Panel {
     open: root.opened
     focusTarget: keyboardPanel.loadedContent
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(480))
-    contentHeight: keyboardPanel.fittedContentHeight(
-      keyboardPanel.loadedContent ? keyboardPanel.loadedContent.implicitHeight : Style.space(480),
-      Style.space(660))
+    contentHeight: Style.space(480)
 
     content: ReelKeyCatcher {
       id: keyCatcher
@@ -1834,7 +1832,7 @@ Panel {
 
           Column {
             width: parent.width
-            visible: root.page === "history"
+            visible: root.page === "history" && root.visibleRecents.length > 0
             spacing: Style.space(8)
 
             Item {
@@ -1920,6 +1918,59 @@ Panel {
         opacity: root.scrollBottomHover ? 1 : 0
         Behavior on opacity {
           NumberAnimation { duration: Style.duration(120) }
+        }
+      }
+
+      Item {
+        id: historyEmpty
+        anchors.fill: parent
+        visible: root.page === "history" && root.visibleRecents.length === 0
+        z: 20
+
+        Column {
+          anchors.centerIn: parent
+          width: Math.min(parent.width - Style.space(48), Style.space(320))
+          spacing: Style.space(8)
+
+          Rectangle {
+            width: Style.space(46)
+            height: width
+            radius: width / 2
+            anchors.horizontalCenter: parent.horizontalCenter
+            color: "transparent"
+            border.width: 1
+            border.color: Util.alpha(root.accent, 0.45)
+
+            Rectangle {
+              width: Style.space(10)
+              height: width
+              radius: width / 2
+              anchors.centerIn: parent
+              color: root.accent
+            }
+          }
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "No takes yet"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+          }
+
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Record something and it will appear here."
+            color: root.secondary
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
+          }
         }
       }
 
