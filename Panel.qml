@@ -135,6 +135,7 @@ Panel {
   property bool scrollTopHover: false
   property bool scrollBottomHover: false
   property int edgeScrollTicks: 0
+  property int countdownTick: 0
   property string focusSection: "primary"
   property int selectedIndex: 0
   property string hoverSection: ""
@@ -421,6 +422,16 @@ Panel {
     return Model.shortPath(root.currentValue("outputDir") || root.outputDir, root.home)
   }
 
+  function countdownLeft() {
+    var tick = root.countdownTick
+    if (root.status !== "starting" || String(root.state.stage || "") !== "countdown") return 0
+    var settings = root.state.settings || ({})
+    var count = Number(settings.countdown || 0)
+    var started = Number(root.state.startedAt || 0)
+    if (count <= 0 || started <= 0) return 0
+    return Math.max(0, Math.ceil(count - (Date.now() / 1000 - started)))
+  }
+
   function barGlyph() {
     // The bar answers "what is happening?" with a mark rather than a word:
     // pause, save, target pick, or countdown. Recording speaks with the clock.
@@ -428,7 +439,15 @@ Panel {
     if (root.finalizing) return "󰆓"
     if (root.starting) {
       var stage = String(root.state.stage || "select")
-      if (stage === "countdown") return "󰔟"
+      if (stage === "countdown") {
+        var left = root.countdownLeft()
+        return left > 0 ? String(left) : "󰔟"
+      }
+      if (stage === "warmup") {
+        var warmupSettings = root.state.settings || ({})
+        var warmupCount = Math.max(0, Number(warmupSettings.countdown || 0))
+        return warmupCount > 0 ? String(warmupCount) : "●"
+      }
       if (stage === "select") return "󰒉"
     }
     return ""
@@ -3201,6 +3220,15 @@ Panel {
     interval: 260
     repeat: false
     onTriggered: root.suppressHistoryHover = false
+  }
+
+  Timer {
+    id: countdownTicker
+    interval: 500
+    repeat: true
+    running: root.status === "starting"
+      && String(root.state.stage || "") === "countdown"
+    onTriggered: root.countdownTick++
   }
 
   Timer {

@@ -249,6 +249,7 @@ pub fn spawn_finalize(
     paths: &Paths,
     file: &Path,
     preview: &std::path::Path,
+    trim_start: f64,
     started_at: i64,
     target: &str,
     target_kind: &str,
@@ -266,6 +267,8 @@ pub fn spawn_finalize(
         .arg(file)
         .arg("--preview")
         .arg(preview)
+        .arg("--trim-start")
+        .arg(format!("{trim_start:.3}"))
         .arg("--started-at")
         .arg(started_at.to_string())
         .arg("--target")

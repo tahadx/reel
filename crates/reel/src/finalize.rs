@@ -8,12 +8,12 @@ use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-pub fn make_preview(file: &Path, preview: &Path) -> bool {
+pub fn make_preview(file: &Path, preview: &Path, seek: f64) -> bool {
     if !file.is_file() {
         return false;
     }
     let status = Command::new("ffmpeg")
-        .args(["-y", "-ss", "0.2", "-i"])
+        .args(["-y", "-ss", &format!("{seek:.3}"), "-i"])
         .arg(file)
         .args(["-frames:v", "1", "-q:v", "3"])
         .arg(preview)
@@ -115,6 +115,7 @@ fn valid_video(file: &Path) -> bool {
 pub fn finalize_video(
     paths: &Paths,
     file: &Path,
+    trim_start: f64,
     output: Option<&Path>,
 ) -> Result<()> {
     if !file.is_file() {
@@ -130,7 +131,11 @@ pub fn finalize_video(
 
     let mut audio_present = util::has_audio_stream(file);
     let src_duration = util::duration_of(file);
-    let mut trim = "0.1";
+    let mut trim = if trim_start > 0.0 {
+        format!("{trim_start:.3}")
+    } else {
+        "0.1".to_string()
+    };
     if src_duration > 0.0 && src_duration < 0.8 {
         paths::log(
             paths,
@@ -138,7 +143,7 @@ pub fn finalize_video(
         );
         audio_present = false;
         if src_duration < 0.4 {
-            trim = "0";
+            trim = "0".into();
         }
     }
 
@@ -150,7 +155,7 @@ pub fn finalize_video(
         let mut args: Vec<String> = vec![
             "-y".into(),
             "-ss".into(),
-            trim.into(),
+            trim.clone(),
             "-i".into(),
             file.display().to_string(),
         ];
@@ -251,7 +256,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let mut preview = args.preview;
     if preview.is_empty() || !Path::new(&preview).is_file() {
         let generated = paths.preview_path(&file);
-        if make_preview(&file, &generated) {
+        if make_preview(&file, &generated, args.trim_start + 0.2) {
             preview = generated.display().to_string();
         } else {
             preview.clear();
@@ -259,7 +264,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     }
 
     let mut error = String::new();
-    if let Err(err) = finalize_video(paths, &file, None) {
+    if let Err(err) = finalize_video(paths, &file, args.trim_start, None) {
         let _ = err;
         error = "The take was saved, but the final pass failed.".into();
     }

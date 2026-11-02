@@ -72,6 +72,7 @@ Item {
     root.visualTotal = left
     root.visualStep = left / root.total
     root.remaining = root.total
+    progressAnim.stop()
     root.progress = 1
   }
 
@@ -86,9 +87,11 @@ Item {
     if (display !== root.remaining) {
       root.remaining = display
       pulse.restart()
+      progressAnim.stop()
+      progressAnim.from = root.progress
+      progressAnim.to = root.total > 0 ? display / root.total : 0
+      progressAnim.restart()
     }
-    var span = root.visualTotal
-    root.progress = span > 0 ? Math.max(0, Math.min(1, (span - elapsed) / span)) : 0
   }
 
   FileView {
@@ -112,14 +115,12 @@ Item {
   OverlayWindow {
     id: overlay
     shown: root.active
+    shownKeyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: "reel-countdown"
+    // Visual only: never block the bar or the desktop while counting down.
+    mask: Region {}
 
     onContentRevealedChanged: root.beginVisual()
-
-    Rectangle {
-      anchors.fill: parent
-      color: Util.alpha(root.background, 0.28)
-    }
 
     Item {
       anchors.centerIn: parent
@@ -205,5 +206,13 @@ Item {
       duration: 190
       easing.type: Easing.OutCubic
     }
+  }
+
+  NumberAnimation {
+    id: progressAnim
+    target: root
+    property: "progress"
+    duration: 240
+    easing.type: Easing.OutCubic
   }
 }

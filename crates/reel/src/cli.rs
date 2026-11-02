@@ -179,6 +179,8 @@ pub enum ConfigAction {
 pub struct FinalizeArgs {
     #[arg(long)]
     pub file: PathBuf,
+    #[arg(long = "trim-start", default_value_t = 0.0)]
+    pub trim_start: f64,
     #[arg(long, default_value = "")]
     pub preview: String,
     #[arg(long = "started-at", default_value_t = 0)]

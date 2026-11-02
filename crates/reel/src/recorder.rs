@@ -513,44 +513,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         return Err(anyhow::anyhow!(err));
     }
 
-    {
-        let _lock = Lock::acquire(paths)?;
-        let _ = paths::write_pid(&paths.starting, std::process::id());
-        let now = paths::now_secs();
-        let _ = state::write(
-            paths,
-            &json!({
-                "status": "starting",
-                "stage": "countdown",
-                "target": target,
-                "targetKind": &choice.kind,
-                "targetLabel": &choice.label,
-                "targetWarning": &choice.warning,
-                "monitor": &choice.monitor,
-                "settings": settings.to_json(),
-                "startedAt": now,
-            }),
-        );
-    }
-
     paths::remove_quiet(&paths.cancel);
-
-    let mut tick = settings.countdown;
-    while tick > 0 {
-        if cancelled(paths) {
-            break;
-        }
-        thread::sleep(Duration::from_secs(1));
-        tick -= 1;
-    }
-
-    if cancelled(paths) {
-        webcam::cleanup(paths);
-        let _ = state::write(paths, &state::idle_preserving_last(paths));
-        paths::remove_quiet(&paths.starting);
-        paths::remove_quiet(&paths.cancel);
-        return Ok(false);
-    }
 
     if !webcam::start(paths, target, &settings.webcam, &settings.webcam_device) {
         // The recorder still runs without a camera.
@@ -703,7 +666,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             paths,
             &json!({
                 "status": "starting",
-                "stage": "capture",
+                "stage": "warmup",
                 "pid": pid,
                 "file": &file,
                 "target": target,
@@ -763,10 +726,64 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         return Err(anyhow::anyhow!(message));
     }
 
+    // The encoder is live now. Show the countdown against a running capture,
+    // then trim those seconds from the file so the take starts at zero.
+    let countdown = settings.countdown.max(0);
+    let trim_start = if countdown > 0 {
+        {
+            let _lock = Lock::acquire(paths).ok();
+            let _ = state::write(
+                paths,
+                &json!({
+                    "status": "starting",
+                    "stage": "countdown",
+                    "pid": pid,
+                    "file": &file,
+                    "target": target,
+                    "targetKind": &choice.kind,
+                    "targetLabel": &choice.label,
+                    "targetWarning": &choice.warning,
+                    "monitor": &choice.monitor,
+                    "settings": settings.to_json(),
+                    "startedAt": paths::now_secs(),
+                }),
+            );
+        }
+
+        let mut tick = countdown;
+        while tick > 0 {
+            if cancelled(paths) {
+                break;
+            }
+            thread::sleep(Duration::from_secs(1));
+            tick -= 1;
+        }
+
+        if cancelled(paths) {
+            stop_child(&mut child, Duration::from_secs(4));
+            if let Some(cursor) = hardware_cursor {
+                cursor.restore(paths);
+            }
+            webcam::cleanup(paths);
+            paths::remove_quiet(&paths.pid_file);
+            paths::remove_quiet(&paths.socket);
+            paths::remove_quiet(Path::new(&file));
+            let _ = state::write(paths, &state::idle_preserving_last(paths));
+            paths::remove_quiet(&paths.starting);
+            paths::remove_quiet(&paths.cancel);
+            return Ok(false);
+        }
+
+        countdown as f64 + 0.1
+    } else {
+        0.0
+    };
+    let recording_started_at = paths::now_secs();
+
     {
         let _lock = Lock::acquire(paths).ok();
-        // Keep the clock started at the capture stage so the bar timer does not
-        // jump back to zero when the encoder's file finally appears.
+        // The countdown has already been recorded and will be trimmed from
+        // the saved file, so the visible clock starts at zero here.
         let _ = state::write(
             paths,
             &json!({
@@ -785,7 +802,8 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "cursor": settings.cursor,
                 "webcam": settings.webcam,
                 "fps": capture_fps,
-                "startedAt": started_at,
+                "startedAt": recording_started_at,
+                "trimStart": trim_start,
                 "paused": false,
                 "pausedTotal": 0,
                 "pausedAt": 0,
@@ -941,7 +959,7 @@ pub fn toggle_pause(paths: &Paths) -> Result<()> {
 }
 
 pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
-    let (status, pid, file, started_at, target, target_kind, target_label);
+    let (status, pid, file, started_at, target, target_kind, target_label, trim_start);
     {
         let _lock = Lock::acquire(paths)?;
         let current = state::read_or_idle(paths);
@@ -952,6 +970,10 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         target = state::field_str(&current, "target").unwrap_or_default();
         target_kind = state::field_str(&current, "targetKind").unwrap_or_default();
         target_label = state::field_str(&current, "targetLabel").unwrap_or_default();
+        trim_start = state::field_str(&current, "trimStart")
+            .unwrap_or_default()
+            .parse::<f64>()
+            .unwrap_or(0.0);
 
         if status == "starting" {
             let _ = paths::write_atomic(&paths.cancel, "");
@@ -1033,6 +1055,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         paths,
         Path::new(&file),
         &preview,
+        trim_start,
         started_at,
         &target,
         &target_kind,
