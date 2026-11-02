@@ -122,7 +122,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     );
     let webcam_device = effective(&options.webcam_device, &stored, "webcamDevice", "");
     let countdown =
-        util::at_least_int(&effective(&options.countdown, &stored, "countdown", "0"), 0).min(60);
+        util::at_least_int(&effective(&options.countdown, &stored, "countdown", "3"), 0).min(60);
     let fps = util::pick_choice(
         &effective(&options.fps, &stored, "fps", "60"),
         "60",
@@ -540,7 +540,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         if cancelled(paths) {
             break;
         }
-        util::osd(&tick.to_string(), 850);
         thread::sleep(Duration::from_secs(1));
         tick -= 1;
     }

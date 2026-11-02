@@ -37,7 +37,7 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--cursor` | `on`, `off` | `on` |
 | `--webcam` | `off`, `small`, `medium`, `large` | `off` |
 | `--webcam-device` | camera path, such as `/dev/video0` | first camera |
-| `--countdown` | seconds, clamped to 0–60 | `0` |
+| `--countdown` | seconds, clamped to 0–60 | `3` |
 | `--fps` | `30`, `60`, `120` | `60` |
 | `--quality` | `very_low`, `low`, `medium`, `high`, `very_high`, `ultra` | `very_high` |
 | `--codec` | `auto`, `h264`, `hevc`, `av1` | `auto` |
@@ -53,7 +53,7 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 Examples:
 
 ```sh
-reel start --countdown 0
+reel start --countdown 3
 reel start --microphone-audio on
 reel toggle-pause
 reel stop

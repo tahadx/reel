@@ -67,7 +67,7 @@ Panel {
     "microphoneAudio": "off",
     "cursor": "on",
     "webcam": "off",
-    "countdown": 0,
+    "countdown": 3,
     "fps": 60,
     "quality": "very_high",
     "codec": "auto",

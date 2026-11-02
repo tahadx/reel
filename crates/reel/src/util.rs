@@ -119,21 +119,6 @@ pub fn notify(title: &str, body: Option<&str>, urgency: &str) {
         .status();
 }
 
-pub fn osd(message: &str, duration_ms: u32) {
-    if !have("omarchy-osd") {
-        return;
-    }
-    let _ = Command::new("omarchy-osd")
-        .arg("-m")
-        .arg(message)
-        .arg("-d")
-        .arg(duration_ms.to_string())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
 pub fn expand_home(raw: &str) -> String {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     if raw == "~" {

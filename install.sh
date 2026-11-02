@@ -70,6 +70,7 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   install -m 0644 "$HERE/manifest.json" "$PLUGIN_DIR/manifest.json"
   install -m 0644 "$HERE/Panel.qml" "$PLUGIN_DIR/Panel.qml"
   install -m 0644 "$HERE/Service.qml" "$PLUGIN_DIR/Service.qml"
+  install -m 0644 "$HERE/Countdown.qml" "$PLUGIN_DIR/Countdown.qml"
   install -m 0644 "$HERE/Model.js" "$PLUGIN_DIR/Model.js"
   install -m 0755 "$HERE/bin/reel" "$PLUGIN_DIR/bin/reel"
   install -m 0755 "$HERE/bin/configure" "$PLUGIN_DIR/bin/configure"

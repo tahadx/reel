@@ -12,7 +12,7 @@ pub fn defaults() -> Value {
         "microphoneAudio": false,
         "cursor": true,
         "webcam": "off",
-        "countdown": 0,
+        "countdown": 3,
         "fps": 60,
         "quality": "very_high",
         "codec": "auto",
