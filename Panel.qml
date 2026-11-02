@@ -239,6 +239,11 @@ Panel {
     return value === undefined || value === null || value === "" ? String(fallback) : String(value)
   }
 
+  function isSwitch(key) {
+    return key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
+      || key === "notifications" || key === "manualZoom"
+  }
+
   function optionList(key) {
     switch (key) {
     case "desktopAudio": return ["on", "off"]
@@ -825,6 +830,7 @@ Panel {
     if (root.hoverSection === section && root.hoverIndex === index) {
       root.hoverSection = ""
       root.hoverIndex = -1
+      root.cursorActive = false
     }
   }
 
@@ -2676,6 +2682,8 @@ Panel {
       && root.page === "home"
       && root.focusSection === "settings"
       && root.settingsIndex === rowIndex
+    readonly property bool switchRow: setting.kind !== "info" && root.isSwitch(setting.settingKey)
+    readonly property bool switchOn: root.currentValue(setting.settingKey) === "on"
 
     hasCursor: pointerHovered || (selected && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(setting)
@@ -2716,30 +2724,95 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.space(24) - valueText.width - Style.space(28) - parent.spacing * 2
+        width: parent.width - Style.space(24)
+          - (setting.switchRow ? Style.space(32)
+            : setting.kind === "info" ? valueText.width : valueChip.width)
+          - parent.spacing * 2
         elide: Text.ElideRight
       }
 
       Text {
         id: valueText
+        visible: setting.kind === "info"
         textFormat: Text.PlainText
-        text: setting.kind === "info"
-          ? (setting.infoValue !== "" ? setting.infoValue
-            : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey)))
+        text: setting.infoValue !== ""
+          ? setting.infoValue
           : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
         color: setting.hasCursor ? root.foreground : root.secondary
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         font.bold: true
         anchors.verticalCenter: parent.verticalCenter
-        width: Math.min(implicitWidth, Style.space(150))
+        width: setting.kind === "info" ? Math.min(implicitWidth, Style.space(150)) : 0
         elide: Text.ElideMiddle
       }
 
-      CycleChevrons {
-        visible: setting.kind !== "info" && setting.hasCursor
-        foreground: setting.hasCursor ? root.foreground : root.dim
+      Rectangle {
+        id: valueChip
+        visible: !setting.switchRow && setting.kind !== "info"
         anchors.verticalCenter: parent.verticalCenter
+        width: valueRow.implicitWidth + Style.space(16)
+        height: Style.space(20)
+        radius: Style.space(4)
+        color: setting.hasCursor ? Util.alpha(root.foreground, 0.10) : root.restFill
+        border.width: 1
+        border.color: setting.hasCursor ? root.accent : root.hairline
+
+        Row {
+          id: valueRow
+          anchors.centerIn: parent
+          spacing: Style.space(6)
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
+            color: setting.hasCursor ? root.foreground : root.secondary
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: true
+            anchors.verticalCenter: parent.verticalCenter
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: "›"
+            color: setting.hasCursor ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            anchors.verticalCenter: parent.verticalCenter
+          }
+        }
+
+        Behavior on color {
+          ColorAnimation { duration: Style.duration(120) }
+        }
+        Behavior on border.color {
+          ColorAnimation { duration: Style.duration(120) }
+        }
+      }
+
+      Rectangle {
+        visible: setting.switchRow
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(32)
+        height: Style.space(16)
+        radius: height / 2
+        color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.18)
+        border.width: 1
+        border.color: setting.switchOn ? "transparent" : root.hairline
+
+        Rectangle {
+          width: parent.height - Style.space(4)
+          height: width
+          radius: width / 2
+          y: (parent.height - height) / 2
+          x: setting.switchOn ? parent.width - width - Style.space(2) : Style.space(2)
+          color: setting.switchOn ? root.inkOn(root.accent) : root.secondary
+
+          Behavior on x {
+            NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
+          }
+        }
       }
     }
 
