@@ -126,6 +126,8 @@ Panel {
 
   property string page: "home"
   property bool typingPrefix: false
+  property bool scrollTopHover: false
+  property bool scrollBottomHover: false
   property string focusSection: "primary"
   property int selectedIndex: 0
   property bool cursorActive: false
@@ -993,8 +995,18 @@ Panel {
     if (flick && flick.contentY !== undefined) flick.contentY = 0
   }
 
-  function ensureCursorVisible(item) {
+  function edgeScrollStep() {
     var area = root.scrollArea()
+    var flick = area ? area.contentItem : null
+    if (!flick) return
+    var maxY = Math.max(0, (flick.contentHeight || 0) - flick.height)
+    if (maxY <= 0) return
+    var step = Style.space(3)
+    if (root.scrollTopHover) flick.contentY = Math.max(0, flick.contentY - step)
+    else if (root.scrollBottomHover) flick.contentY = Math.min(maxY, flick.contentY + step)
+  }
+
+  function ensureCursorVisible(item) {    var area = root.scrollArea()
     var flick = area ? area.contentItem : null
     if (!item || !flick || flick.contentY === undefined) return
     var margin = 6
@@ -1024,6 +1036,8 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
+      root.scrollTopHover = false
+      root.scrollBottomHover = false
       root.page = "home"
       root.focusSection = "primary"
       root.selectedIndex = 0
@@ -1041,6 +1055,8 @@ Panel {
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
+      root.scrollTopHover = false
+      root.scrollBottomHover = false
       root.discardArmed = false
       root.trashArmedPath = ""
       root.historyAnchorPath = ""
@@ -1730,6 +1746,35 @@ Panel {
 
 
         }
+      }
+
+      MouseArea {
+        id: topScrollEdge
+        anchors.top: scrollArea.top
+        anchors.left: scrollArea.left
+        anchors.right: scrollArea.right
+        height: Style.space(34)
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        enabled: scrollArea.contentItem
+          && scrollArea.contentItem.contentHeight > scrollArea.height
+          && scrollArea.contentItem.contentY > 0
+        onContainsMouseChanged: root.scrollTopHover = containsMouse
+      }
+
+      MouseArea {
+        id: bottomScrollEdge
+        anchors.bottom: scrollArea.bottom
+        anchors.left: scrollArea.left
+        anchors.right: scrollArea.right
+        height: Style.space(34)
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        enabled: scrollArea.contentItem
+          && scrollArea.contentItem.contentHeight > scrollArea.height
+          && scrollArea.contentItem.contentY
+            < scrollArea.contentItem.contentHeight - scrollArea.contentItem.height
+        onContainsMouseChanged: root.scrollBottomHover = containsMouse
       }
 
       // ---------- take actions menu ----------
@@ -2622,6 +2667,14 @@ Panel {
   }
 
   // ---------- processes ---------------------------------------------------
+
+  Timer {
+    id: edgeScrollTimer
+    interval: 16
+    repeat: true
+    running: root.opened && (root.scrollTopHover || root.scrollBottomHover)
+    onTriggered: root.edgeScrollStep()
+  }
 
   Timer {
     id: historyHoverTimer
