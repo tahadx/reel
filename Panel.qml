@@ -25,7 +25,19 @@ Panel {
   readonly property var visibleRecents: {
     var rows = root.recents || []
     var pending = root.pendingTrash || ({})
+    var optimism = root.optimisticSaves || ({})
     var out = []
+    for (var key in optimism) {
+      if (pending[key]) continue
+      var known = false
+      for (var r = 0; r < rows.length; r++) {
+        if (String(rows[r].path || "") === key) {
+          known = true
+          break
+        }
+      }
+      if (!known) out.push({ path: key, saving: true })
+    }
     for (var i = 0; i < rows.length; i++) {
       if (!pending[String(rows[i].path || "")]) out.push(rows[i])
     }
@@ -152,6 +164,7 @@ Panel {
   property string discardArmedPath: ""
   property string trashArmedPath: ""
   property var pendingTrash: ({})
+  property var optimisticSaves: ({})
   property string removingPath: ""
   property string trashInFlightPath: ""
   property string historyAnchorPath: ""
@@ -454,14 +467,12 @@ Panel {
   }
 
   function primaryLabel() {
-    if (root.finalizing) return "Saving…"
     if (root.starting) return "Cancel"
     if (root.active) return "Stop"
     return "Record"
   }
 
   function primaryGlyph() {
-    if (root.finalizing) return "󰆓"
     if (root.starting) return "󰅖"
     if (root.active) return "󰓛"
     return "󰻂"
@@ -553,7 +564,7 @@ Panel {
 
   function toggleRecording() {
     if (root.active || root.starting) root.stop()
-    else if (!root.finalizing) root.start()
+    else root.start()
   }
 
   function openVideo(row) {
@@ -602,7 +613,7 @@ Panel {
   // ---------- take actions menu ------------------------------------------
 
   function openTakeMenu(row, rowIndex, anchor) {
-    if (!row || !anchor) return
+    if (!row || row.saving || !anchor) return
     var surface = keyboardPanel.loadedContent
     if (!surface) return
     root.cursorActive = true
@@ -674,7 +685,32 @@ Panel {
     if (root.page !== "history" || root.focusSection !== "recents") return null
     var index = root.selectedIndex - 1
     if (index < 0 || index >= root.visibleRecents.length) return null
-    return root.visibleRecents[index]
+    var row = root.visibleRecents[index]
+    if (row && row.saving) return null
+    return row
+  }
+
+  function addOptimisticSave(path) {
+    var next = {}
+    for (var key in root.optimisticSaves) next[key] = true
+    next[String(path)] = true
+    root.optimisticSaves = next
+  }
+
+  function pruneOptimisticSaves(force) {
+    var rows = root.recents || []
+    var next = {}
+    for (var key in root.optimisticSaves) {
+      var found = false
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].path || "") === key) {
+          found = true
+          break
+        }
+      }
+      if (found || !force) next[key] = true
+    }
+    root.optimisticSaves = next
   }
 
   function addPendingTrash(path) {
@@ -740,7 +776,7 @@ Panel {
   }
 
   function trashTake(row) {
-    if (!row || !row.path) return
+    if (!row || !row.path || row.saving) return
     if (root.trashArmedPath !== String(row.path)) {
       root.trashArmedPath = String(row.path)
       root.setNotice("Press x again to move " + Model.takeTitle(row) + " to the trash.", true)
@@ -799,7 +835,6 @@ Panel {
 
   function primaryAction(index) {
     if (index === 0) {
-      if (root.finalizing) return
       if (root.active || root.starting) root.stop()
       else root.start()
     } else if (index === 1) {
@@ -1176,8 +1211,17 @@ Panel {
   }
 
   onRecentsChanged: {
+    root.pruneOptimisticSaves(false)
     root.prunePendingTrash()
     root.settleHistorySelection()
+  }
+
+  onFinalizingChanged: {
+    if (!root.finalizing) return
+    var file = String((root.state || ({})).file || "")
+    if (file === "") return
+    root.addOptimisticSave(file)
+    optimisticSaveTimer.restart()
   }
 
   onPendingTrashChanged: {
@@ -1606,7 +1650,7 @@ Panel {
               glyph: root.primaryGlyph()
               tone: root.active || root.starting ? "urgent" : "accent"
               primary: true
-              enabled: !root.finalizing
+              enabled: true
               hint: "r"
             }
 
@@ -2432,6 +2476,7 @@ Panel {
 
     readonly property bool armed: root.trashArmedPath !== "" && root.trashArmedPath === String(row.path || "")
     readonly property string preview: String(row.preview || "")
+    readonly property bool saving: !!row && !!row.saving
     readonly property bool removing: root.removingPath !== ""
       && root.removingPath === String(row.path || "")
     readonly property bool menuOpen: root.takeMenuOpen && root.takeMenuRow !== null
@@ -2524,8 +2569,8 @@ Panel {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.takeMeta(take.row)
-          color: take.armed ? root.urgent : root.dim
+          text: take.saving ? "Saving…" : Model.takeMeta(take.row)
+          color: take.saving ? root.accent : take.armed ? root.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -2573,6 +2618,7 @@ Panel {
         root.setRowHover("recents", take.rowIndex, containsMouse)
       }
       onClicked: function(mouse) {
+        if (take.saving) return
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
@@ -2968,6 +3014,13 @@ Panel {
     repeat: true
     running: root.opened && (root.scrollTopHover || root.scrollBottomHover)
     onTriggered: root.edgeScrollStep()
+  }
+
+  Timer {
+    id: optimisticSaveTimer
+    interval: 60000
+    repeat: false
+    onTriggered: root.pruneOptimisticSaves(true)
   }
 
   Timer {
