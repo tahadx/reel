@@ -97,6 +97,7 @@ Panel {
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
     { keys: "tab", what: "switch sections or settings tabs" },
+    { keys: "1–5", what: "switch settings tabs" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -935,6 +936,18 @@ Panel {
       return
     }
     if (root.typingPrefix) return
+    if (root.page === "home" && key.length === 1 && key >= "1" && key <= "5") {
+      var tab = Number(key) - 1
+      if (tab >= 0 && tab < root.settingsTabs.length) {
+        root.clearHover()
+        root.settingsTab = root.settingsTabs[tab].id
+        root.settingsIndex = 0
+        root.focusSection = "settings"
+        root.cursorActive = true
+        root.beginKeyboardScroll()
+      }
+      return
+    }
     if (key === "q") {
       root.close()
       return
@@ -1659,18 +1672,29 @@ Panel {
                     readonly property bool active: root.settingsTab === modelData.id
                     readonly property bool hot: settingsTabMouse.containsMouse
 
-                    Text {
+                    Row {
                       anchors.centerIn: parent
-                      textFormat: Text.PlainText
-                      text: settingsTabItem.modelData.label
-                      color: settingsTabItem.active ? root.accent
-                        : settingsTabItem.hot ? root.foreground : root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.letterSpacing: 0.2
-                      font.bold: settingsTabItem.active
-                      Behavior on color {
-                        ColorAnimation { duration: Style.duration(150) }
+                      spacing: Style.space(6)
+
+                      Text {
+                        textFormat: Text.PlainText
+                        text: settingsTabItem.modelData.label
+                        color: settingsTabItem.active ? root.accent
+                          : settingsTabItem.hot ? root.foreground : root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.bodySmall
+                        font.letterSpacing: 0.2
+                        font.bold: settingsTabItem.active
+                        anchors.verticalCenter: parent.verticalCenter
+                        Behavior on color {
+                          ColorAnimation { duration: Style.duration(150) }
+                        }
+                      }
+
+                      KeyHintChip {
+                        label: String(settingsTabItem.index + 1)
+                        active: settingsTabItem.active
+                        anchors.verticalCenter: parent.verticalCenter
                       }
                     }
 
