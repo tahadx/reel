@@ -140,6 +140,9 @@ Panel {
   property bool noticeUrgent: false
   property string discardArmedPath: ""
   property string trashArmedPath: ""
+  property string historyAnchorPath: ""
+  property int historyAnchorIndex: 0
+  property bool suppressHistoryHover: false
   property bool discardArmed: false
   property bool cancelling: false
   property string pendingConfig: ""
@@ -451,17 +454,6 @@ Panel {
     return "Reel · click to open, right-click to record"
   }
 
-  function stateMeta() {
-    if (root.page === "history") {
-      if (root.visibleRecents.length === 0) return "no takes yet · esc goes back"
-      return root.visibleRecents.length + " takes · enter opens · t cuts · a actions · esc goes back"
-    }
-    // Live states speak through the timer row and the bar mark; the header only
-    // keeps the setting that matters when nothing is running.
-    if (root.busy) return ""
-    return root.currentValue("fps") + " fps"
-  }
-
   function primaryLabel() {
     if (root.finalizing) return "Saving…"
     if (root.starting) return "Cancel"
@@ -696,8 +688,47 @@ Panel {
     }
     root.trashArmedPath = ""
     if (trashProc.running) return
+    var index = -1
+    for (var i = 0; i < root.visibleRecents.length; i++) {
+      if (String(root.visibleRecents[i].path || "") === String(row.path)) {
+        index = i
+        break
+      }
+    }
+    root.historyAnchorPath = String(row.path)
+    root.historyAnchorIndex = index >= 0 ? index + 1 : root.selectedIndex
+    root.suppressHistoryHover = true
+    historyHoverTimer.interval = 1200
+    historyHoverTimer.restart()
     trashProc.command = ["reel", "trash", String(row.path)]
     trashProc.running = true
+  }
+
+  // Keep the history cursor on the row the user was looking at after the list
+  // shrinks. The removed item's slot is taken by the next take; if it was the
+  // last row, clamp to the new end instead of jumping past it.
+  function settleHistorySelection() {
+    if (root.page !== "history") return
+    var anchor = root.historyAnchorPath
+    if (anchor !== "") {
+      var index = -1
+      for (var i = 0; i < root.visibleRecents.length; i++) {
+        if (String(root.visibleRecents[i].path || "") === anchor) {
+          index = i
+          break
+        }
+      }
+      var limit = Math.max(0, root.visibleRecents.length)
+      root.selectedIndex = index >= 0
+        ? index + 1
+        : Math.min(Math.max(1, root.historyAnchorIndex), limit)
+      root.historyAnchorPath = ""
+    } else {
+      root.selectedIndex = Math.min(root.selectedIndex,
+        Math.max(0, root.visibleRecents.length))
+    }
+    historyHoverTimer.interval = 260
+    historyHoverTimer.restart()
   }
 
   function trashSelected() {
@@ -878,6 +909,8 @@ Panel {
     root.focusSection = "recents"
     root.selectedIndex = 0
     root.cursorActive = true
+    root.historyAnchorPath = ""
+    root.suppressHistoryHover = false
     Qt.callLater(root.focusPanelKeys)
   }
 
@@ -886,6 +919,8 @@ Panel {
     root.focusSection = "primary"
     root.selectedIndex = 0
     root.cursorActive = true
+    root.historyAnchorPath = ""
+    root.suppressHistoryHover = false
     Qt.callLater(root.focusPanelKeys)
   }
 
@@ -900,6 +935,8 @@ Panel {
     root.settingsIndex = 0
     root.typingPrefix = false
     root.cursorActive = true
+    root.historyAnchorPath = ""
+    root.suppressHistoryHover = false
     Qt.callLater(root.focusPanelKeys)
   }
 
@@ -1005,8 +1042,7 @@ Panel {
   }
 
   onRecentsChanged: {
-    if (root.page === "history" && root.focusSection === "recents")
-      root.selectedIndex = Math.max(0, Math.min(root.selectedIndex, root.sectionCount("recents") - 1))
+    root.settleHistorySelection()
   }
 
   onOpenedChanged: {
@@ -1019,6 +1055,8 @@ Panel {
       root.notice = ""
       root.discardArmed = false
       root.trashArmedPath = ""
+      root.historyAnchorPath = ""
+      root.suppressHistoryHover = false
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
@@ -1028,6 +1066,8 @@ Panel {
     } else {
       root.discardArmed = false
       root.trashArmedPath = ""
+      root.historyAnchorPath = ""
+      root.suppressHistoryHover = false
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
@@ -1299,7 +1339,6 @@ Panel {
               }
             }
             title: root.page === "history" ? "Reel history" : "Reel"
-            meta: root.stateMeta()
             foreground: root.foreground
             fontFamily: root.fontFamily
             trailingControl: Component {
@@ -1829,7 +1868,11 @@ Panel {
 
               PanelSectionHeader {
                 id: takesHeader
-                text: "Recent takes"
+                text: root.visibleRecents.length === 0
+                  ? "No takes yet"
+                  : root.visibleRecents.length === 1
+                    ? "1 take"
+                    : root.visibleRecents.length + " takes"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 anchors.left: parent.left
@@ -2419,7 +2462,7 @@ Panel {
       hoverEnabled: true
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse) {
+      onContainsMouseChanged: if (containsMouse && !root.suppressHistoryHover) {
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
@@ -2495,7 +2538,7 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse) {
+      onContainsMouseChanged: if (containsMouse && !root.suppressHistoryHover) {
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = folder.rowIndex
@@ -2705,6 +2748,13 @@ Panel {
   }
 
   // ---------- processes ---------------------------------------------------
+
+  Timer {
+    id: historyHoverTimer
+    interval: 260
+    repeat: false
+    onTriggered: root.suppressHistoryHover = false
+  }
 
   Timer {
     id: openAfterAction
