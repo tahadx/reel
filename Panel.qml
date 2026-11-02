@@ -398,17 +398,6 @@ Panel {
 
   // ---------- labels ------------------------------------------------------
 
-  function targetLabel(target) {
-    if (root.state && root.state.targetLabel) return String(root.state.targetLabel)
-    var value = String(target || "")
-    if (value.indexOf("monitor:") === 0) return value.slice(8)
-    if (value.indexOf("region:") === 0) {
-      var match = /^region:(\d+)x(\d+)\+(-?\d+)\+(-?\d+)$/.exec(value)
-      if (match) return match[1] + "×" + match[2] + " at " + match[3] + "," + match[4]
-    }
-    return value === "portal" ? "portal" : "Capture"
-  }
-
   function audioSummary() {
     var desktop = root.currentValue("desktopAudio") === "on"
     var mic = root.currentValue("microphoneAudio") === "on"
@@ -1498,6 +1487,18 @@ Panel {
               Row {
                 spacing: Style.space(2)
 
+                Text {
+                  width: Style.space(52)
+                  textFormat: Text.PlainText
+                  text: root.active ? Model.clock(root.elapsed) : ""
+                  color: root.paused ? root.secondary : root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                  horizontalAlignment: Text.AlignRight
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
                 PanelActionButton {
                   iconText: "󰋚"
                   tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
@@ -1515,77 +1516,6 @@ Panel {
                     root.selectedIndex = 0
                     root.toggleHistory()
                   }
-                }
-              }
-            }
-          }
-
-          // ---------- live timer ----------
-
-          Item {
-            width: parent.width
-            implicitHeight: timerRow.implicitHeight
-            visible: root.page === "home" && root.active
-
-            Row {
-              id: timerRow
-              width: parent.width
-              spacing: Style.space(12)
-
-              Text {
-                textFormat: Text.PlainText
-                text: root.active ? Model.clock(root.elapsed) : "󰆓"
-                color: root.paused || root.finalizing ? root.dim : root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: root.active ? Math.round(Style.font.display * 1.55)
-                  : Math.round(Style.font.display * 1.35)
-                font.bold: true
-                anchors.verticalCenter: parent.verticalCenter
-              }
-
-              Column {
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(2)
-
-                Row {
-                  spacing: Style.space(6)
-
-                  Rectangle {
-                    visible: !root.paused && !root.finalizing
-                    width: Style.space(6)
-                    height: width
-                    radius: width / 2
-                    color: root.accent
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    SequentialAnimation on opacity {
-                      running: root.status === "recording" && !Style.reduceMotion
-                      loops: Animation.Infinite
-                      NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                      NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                    }
-                  }
-
-                  Text {
-                    textFormat: Text.PlainText
-                    text: root.paused ? "Paused" : (root.finalizing ? "Saving" : "Recording")
-                    color: root.paused || root.finalizing ? root.secondary : root.accent
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: true
-                    font.letterSpacing: 0.4
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: root.targetLabel(root.state.target)
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                  width: Math.min(implicitWidth, Style.space(250))
                 }
               }
             }
