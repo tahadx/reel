@@ -17,10 +17,10 @@ or remove only this block, without touching the rest of the file.
 
 ```lua
 -- Reel: begin. Written by install.sh; delete this block to remove the binds.
--- Keycodes keep these binds working after switching keyboard layouts.
-o.bind("SUPER + code:27", "Reel start/stop", "reel toggle")
-o.bind("SUPER + SHIFT + code:27", "Reel panel", "omarchy-shell shell toggle io.github.tahadx.reel '{}'")
-o.bind("SUPER + ALT + code:32", "Reel pause/resume", "reel toggle-pause")
+-- Key names follow the active keyboard layout.
+o.bind("SUPER + R", "Reel start/stop", "reel toggle")
+o.bind("SUPER + SHIFT + R", "Reel panel", { panel = "io.github.tahadx.reel" })
+o.bind("SUPER + ALT + O", "Reel pause/resume", "reel toggle-pause")
 
 -- Zoom controls (Apple-style: non-conflicting Ctrl+Alt, mouse wheel, & touchpad gestures)
 o.bind("CTRL + ALT + equal", "Reel zoom in", "reel zoom-in")
@@ -62,10 +62,11 @@ o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pa
 | `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
-The block binds physical keycodes as well as keysyms, so the shortcuts keep
-working after switching keyboard layouts. The zoom binds only act while a take
-is recording and **Manual zoom** is on. Touchpad pinch is not in this block:
-Reel registers the two-finger pinch gesture when a take starts.
+The block uses key names for Reel's Super shortcuts and physical keycodes for
+the zoom and pan binds, so zoom keeps working after switching keyboard layouts.
+The zoom binds only act while a take is recording and **Manual zoom** is on.
+Touchpad pinch is not in this block: Reel registers the two-finger pinch gesture
+when a take starts.
 
 `omarchy plugin update` never edits `bindings.lua`. After updating, re-run the
 plugin's `install.sh` or replace the marked block with the one above to pick up
