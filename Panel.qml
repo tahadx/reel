@@ -51,6 +51,7 @@ Panel {
   readonly property color selectedFill: Util.alpha(root.foreground, 0.14)
   readonly property color hairline: Util.alpha(root.foreground, 0.12)
   readonly property color strongBorder: Util.alpha(root.foreground, 0.24)
+  readonly property color secondary: Util.alpha(root.foreground, 0.72)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property color onAccent: root.inkOn(root.accent)
   readonly property color onUrgent: root.inkOn(root.urgent)
@@ -85,6 +86,26 @@ Panel {
     { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
+  readonly property var shortcutRows: [
+    { keys: "↑ ↓ / j k", what: "move between rows" },
+    { keys: "← →", what: "move across an action row" },
+    { keys: "h / l", what: "move horizontally or cycle an option" },
+    { keys: "enter / space", what: "start, stop, save, or open" },
+    { keys: "tab", what: "switch sections or settings tabs" },
+    { keys: "r", what: "start or stop a take" },
+    { keys: "p", what: "pause or resume" },
+    { keys: "d", what: "discard the current take" },
+    { keys: "Shift+H", what: "open or close history" },
+    { keys: "s", what: "focus the settings tabs" },
+    { keys: "a", what: "open the take actions menu" },
+    { keys: "x / delete", what: "trash the selected take" },
+    { keys: "m", what: "make a slow-motion copy" },
+    { keys: "u", what: "share the selected take" },
+    { keys: "c", what: "copy the selected take's path" },
+    { keys: "o", what: "open the recordings folder" },
+    { keys: "q", what: "close the panel" },
+    { keys: "esc", what: "go back, then close" }
+  ]
   readonly property var settingsTabs: [
     { id: "quick", label: "Quick", rows: root.quickSettingRows },
     { id: "video", label: "Video", rows: [
@@ -100,13 +121,13 @@ Panel {
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
-    ] }
+    ] },
+    { id: "keys", label: "Keys", rows: root.shortcutRows }
   ]
 
   // ---------- panel state -------------------------------------------------
 
   property string page: "home"
-  property bool showShortcuts: false
   property bool typingPrefix: false
   property string focusSection: "primary"
   property int selectedIndex: 0
@@ -933,12 +954,14 @@ Panel {
       return
     }
     if (dx !== 0) {
+      if (root.settingsTab === "keys") return
       var row = root.settingsRows()[root.settingsIndex]
       if (row && row.kind !== "info") root.cycleOption(row.key, dx)
     }
   }
 
   function activateSettings() {
+    if (root.settingsTab === "keys") return
     var row = root.settingsRows()[root.settingsIndex]
     if (row && row.kind !== "info") root.cycleOption(row.key, 1)
   }
@@ -993,7 +1016,6 @@ Panel {
       root.selectedIndex = 0
       root.cursorActive = false
       root.settingsIndex = 0
-      root.showShortcuts = false
       root.notice = ""
       root.discardArmed = false
       root.trashArmedPath = ""
@@ -1330,14 +1352,35 @@ Panel {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: Style.space(2)
 
-                Text {
-                  textFormat: Text.PlainText
-                  text: root.paused ? "Paused" : (root.finalizing ? "Saving" : "Recording")
-                  color: root.paused || root.finalizing ? root.dim : root.accent
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: true
-                  font.letterSpacing: 0.4
+                Row {
+                  spacing: Style.space(6)
+
+                  Rectangle {
+                    visible: !root.paused && !root.finalizing
+                    width: Style.space(6)
+                    height: width
+                    radius: width / 2
+                    color: root.accent
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    SequentialAnimation on opacity {
+                      running: root.status === "recording" && !Style.reduceMotion
+                      loops: Animation.Infinite
+                      NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                      NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                    }
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.paused ? "Paused" : (root.finalizing ? "Saving" : "Recording")
+                    color: root.paused || root.finalizing ? root.secondary : root.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    font.letterSpacing: 0.4
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
                 }
 
                 Text {
@@ -1377,6 +1420,7 @@ Panel {
               tone: root.active || root.starting ? "urgent" : "accent"
               primary: true
               enabled: !root.finalizing
+              hint: "r"
             }
 
             ActionButton {
@@ -1386,6 +1430,7 @@ Panel {
               glyph: root.paused ? "󰐊" : "󰏤"
               tone: "neutral"
               enabled: root.active
+              hint: "p"
             }
 
             ActionButton {
@@ -1395,6 +1440,7 @@ Panel {
               glyph: "󰆴"
               tone: "neutral"
               enabled: root.active
+              hint: "d"
             }
           }
 
@@ -1581,7 +1627,7 @@ Panel {
 
             Item {
               width: parent.width
-              implicitHeight: Style.space(32)
+              implicitHeight: Style.space(34)
 
               Row {
                 id: settingsTabRow
@@ -1601,16 +1647,6 @@ Panel {
                     readonly property bool active: root.settingsTab === modelData.id
                     readonly property bool hot: settingsTabMouse.containsMouse
 
-                    Rectangle {
-                      anchors.fill: parent
-                      radius: Style.cornerRadius
-                      color: settingsTabItem.hot && !settingsTabItem.active
-                        ? root.hoverFill : "transparent"
-                      Behavior on color {
-                        ColorAnimation { duration: Style.duration(120) }
-                      }
-                    }
-
                     Text {
                       anchors.centerIn: parent
                       textFormat: Text.PlainText
@@ -1619,24 +1655,38 @@ Panel {
                         : settingsTabItem.hot ? root.foreground : root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.bodySmall
+                      font.letterSpacing: 0.2
                       font.bold: settingsTabItem.active
                       Behavior on color {
-                        ColorAnimation { duration: Style.duration(120) }
+                        ColorAnimation { duration: Style.duration(150) }
                       }
                     }
 
                     Rectangle {
                       anchors.bottom: parent.bottom
+                      anchors.bottomMargin: 1
+                      anchors.horizontalCenter: parent.horizontalCenter
+                      width: Math.max(0, parent.width - Style.space(16))
+                      height: 1
+                      color: Util.alpha(root.foreground, 0.35)
+                      opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
+                      Behavior on opacity {
+                        NumberAnimation { duration: Style.duration(120) }
+                      }
+                    }
+
+                    Rectangle {
+                      anchors.bottom: parent.bottom
+                      anchors.bottomMargin: 1
                       anchors.horizontalCenter: parent.horizontalCenter
                       z: 1
                       width: settingsTabItem.active
                         ? Math.max(0, parent.width - Style.space(16)) : 0
                       height: Math.max(1, Style.space(2))
-                      radius: height / 2
                       color: root.accent
                       Behavior on width {
                         NumberAnimation {
-                          duration: Style.duration(120)
+                          duration: Style.duration(150)
                           easing.type: Easing.OutCubic
                         }
                       }
@@ -1666,8 +1716,13 @@ Panel {
               }
             }
 
-            Repeater {
-              model: root.settingsRows()
+            Column {
+              id: settingsBody
+              width: parent.width
+              spacing: Style.space(12)
+
+              Repeater {
+                model: root.settingsTab === "keys" ? [] : root.settingsRows()
 
               SettingRow {
                 required property var modelData
@@ -1681,6 +1736,18 @@ Panel {
                 rowIndex: index
               }
             }
+
+              Repeater {
+                model: root.settingsTab === "keys" ? root.shortcutRows : []
+
+                ShortcutRow {
+                  required property var modelData
+                  required property int index
+                  width: parent.width
+                  row: modelData
+                  rowIndex: index
+                }
+              }
 
             Column {
               visible: root.settingsTab === "output"
@@ -1746,140 +1813,6 @@ Panel {
               elide: Text.ElideMiddle
               width: parent.width
             }
-          }
-
-          // ---------- shortcuts ----------
-
-          PanelSeparator {
-            width: parent.width
-            foreground: root.foreground
-            strength: 0.1
-            visible: root.page === "home"
-          }
-
-          Item {
-            width: parent.width
-            height: Style.space(30)
-            visible: root.page === "home"
-
-            RowLayout {
-              anchors.fill: parent
-              spacing: Style.space(8)
-
-              Rectangle {
-                Layout.preferredWidth: Style.space(20)
-                Layout.preferredHeight: Style.space(20)
-                Layout.alignment: Qt.AlignVCenter
-                radius: Style.cornerRadius
-                color: Util.alpha(root.dim, 0.2)
-
-                Text {
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: "?"
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  font.bold: true
-                }
-              }
-
-              Text {
-                Layout.alignment: Qt.AlignVCenter
-                textFormat: Text.PlainText
-                text: "Keyboard shortcuts"
-                color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.body
-              }
-
-              Item { Layout.fillWidth: true }
-
-              Text {
-                Layout.alignment: Qt.AlignVCenter
-                textFormat: Text.PlainText
-                text: "›"
-                rotation: root.showShortcuts ? 90 : 0
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.title
-                Behavior on rotation {
-                  NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
-                }
-              }
-            }
-
-            MouseArea {
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.showShortcuts = !root.showShortcuts
-            }
-          }
-
-          Column {
-            width: parent.width
-            spacing: Style.space(4)
-            visible: root.page === "home" && root.showShortcuts
-
-            Repeater {
-              model: [
-                { keys: "↑ ↓ / j k", what: "move between rows" },
-                { keys: "← →", what: "move across the action row" },
-                { keys: "h / l", what: "move horizontally or cycle the focused option" },
-                { keys: "enter / space", what: "start, stop, save, or open" },
-                { keys: "tab", what: "move between sections or settings tabs" },
-                { keys: "r", what: "start or stop a take" },
-                { keys: "p", what: "pause or resume" },
-                { keys: "d", what: "discard the current take" },
-                { keys: "Shift+H", what: "open or close history" },
-                { keys: "s", what: "settings" },
-                { keys: "a", what: "open the take actions menu" },
-                { keys: "x / delete", what: "trash the selected take" },
-                { keys: "m", what: "make a slow-motion copy" },
-                { keys: "u", what: "share the selected take" },
-                { keys: "c", what: "copy the selected take's path" },
-                { keys: "o", what: "open the recordings folder" },
-                { keys: "q", what: "close" },
-                { keys: "esc", what: "back, then close" }
-              ]
-
-              RowLayout {
-                required property var modelData
-                width: parent.width
-                height: Style.space(20)
-                spacing: Style.space(8)
-
-                Rectangle {
-                  Layout.preferredWidth: Math.max(Style.space(64), keyText.implicitWidth + Style.space(8))
-                  Layout.preferredHeight: Style.space(20)
-                  Layout.alignment: Qt.AlignVCenter
-                  radius: Style.cornerRadius
-                  color: Util.alpha(root.dim, 0.14)
-
-                  Text {
-                    id: keyText
-                    anchors.centerIn: parent
-                    textFormat: Text.PlainText
-                    text: modelData.keys
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                }
-
-                Text {
-                  Layout.fillWidth: true
-                  Layout.minimumWidth: 0
-                  Layout.alignment: Qt.AlignVCenter
-                  textFormat: Text.PlainText
-                  text: modelData.what
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                }
-              }
             }
           }
 
@@ -1909,7 +1842,7 @@ Panel {
                 text: root.visibleRecents.length > 0
                   ? "enter opens · t cuts · a actions · x trashes"
                   : "takes appear here after the first recording"
-                color: root.dim
+                color: root.secondary
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 anchors.right: parent.right
@@ -2184,6 +2117,7 @@ Panel {
     property string glyph: ""
     property string tone: "neutral"
     property bool primary: false
+    property string hint: ""
 
     readonly property color toneColor: tone === "urgent" ? root.urgent : tone === "accent" ? root.accent : root.foreground
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
@@ -2196,19 +2130,39 @@ Panel {
     fill: Style.hoverFillFor(root.foreground, root.accent)
     currentFill: root.selectedFill
     color: !enabled ? "transparent"
-      : primary ? action.toneColor
+      : primary ? (actionMouse.pressed ? Qt.darker(action.toneColor, 0.96)
+        : hasCursor ? Qt.lighter(action.toneColor, 1.05) : action.toneColor)
+      : actionMouse.pressed ? root.selectedFill
       : hasCursor ? action.fill
-      : "transparent"
+      : root.restFill
     borderSpec: !enabled
       ? Border.controlSpec("normal", root.dim, root.accent)
-      : primary ? Border.none()
-      : Border.controlSpec(hasCursor ? "hover-cursor" : "normal", root.foreground, root.accent)
-    implicitHeight: Style.space(40)
-    opacity: enabled ? 1.0 : 0.45
+      : primary ? Border.flat(hasCursor ? Qt.lighter(action.toneColor, 1.2) : "transparent",
+          hasCursor ? 1 : 0)
+      : Border.flat(hasCursor ? root.accent : root.hairline, 1)
+    implicitHeight: Style.space(42)
+    opacity: enabled ? 1.0 : 0.35
+    scale: actionMouse.pressed ? 0.985 : 1.0
+    Behavior on scale {
+      NumberAnimation { duration: Style.duration(90); easing.type: Easing.OutCubic }
+    }
+
+    Rectangle {
+      visible: action.primary && action.enabled
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.topMargin: 1
+      anchors.leftMargin: 1
+      anchors.rightMargin: 1
+      height: 1
+      color: Util.alpha(root.foreground, 0.16)
+      opacity: 0.6
+    }
 
     Row {
       anchors.centerIn: parent
-      spacing: Style.space(7)
+      spacing: Style.space(8)
 
       Text {
         textFormat: Text.PlainText
@@ -2225,12 +2179,37 @@ Panel {
         color: action.primary ? action.toneInk : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
+        font.letterSpacing: 0.2
         font.bold: true
         anchors.verticalCenter: parent.verticalCenter
       }
     }
 
+    Rectangle {
+      visible: action.hint !== "" && action.enabled
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      width: hintText.implicitWidth + Style.space(6)
+      height: Style.space(18)
+      color: action.primary ? Util.alpha(action.toneInk, 0.16) : root.restFill
+      border.width: action.primary ? 0 : 1
+      border.color: root.hairline
+
+      Text {
+        id: hintText
+        anchors.centerIn: parent
+        textFormat: Text.PlainText
+        text: action.hint
+        color: action.primary ? action.toneInk : root.secondary
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+    }
+
     MouseArea {
+      id: actionMouse
       anchors.fill: parent
       hoverEnabled: true
       enabled: action.enabled
@@ -2423,6 +2402,17 @@ Panel {
       }
     }
 
+    Rectangle {
+      visible: take.hasCursor
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(12))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(2)
+      anchors.verticalCenter: parent.verticalCenter
+      radius: width / 2
+      color: root.accent
+    }
+
     MouseArea {
       anchors.fill: parent
       z: -1
@@ -2460,15 +2450,22 @@ Panel {
       anchors.rightMargin: Style.space(8)
       spacing: Style.space(8)
 
-      Text {
-        textFormat: Text.PlainText
-        text: "󰉋"
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+      Rectangle {
+        width: Style.space(24)
+        height: width
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(20)
-        horizontalAlignment: Text.AlignHCenter
+        color: root.restFill
+        border.width: 1
+        border.color: root.hairline
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: "󰉋"
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
       }
 
       Text {
@@ -2483,6 +2480,17 @@ Panel {
       }
     }
 
+    Rectangle {
+      visible: folder.hasCursor
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(10))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(2)
+      anchors.verticalCenter: parent.verticalCenter
+      radius: width / 2
+      color: root.accent
+    }
+
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
@@ -2493,6 +2501,84 @@ Panel {
         root.selectedIndex = folder.rowIndex
       }
       onClicked: root.openFolder()
+    }
+  }
+
+  component ShortcutRow: CursorSurface {
+    id: shortcut
+    property var row: null
+    property int rowIndex: 0
+
+    readonly property bool selected: root.cursorActive && root.page === "home"
+      && root.focusSection === "settings" && root.settingsIndex === rowIndex
+
+    hasCursor: selected
+    onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(shortcut)
+    foreground: root.foreground
+    accent: root.accent
+    fill: Style.hoverFillFor(root.foreground, root.accent)
+    implicitHeight: Style.space(34)
+    radius: 0
+
+    Row {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(10)
+
+      Rectangle {
+        width: Math.max(Style.space(64), keyLabel.implicitWidth + Style.space(10))
+        height: Style.space(20)
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.restFill
+        border.width: 1
+        border.color: root.hairline
+
+        Text {
+          id: keyLabel
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: shortcut.row ? String(shortcut.row.keys || "") : ""
+          color: shortcut.selected ? root.foreground : root.secondary
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
+      }
+
+      Text {
+        width: parent.width
+          - Math.max(Style.space(64), keyLabel.implicitWidth + Style.space(10))
+          - parent.spacing
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: shortcut.row ? String(shortcut.row.what || "") : ""
+        color: shortcut.selected ? root.foreground : root.secondary
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
+      }
+    }
+
+    Rectangle {
+      visible: shortcut.selected
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(10))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(2)
+      anchors.verticalCenter: parent.verticalCenter
+      color: root.accent
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.ArrowCursor
+      onContainsMouseChanged: if (containsMouse) {
+        root.cursorActive = true
+        root.focusSection = "settings"
+        root.settingsIndex = shortcut.rowIndex
+      }
     }
   }
 
@@ -2525,15 +2611,22 @@ Panel {
       anchors.rightMargin: Style.space(8)
       spacing: Style.space(8)
 
-      Text {
-        textFormat: Text.PlainText
-        text: setting.glyph
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+      Rectangle {
+        width: Style.space(24)
+        height: width
         anchors.verticalCenter: parent.verticalCenter
-        width: Style.space(20)
-        horizontalAlignment: Text.AlignHCenter
+        color: root.restFill
+        border.width: 1
+        border.color: root.hairline
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: setting.glyph
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
       }
 
       Text {
@@ -2543,7 +2636,7 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.space(20) - valueText.width - Style.space(28) - parent.spacing * 2
+        width: parent.width - Style.space(24) - valueText.width - Style.space(28) - parent.spacing * 2
         elide: Text.ElideRight
       }
 
@@ -2554,9 +2647,9 @@ Panel {
           ? (setting.infoValue !== "" ? setting.infoValue
             : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey)))
           : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
-        color: setting.selected ? root.foreground : root.dim
+        color: setting.selected ? root.foreground : root.secondary
         font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
+        font.pixelSize: Style.font.bodySmall
         font.bold: true
         anchors.verticalCenter: parent.verticalCenter
         width: Math.min(implicitWidth, Style.space(150))
@@ -2568,6 +2661,17 @@ Panel {
         foreground: setting.selected ? root.foreground : root.dim
         anchors.verticalCenter: parent.verticalCenter
       }
+    }
+
+    Rectangle {
+      visible: setting.selected
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(10))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(2)
+      anchors.verticalCenter: parent.verticalCenter
+      radius: width / 2
+      color: root.accent
     }
 
     MouseArea {
