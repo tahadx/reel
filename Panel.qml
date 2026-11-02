@@ -1217,11 +1217,16 @@ Panel {
   }
 
   onFinalizingChanged: {
-    if (!root.finalizing) return
-    var file = String((root.state || ({})).file || "")
-    if (file === "") return
-    root.addOptimisticSave(file)
-    optimisticSaveTimer.restart()
+    if (root.finalizing) {
+      var file = String((root.state || ({})).file || "")
+      if (file !== "") {
+        root.addOptimisticSave(file)
+        optimisticSaveTimer.restart()
+      }
+      root.setNotice("Saving the take…")
+    } else {
+      optimisticSettleTimer.restart()
+    }
   }
 
   onPendingTrashChanged: {
@@ -1561,7 +1566,7 @@ Panel {
           Item {
             width: parent.width
             implicitHeight: timerRow.implicitHeight
-            visible: root.page === "home" && (root.active || root.finalizing)
+            visible: root.page === "home" && root.active
 
             Row {
               id: timerRow
@@ -1625,15 +1630,6 @@ Panel {
                 }
               }
             }
-          }
-
-          // ---------- notice ----------
-
-          NoticeBar {
-            width: parent.width
-            visible: root.page === "home" && root.notice !== ""
-            text: root.notice
-            urgent: root.noticeUrgent
           }
 
           // ---------- primary actions ----------
@@ -1935,12 +1931,6 @@ Panel {
                 rowIndex: index + 1
               }
             }
-
-            NoticeBar {
-              width: parent.width
-              text: root.notice
-              urgent: root.noticeUrgent
-            }
           }
 
 
@@ -1976,6 +1966,90 @@ Panel {
         opacity: root.scrollBottomHover ? 1 : 0
         Behavior on opacity {
           NumberAnimation { duration: Style.duration(120) }
+        }
+      }
+
+      Item {
+        id: noticeToast
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Style.space(10)
+        anchors.rightMargin: Style.space(10)
+        anchors.bottomMargin: Style.space(10)
+        height: toastCard.height
+        z: 900
+        opacity: 0
+        y: Style.space(8)
+
+        states: State {
+          name: "shown"
+          when: root.notice !== ""
+          PropertyChanges { target: noticeToast; opacity: 1; y: 0 }
+        }
+
+        transitions: [
+          Transition {
+            from: ""
+            to: "shown"
+            NumberAnimation {
+              properties: "opacity,y"
+              duration: Style.duration(180)
+              easing.type: Easing.OutCubic
+            }
+          },
+          Transition {
+            from: "shown"
+            to: ""
+            NumberAnimation {
+              properties: "opacity,y"
+              duration: Style.duration(160)
+              easing.type: Easing.OutCubic
+            }
+          }
+        ]
+
+        Rectangle {
+          x: Style.space(1)
+          y: Style.space(2)
+          width: toastCard.width
+          height: toastCard.height
+          radius: toastCard.radius
+          color: Util.alpha("#000000", 0.28)
+        }
+
+        Rectangle {
+          id: toastCard
+          width: Math.min(parent.width, Style.space(420))
+          height: toastText.implicitHeight + Style.space(16)
+          anchors.horizontalCenter: parent.horizontalCenter
+          radius: Style.cornerRadius
+          color: Commons.Color.background
+          border.width: 1
+          border.color: root.hairline
+          clip: true
+
+          Rectangle {
+            width: Math.max(1, Style.space(2))
+            height: parent.height
+            anchors.left: parent.left
+            color: root.noticeUrgent ? root.urgent : root.accent
+          }
+
+          Text {
+            id: toastText
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Style.space(14)
+            anchors.rightMargin: Style.space(12)
+            anchors.verticalCenter: parent.verticalCenter
+            textFormat: Text.PlainText
+            text: root.notice
+            color: root.noticeUrgent ? root.urgent : root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            wrapMode: Text.WordWrap
+          }
         }
       }
 
@@ -2168,44 +2242,6 @@ Panel {
       if (event.text && event.text.length === 1) {
         catcher.textKey(event.text, event.modifiers)
       }
-    }
-  }
-
-  // A one-line status strip. The leading rule carries info vs error without
-  // turning the whole row into an alarm.
-  component NoticeBar: Rectangle {
-    id: notice
-    property string text: ""
-    property bool urgent: false
-
-    visible: text !== ""
-    implicitHeight: noticeText.implicitHeight + Style.space(10)
-    radius: Style.cornerRadius
-    color: notice.urgent ? root.urgentSoft : root.restFill
-
-    Rectangle {
-      width: Math.max(1, Style.space(2))
-      height: Math.max(0, parent.height - Style.space(8))
-      anchors.left: parent.left
-      anchors.leftMargin: Style.space(4)
-      anchors.verticalCenter: parent.verticalCenter
-      radius: width / 2
-      color: notice.urgent ? root.urgent : root.accent
-    }
-
-    Text {
-      id: noticeText
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.leftMargin: Style.space(14)
-      anchors.rightMargin: Style.space(10)
-      anchors.verticalCenter: parent.verticalCenter
-      textFormat: Text.PlainText
-      text: notice.text
-      color: notice.urgent ? root.urgent : root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-      wrapMode: Text.WordWrap
     }
   }
 
@@ -3018,7 +3054,14 @@ Panel {
 
   Timer {
     id: optimisticSaveTimer
-    interval: 60000
+    interval: 12000
+    repeat: false
+    onTriggered: root.pruneOptimisticSaves(true)
+  }
+
+  Timer {
+    id: optimisticSettleTimer
+    interval: 2000
     repeat: false
     onTriggered: root.pruneOptimisticSaves(true)
   }
