@@ -80,14 +80,14 @@ jobs:
           fi
 
       # A committed engine that no longer matches crates/ would ship the wrong
-      # recorder. Rebuild and compare; this is the same gate as the pre-push
-      # hook, so a stale bin/dist fails CI rather than a user's machine.
+      # recorder. Rebuild and compare the source fingerprint; bytes differ
+      # between linkers, so they are not a portable freshness signal.
       - name: Dist freshness
         run: |
           set -euo pipefail
-          before=$(md5sum bin/dist/reel-native | cut -d' ' -f1)
+          before=$(cat bin/dist/reel-native.fingerprint 2>/dev/null || echo missing)
           bin/refresh-dist
-          after=$(md5sum bin/dist/reel-native | cut -d' ' -f1)
+          after=$(cat bin/dist/reel-native.fingerprint)
           if [ "$before" != "$after" ]; then
             echo "::error::bin/dist/reel-native is stale. Run bin/refresh-dist and commit the result."
             exit 1

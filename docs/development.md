@@ -9,6 +9,7 @@ engine, so a normal install does not need Rust.
 - `Panel.qml`, `Service.qml`, and `Model.js` — the bar widget, background
   service, and pure JavaScript helpers.
 - `bin/dist/reel-native` — the committed x86_64 musl engine.
+- `bin/dist/reel-native.fingerprint` — source fingerprint for that engine.
 - `bin/refresh-dist`, `bin/stamp-version`, and `bin/check-release` — release
   tooling.
 - `bin/lint-qml`, `bin/test-qml`, and `tests/` — QML and installer checks.
@@ -47,9 +48,14 @@ bin/refresh-dist
 ```
 
 It builds `reel` for `x86_64-unknown-linux-musl`, copies the binary to
-`bin/dist/reel-native`, strips it, and prints its version. Commit the refreshed
-binary in the same commit as the source change. CI and the pre-push hook fail
-on a stale engine.
+`bin/dist/reel-native`, strips it, writes a source fingerprint to
+`bin/dist/reel-native.fingerprint`, and prints its version. Commit the
+refreshed binary and fingerprint in the same commit as the source change. CI
+and the pre-push hook fail on a stale engine.
+
+The fingerprint exists because the same source can produce different bytes on
+different linkers. Both gates rebuild and compare the fingerprint instead of
+the binary hash.
 
 The release profile strips symbols, and the static musl build does not depend
 on the host glibc. `bin/check-release` verifies that the manifest and crate
@@ -60,7 +66,8 @@ reports the manifest version.
 
 1. Stamp the version with `bin/stamp-version X.Y.Z`.
 2. Rebuild the shipped engine with `bin/refresh-dist`.
-3. Commit both files and the engine, tag the commit `vX.Y.Z`, and push the tag.
+3. Commit both version files, the engine, and its fingerprint, tag the commit
+   `vX.Y.Z`, and push the tag.
 
 The release workflow rebuilds the engine from the tag and refuses to publish
 if `manifest.json` or `crates/reel/Cargo.toml` disagree with it. It uploads a

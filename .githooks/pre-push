@@ -16,11 +16,11 @@ if command -v omarchy >/dev/null 2>&1; then
 fi
 echo "pre-push: dist freshness"
 # The plugin ships the engine, so a stale bin/dist records with old code no
-# matter what crates/ says. Rebuilding here proves the committed bytes match
-# the sources (same machine, same toolchain => same bytes).
-before=$(md5sum bin/dist/reel-native 2>/dev/null || echo missing)
+# matter what crates/ says. Rebuild here and compare the source fingerprint:
+# build bytes vary between linkers, but the fingerprint does not.
+before=$(cat bin/dist/reel-native.fingerprint 2>/dev/null || echo missing)
 bin/refresh-dist
-after=$(md5sum bin/dist/reel-native)
+after=$(cat bin/dist/reel-native.fingerprint)
 if [[ "$before" != "$after" ]]; then
   echo "pre-push: bin/dist was stale and has been rebuilt — commit bin/dist and push again" >&2
   echo "pre-push: (if crates/ has uncommitted changes, commit or stash them first)" >&2

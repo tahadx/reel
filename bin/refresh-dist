@@ -7,6 +7,22 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 TARGET=x86_64-unknown-linux-musl
 
+# Fingerprint every input that can change the engine. CI and the pre-push hook
+# compare this value instead of the built bytes: the same sources compile to
+# different bytes on different linkers, but they always produce the same
+# fingerprint.
+fingerprint() {
+  local file
+  {
+    printf '%s\n' Cargo.toml Cargo.lock rust-toolchain.toml
+    find crates/reel -type f \( -name '*.rs' -o -name 'Cargo.toml' \) -print \
+      | LC_ALL=C sort
+  } | while IFS= read -r file; do
+    printf '%s\n' "$file"
+    sha256sum -- "$file"
+  done | sha256sum | cut -d' ' -f1
+}
+
 # Normalize the paths embedded in panic locations and dependency metadata.
 # CI checks out under /home/runner and uses its own CARGO_HOME, so without this
 # a rebuild is functionally identical but never byte-identical to the committed
@@ -23,4 +39,5 @@ cargo build --release -p reel --target "$TARGET"
 mkdir -p bin/dist
 cp -f "target/$TARGET/release/reel" bin/dist/reel-native
 strip bin/dist/reel-native
+fingerprint > bin/dist/reel-native.fingerprint
 bin/dist/reel-native --version
