@@ -25,19 +25,7 @@ Panel {
   readonly property var visibleRecents: {
     var rows = root.recents || []
     var pending = root.pendingTrash || ({})
-    var optimism = root.optimisticSaves || ({})
     var out = []
-    for (var key in optimism) {
-      if (pending[key]) continue
-      var known = false
-      for (var r = 0; r < rows.length; r++) {
-        if (String(rows[r].path || "") === key) {
-          known = true
-          break
-        }
-      }
-      if (!known) out.push({ path: key, saving: true })
-    }
     for (var i = 0; i < rows.length; i++) {
       if (!pending[String(rows[i].path || "")]) out.push(rows[i])
     }
@@ -161,10 +149,10 @@ Panel {
 
   property string notice: ""
   property bool noticeUrgent: false
+  property int noticeSeq: 0
   property string discardArmedPath: ""
   property string trashArmedPath: ""
   property var pendingTrash: ({})
-  property var optimisticSaves: ({})
   property string removingPath: ""
   property string trashInFlightPath: ""
   property string historyAnchorPath: ""
@@ -224,7 +212,7 @@ Panel {
 
   Timer {
     id: noticeTimer
-    interval: 4500
+    interval: 1900
     repeat: false
     onTriggered: root.notice = ""
   }
@@ -232,6 +220,7 @@ Panel {
   function setNotice(text, urgent) {
     root.notice = String(text || "")
     root.noticeUrgent = !!urgent
+    root.noticeSeq += 1
     if (root.notice !== "") noticeTimer.restart()
   }
 
@@ -613,7 +602,7 @@ Panel {
   // ---------- take actions menu ------------------------------------------
 
   function openTakeMenu(row, rowIndex, anchor) {
-    if (!row || row.saving || !anchor) return
+    if (!row || !anchor) return
     var surface = keyboardPanel.loadedContent
     if (!surface) return
     root.cursorActive = true
@@ -685,32 +674,7 @@ Panel {
     if (root.page !== "history" || root.focusSection !== "recents") return null
     var index = root.selectedIndex - 1
     if (index < 0 || index >= root.visibleRecents.length) return null
-    var row = root.visibleRecents[index]
-    if (row && row.saving) return null
-    return row
-  }
-
-  function addOptimisticSave(path) {
-    var next = {}
-    for (var key in root.optimisticSaves) next[key] = true
-    next[String(path)] = true
-    root.optimisticSaves = next
-  }
-
-  function pruneOptimisticSaves(force) {
-    var rows = root.recents || []
-    var next = {}
-    for (var key in root.optimisticSaves) {
-      var found = false
-      for (var i = 0; i < rows.length; i++) {
-        if (String(rows[i].path || "") === key) {
-          found = true
-          break
-        }
-      }
-      if (found || !force) next[key] = true
-    }
-    root.optimisticSaves = next
+    return root.visibleRecents[index]
   }
 
   function addPendingTrash(path) {
@@ -776,7 +740,7 @@ Panel {
   }
 
   function trashTake(row) {
-    if (!row || !row.path || row.saving) return
+    if (!row || !row.path) return
     if (root.trashArmedPath !== String(row.path)) {
       root.trashArmedPath = String(row.path)
       root.setNotice("Press x again to move " + Model.takeTitle(row) + " to the trash.", true)
@@ -1211,22 +1175,12 @@ Panel {
   }
 
   onRecentsChanged: {
-    root.pruneOptimisticSaves(false)
     root.prunePendingTrash()
     root.settleHistorySelection()
   }
 
   onFinalizingChanged: {
-    if (root.finalizing) {
-      var file = String((root.state || ({})).file || "")
-      if (file !== "") {
-        root.addOptimisticSave(file)
-        optimisticSaveTimer.restart()
-      }
-      root.setNotice("Saving the take…")
-    } else {
-      optimisticSettleTimer.restart()
-    }
+    if (root.finalizing) root.setNotice("Saving the take…")
   }
 
   onPendingTrashChanged: {
@@ -1980,68 +1934,183 @@ Panel {
         height: toastCard.height
         z: 900
         opacity: 0
-        y: Style.space(8)
+        y: Style.space(10)
+        scale: 0.97
+        transformOrigin: Item.Center
 
-        states: State {
-          name: "shown"
-          when: root.notice !== ""
-          PropertyChanges { target: noticeToast; opacity: 1; y: 0 }
+        Connections {
+          target: root
+          function onNoticeSeqChanged() {
+            if (root.notice === "") return
+            noticeShow.stop()
+            noticeHide.stop()
+            noticeToast.opacity = 0
+            noticeToast.y = Style.space(18)
+            noticeToast.scale = 0.92
+            toastProgress.width = toastCard.width
+            toastProgressAnim.restart()
+            noticeShow.restart()
+          }
+          function onNoticeChanged() {
+            if (root.notice !== "") return
+            noticeShow.stop()
+            noticeHide.restart()
+          }
         }
 
-        transitions: [
-          Transition {
-            from: ""
-            to: "shown"
-            NumberAnimation {
-              properties: "opacity,y"
-              duration: Style.duration(180)
-              easing.type: Easing.OutCubic
-            }
-          },
-          Transition {
-            from: "shown"
-            to: ""
-            NumberAnimation {
-              properties: "opacity,y"
-              duration: Style.duration(160)
-              easing.type: Easing.OutCubic
-            }
+        ParallelAnimation {
+          id: noticeShow
+          NumberAnimation {
+            target: noticeToast
+            property: "opacity"
+            to: 1
+            duration: Style.duration(160)
+            easing.type: Easing.OutCubic
           }
-        ]
+          NumberAnimation {
+            target: noticeToast
+            property: "y"
+            to: 0
+            duration: Style.duration(200)
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.12
+          }
+          NumberAnimation {
+            target: noticeToast
+            property: "scale"
+            to: 1
+            duration: Style.duration(200)
+            easing.type: Easing.OutBack
+            easing.overshoot: 1.06
+          }
+        }
+
+        ParallelAnimation {
+          id: noticeHide
+          NumberAnimation {
+            target: noticeToast
+            property: "opacity"
+            to: 0
+            duration: Style.duration(120)
+            easing.type: Easing.InCubic
+          }
+          NumberAnimation {
+            target: noticeToast
+            property: "y"
+            to: Style.space(12)
+            duration: Style.duration(150)
+            easing.type: Easing.InCubic
+          }
+          NumberAnimation {
+            target: noticeToast
+            property: "scale"
+            to: 0.96
+            duration: Style.duration(150)
+            easing.type: Easing.InCubic
+          }
+        }
+
+        Rectangle {
+          x: toastCard.x - Style.space(2)
+          y: toastCard.y + Style.space(2)
+          width: toastCard.width + Style.space(4)
+          height: toastCard.height + Style.space(4)
+          radius: toastCard.radius + Style.space(2)
+          color: Util.alpha(root.noticeUrgent ? root.urgent : root.accent, 0.10)
+        }
 
         Rectangle {
           x: Style.space(1)
-          y: Style.space(2)
+          y: Style.space(6)
           width: toastCard.width
           height: toastCard.height
           radius: toastCard.radius
-          color: Util.alpha("#000000", 0.28)
+          color: Util.alpha("#000000", 0.22)
+        }
+
+        Rectangle {
+          x: Style.space(1)
+          y: Style.space(3)
+          width: toastCard.width
+          height: toastCard.height
+          radius: toastCard.radius
+          color: Util.alpha("#000000", 0.20)
+        }
+
+        Rectangle {
+          x: Style.space(1)
+          y: Style.space(1)
+          width: toastCard.width
+          height: toastCard.height
+          radius: toastCard.radius
+          color: Util.alpha("#000000", 0.18)
         }
 
         Rectangle {
           id: toastCard
-          width: Math.min(parent.width, Style.space(420))
-          height: toastText.implicitHeight + Style.space(16)
+          width: Math.min(parent.width, Style.space(450))
+          height: toastText.implicitHeight + Style.space(22)
           anchors.horizontalCenter: parent.horizontalCenter
           radius: Style.cornerRadius
           color: Commons.Color.background
           border.width: 1
-          border.color: root.hairline
+          border.color: root.noticeUrgent
+            ? Util.alpha(root.urgent, 0.55)
+            : Util.alpha(root.accent, 0.38)
           clip: true
 
           Rectangle {
-            width: Math.max(1, Style.space(2))
+            anchors.fill: parent
+            color: Util.alpha(root.noticeUrgent ? root.urgent : root.accent, 0.06)
+          }
+
+          Rectangle {
+            width: root.notice !== "" ? Math.max(1, Style.space(3)) : 0
             height: parent.height
             anchors.left: parent.left
             color: root.noticeUrgent ? root.urgent : root.accent
+            Behavior on width {
+              NumberAnimation { duration: Style.duration(180); easing.type: Easing.OutCubic }
+            }
+          }
+
+          Rectangle {
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.topMargin: 1
+            anchors.leftMargin: 1
+            anchors.rightMargin: 1
+            height: 1
+            color: Util.alpha(root.foreground, 0.10)
+          }
+
+          Rectangle {
+            width: Style.space(22)
+            height: width
+            radius: width / 2
+            anchors.left: parent.left
+            anchors.leftMargin: Style.space(14)
+            anchors.verticalCenter: parent.verticalCenter
+            color: "transparent"
+            border.width: 1
+            border.color: Util.alpha(root.noticeUrgent ? root.urgent : root.accent, 0.45)
+
+            Rectangle {
+              width: Style.space(6)
+              height: width
+              radius: width / 2
+              anchors.centerIn: parent
+              color: root.noticeUrgent ? root.urgent : root.accent
+            }
           }
 
           Text {
             id: toastText
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: Style.space(14)
-            anchors.rightMargin: Style.space(12)
+            anchors.leftMargin: Style.space(46)
+            anchors.rightMargin: Style.space(14)
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: root.notice
@@ -2049,6 +2118,26 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             wrapMode: Text.WordWrap
+          }
+
+          Rectangle {
+            id: toastProgress
+            anchors.left: parent.left
+            anchors.bottom: parent.bottom
+            height: Math.max(1, Style.space(2))
+            width: 0
+            color: root.noticeUrgent ? root.urgent : root.accent
+            opacity: 0.55
+
+            NumberAnimation {
+              id: toastProgressAnim
+              target: toastProgress
+              property: "width"
+              from: toastCard.width
+              to: 0
+              duration: noticeTimer.interval
+              easing.type: Easing.Linear
+            }
           }
         }
       }
@@ -2512,7 +2601,6 @@ Panel {
 
     readonly property bool armed: root.trashArmedPath !== "" && root.trashArmedPath === String(row.path || "")
     readonly property string preview: String(row.preview || "")
-    readonly property bool saving: !!row && !!row.saving
     readonly property bool removing: root.removingPath !== ""
       && root.removingPath === String(row.path || "")
     readonly property bool menuOpen: root.takeMenuOpen && root.takeMenuRow !== null
@@ -2605,8 +2693,8 @@ Panel {
 
         Text {
           textFormat: Text.PlainText
-          text: take.saving ? "Saving…" : Model.takeMeta(take.row)
-          color: take.saving ? root.accent : take.armed ? root.urgent : root.dim
+          text: Model.takeMeta(take.row)
+          color: take.armed ? root.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -2654,7 +2742,6 @@ Panel {
         root.setRowHover("recents", take.rowIndex, containsMouse)
       }
       onClicked: function(mouse) {
-        if (take.saving) return
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
@@ -3050,20 +3137,6 @@ Panel {
     repeat: true
     running: root.opened && (root.scrollTopHover || root.scrollBottomHover)
     onTriggered: root.edgeScrollStep()
-  }
-
-  Timer {
-    id: optimisticSaveTimer
-    interval: 12000
-    repeat: false
-    onTriggered: root.pruneOptimisticSaves(true)
-  }
-
-  Timer {
-    id: optimisticSettleTimer
-    interval: 2000
-    repeat: false
-    onTriggered: root.pruneOptimisticSaves(true)
   }
 
   Timer {
