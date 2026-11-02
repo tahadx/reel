@@ -130,6 +130,8 @@ Panel {
   property bool scrollBottomHover: false
   property string focusSection: "primary"
   property int selectedIndex: 0
+  property string hoverSection: ""
+  property int hoverIndex: -1
   property bool cursorActive: false
   property int settingsIndex: 0
   property string settingsTab: "quick"
@@ -436,7 +438,7 @@ Panel {
   function primaryLabel() {
     if (root.finalizing) return "Saving…"
     if (root.starting) return "Cancel"
-    if (root.active) return "Stop & save"
+    if (root.active) return "Stop"
     return "Record"
   }
 
@@ -758,6 +760,7 @@ Panel {
   }
 
   function moveSection(delta) {
+    root.clearHover()
     if (root.focusSection === "settings") {
       root.switchSettingsTab(delta)
       return
@@ -770,6 +773,7 @@ Panel {
   }
 
   function moveCursor(dx, dy) {
+    root.clearHover()
     if (root.focusSection === "settings") {
       root.moveSettings(dy, dx)
       return
@@ -794,8 +798,24 @@ Panel {
     root.moveSection(dy)
   }
 
-  function adjust(direction) {
-    if (root.focusSection === "header") {
+  function clearHover() {
+    root.hoverSection = ""
+    root.hoverIndex = -1
+  }
+
+  function setRowHover(section, index, on) {
+    if (on) {
+      root.hoverSection = section
+      root.hoverIndex = index
+      return
+    }
+    if (root.hoverSection === section && root.hoverIndex === index) {
+      root.hoverSection = ""
+      root.hoverIndex = -1
+    }
+  }
+
+  function adjust(direction) {    if (root.focusSection === "header") {
       var headers = root.sectionCount("header")
       root.selectedIndex = (root.selectedIndex + direction + headers) % headers
       return
@@ -808,6 +828,7 @@ Panel {
   }
 
   function activateCursor() {
+    root.clearHover()
     switch (root.focusSection) {
     case "header":
       root.toggleHistory()
@@ -880,6 +901,7 @@ Panel {
 
   function openHistory() {
     if (root.page === "history") return
+    root.clearHover()
     if (!omacutProbe.running) omacutProbe.running = true
     var area = root.scrollArea()
     var flick = area ? area.contentItem : null
@@ -894,6 +916,7 @@ Panel {
   }
 
   function closeHistory() {
+    root.clearHover()
     root.page = "home"
     root.focusSection = "primary"
     root.selectedIndex = 0
@@ -910,6 +933,7 @@ Panel {
 
   function openSettings() {
     if (root.page === "history") root.page = "home"
+    root.clearHover()
     root.focusSection = "settings"
     root.settingsIndex = 0
     root.typingPrefix = false
@@ -920,6 +944,7 @@ Panel {
   }
 
   function closeSettings() {
+    root.clearHover()
     root.focusSection = "primary"
     root.selectedIndex = 0
     root.typingPrefix = false
@@ -947,6 +972,7 @@ Panel {
   }
 
   function switchSettingsTab(delta) {
+    root.clearHover()
     var index = 0
     for (var i = 0; i < root.settingsTabs.length; i++)
       if (root.settingsTabs[i].id === root.settingsTab) index = i
@@ -1027,6 +1053,7 @@ Panel {
   // ---------- lifecycle ---------------------------------------------------
 
   onPageChanged: {
+    root.clearHover()
     if (root.takeMenuOpen) root.closeTakeMenu()
   }
 
@@ -1038,6 +1065,7 @@ Panel {
     if (opened) {
       root.scrollTopHover = false
       root.scrollBottomHover = false
+      root.clearHover()
       root.page = "home"
       root.focusSection = "primary"
       root.selectedIndex = 0
@@ -1057,6 +1085,7 @@ Panel {
     } else {
       root.scrollTopHover = false
       root.scrollBottomHover = false
+      root.clearHover()
       root.discardArmed = false
       root.trashArmedPath = ""
       root.historyAnchorPath = ""
@@ -1199,10 +1228,10 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyboardPanel.loadedContent
-    contentWidth: keyboardPanel.fittedContentWidth(Style.space(510))
+    contentWidth: keyboardPanel.fittedContentWidth(Style.space(480))
     contentHeight: keyboardPanel.fittedContentHeight(
       keyboardPanel.loadedContent ? keyboardPanel.loadedContent.implicitHeight : Style.space(480),
-      Style.space(720))
+      Style.space(660))
 
     content: ReelKeyCatcher {
       id: keyCatcher
@@ -1250,7 +1279,7 @@ Panel {
         Column {
           id: contentColumn
           width: scrollArea.availableWidth
-          spacing: Style.space(12)
+          spacing: Style.space(10)
 
           // ---------- hero ----------
 
@@ -1343,15 +1372,18 @@ Panel {
                   tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
                   foreground: root.page === "history" ? root.accent : root.foreground
                   fontFamily: root.fontFamily
-                  hasCursor: root.cursorActive && root.focusSection === "header"
-                    && root.selectedIndex === 0
+                  hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
+                    || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
+                      && root.hoverSection === "")
                   onHovered: function(on) {
-                    if (!on) return
+                    root.setRowHover("header", 0, on)
+                  }
+                  onClicked: {
                     root.cursorActive = true
                     root.focusSection = "header"
                     root.selectedIndex = 0
+                    root.toggleHistory()
                   }
-                  onClicked: root.toggleHistory()
                 }
               }
             }
@@ -1492,7 +1524,7 @@ Panel {
 
             Item {
               width: parent.width
-              implicitHeight: Style.space(34)
+              implicitHeight: Style.space(30)
 
               Row {
                 id: settingsTabRow
@@ -1627,7 +1659,7 @@ Panel {
 
               Rectangle {
                 width: parent.width
-                implicitHeight: Style.space(34)
+                implicitHeight: Style.space(30)
                 radius: Style.cornerRadius
                 color: root.restFill
                 border.width: 1
@@ -2020,25 +2052,27 @@ Panel {
     readonly property color toneColor: tone === "urgent" ? root.urgent : tone === "accent" ? root.accent : root.foreground
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
 
-    hasCursor: root.cursorActive && root.page === "home"
+    readonly property bool pointerHovered: root.hoverSection === "primary" && root.hoverIndex === rowIndex
+    readonly property bool keyboardCursor: root.cursorActive && root.page === "home"
       && root.focusSection === "primary" && root.selectedIndex === rowIndex
+
+    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(action)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
     currentFill: root.selectedFill
     color: !enabled ? "transparent"
-      : primary ? (actionMouse.pressed ? Qt.darker(action.toneColor, 0.96)
-        : hasCursor ? Qt.lighter(action.toneColor, 1.05) : action.toneColor)
+      : primary ? (actionMouse.pressed ? Qt.darker(action.toneColor, 0.92) : action.toneColor)
       : actionMouse.pressed ? root.selectedFill
       : hasCursor ? action.fill
       : root.restFill
     borderSpec: !enabled
       ? Border.controlSpec("normal", root.dim, root.accent)
-      : primary ? Border.flat(hasCursor ? Qt.lighter(action.toneColor, 1.2) : "transparent",
-          hasCursor ? 1 : 0)
+      : primary ? Border.flat(keyboardCursor ? Qt.lighter(action.toneColor, 1.25) : "transparent",
+          keyboardCursor ? 1 : 0)
       : Border.flat(hasCursor ? root.accent : root.hairline, 1)
-    implicitHeight: Style.space(44)
+    implicitHeight: Style.space(38)
     opacity: enabled ? 1.0 : 0.35
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
@@ -2052,13 +2086,12 @@ Panel {
       gradient: Gradient {
         GradientStop {
           position: 0
-          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.94)
-            : hasCursor ? Qt.lighter(action.toneColor, 1.10)
+          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.90)
             : Qt.lighter(action.toneColor, 1.05)
         }
         GradientStop {
           position: 1
-          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.98)
+          color: actionMouse.pressed ? Qt.darker(action.toneColor, 0.96)
             : action.toneColor
         }
       }
@@ -2075,6 +2108,18 @@ Panel {
       height: 1
       color: Util.alpha(root.foreground, 0.16)
       opacity: 0.6
+    }
+
+    Rectangle {
+      anchors.fill: parent
+      radius: parent.radius
+      color: !action.primary || !action.enabled ? "transparent"
+        : actionMouse.pressed ? Util.alpha(root.foreground, 0.18)
+        : action.pointerHovered ? Util.alpha(root.foreground, 0.12)
+        : "transparent"
+      Behavior on color {
+        ColorAnimation { duration: Style.duration(120) }
+      }
     }
 
     Row {
@@ -2128,18 +2173,23 @@ Panel {
       ink: action.toneInk
     }
 
+    HoverHandler {
+      onHoveredChanged: root.setRowHover("primary", action.rowIndex, hovered)
+    }
+
     MouseArea {
       id: actionMouse
       anchors.fill: parent
       hoverEnabled: true
       enabled: action.enabled
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse) {
+      onContainsMouseChanged: root.setRowHover("primary", action.rowIndex, containsMouse)
+      onClicked: {
         root.cursorActive = true
         root.focusSection = "primary"
         root.selectedIndex = action.rowIndex
+        root.primaryAction(action.rowIndex)
       }
-      onClicked: root.primaryAction(action.rowIndex)
     }
   }
 
@@ -2227,13 +2277,16 @@ Panel {
       root.openTakeMenu(take.row, take.rowIndex, menuButton)
     }
 
-    hasCursor: root.cursorActive && root.page === "history"
+    readonly property bool pointerHovered: root.hoverSection === "recents" && root.hoverIndex === rowIndex
+    readonly property bool keyboardCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
+
+    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(take)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(64)
+    implicitHeight: Style.space(56)
     radius: Style.cornerRadius
 
     Row {
@@ -2243,8 +2296,8 @@ Panel {
       spacing: Style.space(9)
 
       Item {
-        width: Style.space(96)
-        height: Style.space(54)
+        width: Style.space(84)
+        height: Style.space(48)
         anchors.verticalCenter: parent.verticalCenter
         clip: true
 
@@ -2278,7 +2331,7 @@ Panel {
       }
 
       Column {
-        width: parent.width - Style.space(96) - actions.width - parent.spacing * 2
+        width: parent.width - Style.space(84) - actions.width - parent.spacing * 2
         anchors.verticalCenter: parent.verticalCenter
         spacing: Style.space(2)
 
@@ -2339,12 +2392,14 @@ Panel {
       hoverEnabled: true
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse && !root.suppressHistoryHover) {
+      onContainsMouseChanged: {
+        if (containsMouse && root.suppressHistoryHover) return
+        root.setRowHover("recents", take.rowIndex, containsMouse)
+      }
+      onClicked: function(mouse) {
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex
-      }
-      onClicked: function(mouse) {
         if (mouse.button === Qt.RightButton) take.openMenu()
         else root.openVideo(take.row)
       }
@@ -2355,13 +2410,16 @@ Panel {
     id: folder
     property int rowIndex: 0
 
-    hasCursor: root.cursorActive && root.page === "history"
+    readonly property bool pointerHovered: root.hoverSection === "recents" && root.hoverIndex === rowIndex
+    readonly property bool keyboardCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
+
+    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(folder)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(34)
+    implicitHeight: Style.space(30)
     radius: Style.cornerRadius
 
     Row {
@@ -2415,12 +2473,16 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse && !root.suppressHistoryHover) {
+      onContainsMouseChanged: {
+        if (containsMouse && root.suppressHistoryHover) return
+        root.setRowHover("recents", folder.rowIndex, containsMouse)
+      }
+      onClicked: {
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = folder.rowIndex
+        root.openFolder()
       }
-      onClicked: root.openFolder()
     }
   }
 
@@ -2460,8 +2522,8 @@ Panel {
     Rectangle {
       id: chip
       width: Math.max(keyHint.minimumWidth, labelText.implicitWidth + Style.space(10))
-      height: Style.space(20)
-      radius: Style.space(5)
+      height: Style.space(18)
+      radius: Style.space(4)
       color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.12) : root.restFill
       border.width: 1
       border.color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.26) : root.hairline
@@ -2485,15 +2547,16 @@ Panel {
     property var row: null
     property int rowIndex: 0
 
+    readonly property bool pointerHovered: root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive && root.page === "home"
       && root.focusSection === "settings" && root.settingsIndex === rowIndex
 
-    hasCursor: selected
+    hasCursor: pointerHovered || (selected && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(shortcut)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(34)
+    implicitHeight: Style.space(30)
     radius: 0
 
     Row {
@@ -2506,8 +2569,8 @@ Panel {
         id: keyChip
         anchors.verticalCenter: parent.verticalCenter
         label: shortcut.row ? String(shortcut.row.keys || "") : ""
-        minimumWidth: Style.space(64)
-        active: shortcut.selected
+        minimumWidth: Style.space(56)
+        active: shortcut.hasCursor
       }
 
       Text {
@@ -2515,7 +2578,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: shortcut.row ? String(shortcut.row.what || "") : ""
-        color: shortcut.selected ? root.foreground : root.secondary
+        color: shortcut.hasCursor ? root.foreground : root.secondary
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight
@@ -2523,7 +2586,7 @@ Panel {
     }
 
     Rectangle {
-      visible: shortcut.selected
+      visible: shortcut.hasCursor
       width: Math.max(1, Style.space(2))
       height: Math.max(0, parent.height - Style.space(10))
       anchors.left: parent.left
@@ -2536,7 +2599,8 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.ArrowCursor
-      onContainsMouseChanged: if (containsMouse) {
+      onContainsMouseChanged: root.setRowHover("settings", shortcut.rowIndex, containsMouse)
+      onClicked: {
         root.cursorActive = true
         root.focusSection = "settings"
         root.settingsIndex = shortcut.rowIndex
@@ -2554,17 +2618,18 @@ Panel {
     property string kind: "cycle"
     property string infoValue: ""
 
+    readonly property bool pointerHovered: root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive
       && root.page === "home"
       && root.focusSection === "settings"
       && root.settingsIndex === rowIndex
 
-    hasCursor: selected
+    hasCursor: pointerHovered || (selected && root.hoverSection === "")
     onHasCursorChanged: if (hasCursor) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(34)
+    implicitHeight: Style.space(30)
     radius: Style.cornerRadius
 
     Row {
@@ -2609,7 +2674,7 @@ Panel {
           ? (setting.infoValue !== "" ? setting.infoValue
             : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey)))
           : root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
-        color: setting.selected ? root.foreground : root.secondary
+        color: setting.hasCursor ? root.foreground : root.secondary
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         font.bold: true
@@ -2619,14 +2684,14 @@ Panel {
       }
 
       CycleChevrons {
-        visible: setting.kind !== "info" && setting.selected
-        foreground: setting.selected ? root.foreground : root.dim
+        visible: setting.kind !== "info" && setting.hasCursor
+        foreground: setting.hasCursor ? root.foreground : root.dim
         anchors.verticalCenter: parent.verticalCenter
       }
     }
 
     Rectangle {
-      visible: setting.selected
+      visible: setting.hasCursor
       width: Math.max(1, Style.space(2))
       height: Math.max(0, parent.height - Style.space(10))
       anchors.left: parent.left
@@ -2641,26 +2706,12 @@ Panel {
       hoverEnabled: true
       cursorShape: setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
-      onContainsMouseChanged: if (containsMouse) {
-        root.cursorActive = true
-        if (setting.quick) {
-          root.focusSection = "quick"
-          root.selectedIndex = setting.rowIndex
-        } else {
-          root.focusSection = "settings"
-          root.settingsIndex = setting.rowIndex
-        }
-      }
+      onContainsMouseChanged: root.setRowHover("settings", setting.rowIndex, containsMouse)
       onClicked: function(mouse) {
         if (setting.kind === "info") return
         root.cursorActive = true
-        if (setting.quick) {
-          root.focusSection = "quick"
-          root.selectedIndex = setting.rowIndex
-        } else {
-          root.focusSection = "settings"
-          root.settingsIndex = setting.rowIndex
-        }
+        root.focusSection = "settings"
+        root.settingsIndex = setting.rowIndex
         root.cycleOption(setting.settingKey, mouse.button === Qt.RightButton ? -1 : 1)
       }
     }
