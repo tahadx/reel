@@ -100,7 +100,7 @@ If `~/.local/bin` is not on your `PATH`, add it.
 
 CLI options, files, uninstall, and troubleshooting are in
 [docs/reference.md](docs/reference.md). The visual language is in
-[docs/ui-design.md](docs/ui-design.md).
+[docs/design.md](docs/design.md).
 
 ## Usage and keyboard shortcuts
 
