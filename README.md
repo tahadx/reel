@@ -18,7 +18,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   codec and resolution limits, MP4/MKV, and a webcam corner overlay.
 - A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
-  menu with share and trash, plus path copy.
+  menu with share and trash, path copy, and drag-out to drop the video into
+  another app.
 - Keyboard-first panel.
 
 ## Requirements
@@ -113,7 +114,8 @@ right-click starts or pauses, and middle-click opens the recordings folder.
    does not appear in the take.
 
 Pause or resume from the panel, the bar's right-click action, or `p`. Open
-history from the clock icon in the header or with `Shift+H`.
+history from the clock icon in the header or with `Shift+H`. Drag a take row
+into another app to copy the video file there.
 
 A window is recorded as its **visible screen rectangle**, not an isolated
 toplevel surface. Overlapping windows and window movement can appear in the

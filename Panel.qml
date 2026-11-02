@@ -142,6 +142,7 @@ Panel {
   property int hoverIndex: -1
   property bool cursorActive: false
   property bool keyboardScroll: false
+  property bool carryingFile: false
   property int settingsIndex: 0
   property string settingsTab: "quick"
   property bool hasOmacut: false
@@ -1195,6 +1196,8 @@ Panel {
       root.selectedIndex = 0
       root.cursorActive = true
       root.settingsIndex = 0
+      root.settingsTab = "quick"
+      root.carryingFile = false
       root.notice = ""
       root.discardArmed = false
       root.trashArmedPath = ""
@@ -1210,6 +1213,7 @@ Panel {
       root.scrollTopHover = false
       root.scrollBottomHover = false
       root.clearHover()
+      root.carryingFile = false
       root.discardArmed = false
       root.trashArmedPath = ""
       root.historyAnchorPath = ""
@@ -1354,6 +1358,14 @@ Panel {
     focusTarget: keyboardPanel.loadedContent
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
     contentHeight: Style.space(410)
+
+    // A file drag needs the pointer to leave the panel and reach the window
+    // underneath. With the normal full-screen mask the overlay would swallow
+    // the drop, so the mask goes empty for the length of the carry.
+    mask: Region {
+      width: root.carryingFile ? 0 : keyboardPanel.screenW
+      height: root.carryingFile ? 0 : keyboardPanel.screenH
+    }
 
     content: ReelKeyCatcher {
       id: keyCatcher
@@ -2646,6 +2658,52 @@ Panel {
       root.openTakeMenu(take.row, take.rowIndex, menuButton)
     }
 
+    property bool pressing: false
+    property bool dragWanted: false
+    property bool dragging: false
+    property bool dragStarted: false
+    property point pressAt: Qt.point(0, 0)
+    property var dragMime: ({})
+
+    function beginDrag() {
+      take.dragWanted = false
+      if (!take.pressing || take.dragging) return
+      var path = String(take.row ? take.row.path || "" : "")
+      if (path === "") return
+      take.dragMime = {
+        "text/uri-list": Util.fileUrl(path) + "\r\n",
+        "text/plain": path
+      }
+      take.dragging = true
+      take.dragStarted = true
+      root.carryingFile = true
+      // This enters the platform drag loop; everything after it runs on drop.
+      take.Drag.active = true
+    }
+
+    function finishDrag() {
+      take.dragging = false
+      take.dragWanted = false
+      take.pressing = false
+      take.Drag.active = false
+      take.dragMime = ({})
+      root.carryingFile = false
+      dragClickGuard.restart()
+    }
+
+    Drag.dragType: Drag.Automatic
+    Drag.supportedActions: Qt.CopyAction
+    Drag.proposedAction: Qt.CopyAction
+    Drag.mimeData: take.dragMime
+    Drag.hotSpot: Qt.point(take.pressAt.x, take.pressAt.y)
+    Drag.onDragFinished: take.finishDrag()
+
+    Timer {
+      id: dragClickGuard
+      interval: 80
+      onTriggered: take.dragStarted = false
+    }
+
     readonly property bool pointerHovered: root.hoverSection === "recents" && root.hoverIndex === rowIndex
     readonly property bool keyboardCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
@@ -2767,13 +2825,38 @@ Panel {
       anchors.fill: parent
       z: -1
       hoverEnabled: true
+      preventStealing: true
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       cursorShape: Qt.PointingHandCursor
       onContainsMouseChanged: {
         if (containsMouse && root.suppressHistoryHover) return
         root.setRowHover("recents", take.rowIndex, containsMouse)
       }
+      onPressed: function(mouse) {
+        if (mouse.button !== Qt.LeftButton) return
+        take.pressAt = Qt.point(mouse.x, mouse.y)
+        take.pressing = true
+      }
+      onPositionChanged: function(mouse) {
+        if (!take.pressing || take.dragging || take.dragWanted) return
+        if (!(mouse.buttons & Qt.LeftButton)) return
+        var dx = mouse.x - take.pressAt.x
+        var dy = mouse.y - take.pressAt.y
+        if (Math.abs(dx) + Math.abs(dy) >= Qt.styleHints.startDragDistance) {
+          take.dragWanted = true
+          Qt.callLater(take.beginDrag)
+        }
+      }
+      onReleased: {
+        take.pressing = false
+        take.dragWanted = false
+      }
+      onCanceled: {
+        take.pressing = false
+        take.dragWanted = false
+      }
       onClicked: function(mouse) {
+        if (take.dragStarted) return
         root.cursorActive = true
         root.focusSection = "recents"
         root.selectedIndex = take.rowIndex

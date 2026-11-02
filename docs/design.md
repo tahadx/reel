@@ -381,6 +381,7 @@ settings, not with the fixed frame.
 - Hover underline: `1` px at `0.35` foreground, no fill.
 - Every tab carries a numeric `KeyHintChip` (`1`–`5`).
 - No pills, no icons, no counters, no badges.
+- Each panel open returns to Quick; the selected tab is not persisted.
 - Switching is instant. Only the underline and label colors animate.
 
 ### 6.5.1 Settings taxonomy
@@ -461,6 +462,10 @@ Rules:
 - Overflow button: `PanelActionButton`, glyph `󰇘`, `dim` at rest, accent when
   its menu is open. It is always present but quiet.
 - Cursor accent edge: `2` px, inset `2`, height row minus `12`.
+- Drag: press and move past the platform drag threshold to copy the video file.
+  The payload is `text/uri-list` plus `text/plain`. The panel mask becomes empty
+  for the carry so the drop reaches the window below; a drag never opens the
+  take.
 - Trash animation: fade `120` ms, then collapse height `160` ms. No spinner, no
   confirmation dialog.
 - Click opens the video. Right-click opens the actions menu.
