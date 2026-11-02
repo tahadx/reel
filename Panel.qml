@@ -2,9 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
-import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -76,7 +74,6 @@ Panel {
     "webcamDevice": ""
   })
 
-  readonly property var primaryScreen: Quickshell.screens.length > 0 ? Quickshell.screens[0] : null
   readonly property var quickSettingRows: [
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
@@ -391,26 +388,6 @@ Panel {
       if (match) return match[1] + "×" + match[2] + " at " + match[3] + "," + match[4]
     }
     return value === "portal" ? "portal" : "Capture"
-  }
-
-  // Crop the preview only for the take that is running now. Once the take
-  // ends, go back to the focused monitor instead of showing an older selection.
-  function previewTarget() {
-    var state = root.state || ({})
-    var status = String(state.status || "")
-    if (status !== "recording" && status !== "paused" && status !== "starting") return ""
-    return state.target ? String(state.target) : ""
-  }
-
-  function previewPlan() {
-    var screens = Quickshell.screens || []
-    var target = root.previewTarget()
-    if (target !== "") {
-      var state = root.state || ({})
-      return Model.capturePlan(target, screens, String(state.targetKind || ""))
-    }
-    var focused = Hyprland.focusedMonitor ? String(Hyprland.focusedMonitor.name || "") : ""
-    return Model.idlePlan(screens, focused)
   }
 
   function audioSummary() {
@@ -1489,173 +1466,6 @@ Panel {
           }
 
   
-
-          // ---------- preview ----------
-
-          Column {
-            width: parent.width
-            visible: root.page === "home"
-            spacing: Style.space(8)
-
-            Loader {
-              id: previewLoader
-              width: parent.width
-              // Build the capture view only while the panel is open. A fresh
-              // view starts its live stream reliably; keeping it loaded would
-              // keep the compositor capturing behind a closed panel.
-              active: root.opened
-              sourceComponent: liveScreen
-            }
-          }
-
-          Component {
-            id: liveScreen
-
-            Item {
-              id: previewRoot
-              width: previewLoader.width
-              height: implicitHeight
-              implicitHeight: previewColumn.implicitHeight
-
-              // The target's aspect ratio decides the frame; the screen image
-              // behind it is scaled uniformly and clipped to the same rectangle.
-              readonly property var plan: root.previewPlan()
-              readonly property var layout: Model.previewLayout(
-                plan, width, Math.round(width * 9 / 16))
-              readonly property var dimensions: Model.captureSize(plan, screenView.sourceSize)
-
-              Column {
-                id: previewColumn
-                width: parent.width
-                spacing: Style.space(6)
-
-                Item {
-                  id: previewFrameHost
-                  width: parent.width
-                  height: previewCard.height
-
-                  Rectangle {
-                    id: previewCard
-                    width: (previewRoot.layout ? previewRoot.layout.frameWidth : 0) + 2
-                    height: (previewRoot.layout ? previewRoot.layout.frameHeight : 0) + 2
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    radius: Style.cornerRadius
-                    color: root.restFill
-                    border.width: 1
-                    border.color: root.hairline
-                  }
-
-                  Item {
-                    id: previewStage
-                    anchors.centerIn: previewCard
-                    width: previewRoot.layout ? previewRoot.layout.frameWidth : 0
-                    height: previewRoot.layout ? previewRoot.layout.frameHeight : 0
-                    clip: true
-
-                    readonly property string placeholder: {
-                      var plan = previewRoot.plan
-                      if (!plan) return "Preview unavailable."
-                      if (plan.unavailable) return String(plan.reason || "Preview unavailable.")
-                      if (screenView.sourceStopped) return "Preview stopped. Close and reopen the panel to retry."
-                      if (screenView.sourceTimedOut) {
-                        var source = plan.screenRect ? plan.screenRect.name : "the source"
-                        return "Preview unavailable. No frames arrived from " + source + "."
-                      }
-                      if (!screenView.hasContent) return "Starting preview…"
-                      return ""
-                    }
-
-                    ScreencopyView {
-                      id: screenView
-                      x: previewRoot.layout ? previewRoot.layout.sourceX : 0
-                      y: previewRoot.layout ? previewRoot.layout.sourceY : 0
-                      width: previewRoot.layout ? previewRoot.layout.sourceWidth : 0
-                      height: previewRoot.layout ? previewRoot.layout.sourceHeight : 0
-                      visible: hasContent && !sourceStopped
-                      captureSource: previewRoot.plan && previewRoot.plan.source
-                        ? previewRoot.plan.source : null
-                      live: true
-                      paintCursor: false
-
-                      property bool sourceStopped: false
-                      property bool sourceTimedOut: false
-                      onStopped: sourceStopped = true
-                      onCaptureSourceChanged: {
-                        sourceStopped = false
-                        sourceTimedOut = false
-                      }
-                      onHasContentChanged: {
-                        if (hasContent) sourceTimedOut = false
-                      }
-                    }
-
-                    Timer {
-                      id: frameTimeout
-                      interval: 4000
-                      repeat: false
-                      running: !!previewRoot.plan && !!previewRoot.plan.source
-                        && !screenView.hasContent && !screenView.sourceStopped
-                        && !screenView.sourceTimedOut
-                      onTriggered: screenView.sourceTimedOut = true
-                    }
-
-                    Rectangle {
-                      anchors.fill: parent
-                      visible: previewStage.placeholder !== ""
-                      color: Util.alpha(root.foreground, 0.04)
-                    }
-
-                    Text {
-                      anchors.centerIn: parent
-                      visible: previewStage.placeholder !== ""
-                      width: Math.max(0, parent.width - Style.space(20))
-                      textFormat: Text.PlainText
-                      text: previewStage.placeholder
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      horizontalAlignment: Text.AlignHCenter
-                      wrapMode: Text.WordWrap
-                    }
-                  }
-
-                  MouseArea {
-                    anchors.fill: previewCard
-                    hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: root.start()
-                  }
-                }
-
-                // The preview speaks for itself. Only a real problem gets a line.
-                Text {
-                  width: parent.width
-                  textFormat: Text.PlainText
-                  visible: text !== ""
-                  text: {
-                    var plan = previewRoot.plan
-                    if (!plan) return ""
-                    if (plan.unavailable) return String(plan.reason || "Preview unavailable.")
-                    if (screenView.sourceStopped) {
-                      return "Preview stopped · close and reopen the panel to retry"
-                    }
-                    if (screenView.sourceTimedOut) {
-                      return "Preview unavailable · no frames from "
-                        + (plan.screenRect ? plan.screenRect.name : "the source")
-                    }
-                    if (!screenView.hasContent && plan.mode !== "idle") {
-                      return "Starting preview…"
-                    }
-                    return ""
-                  }
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  elide: Text.ElideRight
-                }
-              }
-            }
-          }
 
           // ---------- settings ----------
 
