@@ -162,10 +162,10 @@ Panel {
   property int takeMenuIndex: 0
   property real takeMenuX: 0
   property real takeMenuY: 0
-  readonly property real takeMenuWidth: Style.space(198)
-  readonly property real takeMenuRowHeight: Style.space(32)
-  readonly property real takeMenuPadding: Style.space(4)
-  readonly property var takeMenuBorderSpec: Border.flat(root.dim, 1)
+  readonly property real takeMenuWidth: Style.space(220)
+  readonly property real takeMenuRowHeight: Style.space(30)
+  readonly property real takeMenuPadding: Style.space(5)
+  readonly property var takeMenuBorderSpec: Border.flat(root.hairline, 1)
   readonly property var takeMenuItems: [
     { key: "open", label: "Open", glyph: "󰐊", shortcut: "Enter" },
     { key: "cut", label: "Cut in Omacut", glyph: "󰆐", shortcut: "t" },
@@ -872,7 +872,10 @@ Panel {
 
   function onTextKey(text) {
     var key = String(text || "").toLowerCase()
-    if (root.takeMenuOpen) return
+    if (root.takeMenuOpen) {
+      if (key === "a") root.closeTakeMenu()
+      return
+    }
     if (root.typingPrefix) return
     if (key === "q") {
       root.close()
@@ -1883,6 +1886,24 @@ Panel {
           onClicked: root.closeTakeMenu()
         }
 
+        Rectangle {
+          x: root.takeMenuX + Style.space(2)
+          y: root.takeMenuY + Style.space(5)
+          width: root.takeMenuWidth
+          height: root.takeMenuHeight
+          radius: Style.cornerRadius
+          color: Util.alpha("#000000", 0.28)
+        }
+
+        Rectangle {
+          x: root.takeMenuX + Style.space(1)
+          y: root.takeMenuY + Style.space(2)
+          width: root.takeMenuWidth
+          height: root.takeMenuHeight
+          radius: Style.cornerRadius
+          color: Util.alpha("#000000", 0.18)
+        }
+
         BorderSurface {
           id: takeMenuCard
           x: root.takeMenuX
@@ -1949,6 +1970,10 @@ Panel {
     Keys.priority: Keys.BeforeItem
 
     function openTakeMenuForSelected() {
+      if (root.takeMenuOpen) {
+        root.closeTakeMenu()
+        return
+      }
       var row = root.selectedTake()
       if (!row) return
       var item = takesRepeater.itemAt(root.selectedIndex - 1)
@@ -2264,8 +2289,21 @@ Panel {
     height: root.takeMenuRowHeight
     radius: Style.cornerRadius
     color: menuItem.selected
-      ? (menuItem.urgent ? root.urgentSoft : root.accentSoft)
+      ? (menuItem.urgent ? root.urgentSoft : root.selectedFill)
       : "transparent"
+    Behavior on color {
+      ColorAnimation { duration: Style.duration(120) }
+    }
+
+    Rectangle {
+      visible: menuItem.selected
+      width: Math.max(1, Style.space(2))
+      height: Math.max(0, parent.height - Style.space(8))
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(2)
+      anchors.verticalCenter: parent.verticalCenter
+      color: menuItem.urgent ? root.urgent : root.accent
+    }
 
     Row {
       anchors.fill: parent
@@ -2276,7 +2314,8 @@ Panel {
       Text {
         textFormat: Text.PlainText
         text: menuItem.glyph
-        color: menuItem.urgent ? root.urgent : root.dim
+        color: menuItem.urgent ? root.urgent
+          : menuItem.selected ? root.foreground : root.secondary
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         anchors.verticalCenter: parent.verticalCenter
@@ -2302,7 +2341,7 @@ Panel {
         width: visible ? implicitWidth : 0
         textFormat: Text.PlainText
         text: menuItem.shortcut
-        color: menuItem.urgent ? root.urgent : root.dim
+        color: menuItem.urgent ? root.urgent : root.secondary
         opacity: 0.8
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -2333,6 +2372,10 @@ Panel {
       && String(root.takeMenuRow.path || "") === String(row.path || "")
 
     function openMenu() {
+      if (take.menuOpen) {
+        root.closeTakeMenu()
+        return
+      }
       root.openTakeMenu(take.row, take.rowIndex, menuButton)
     }
 
