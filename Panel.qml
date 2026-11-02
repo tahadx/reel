@@ -22,7 +22,15 @@ Panel {
 
   readonly property var state: root.service ? root.service.state : Model.emptyState()
   readonly property var recents: root.service ? root.service.recents : []
-  readonly property var visibleRecents: root.recents
+  readonly property var visibleRecents: {
+    var rows = root.recents || []
+    var pending = root.pendingTrash || ({})
+    var out = []
+    for (var i = 0; i < rows.length; i++) {
+      if (!pending[String(rows[i].path || "")]) out.push(rows[i])
+    }
+    return out
+  }
   readonly property int elapsed: root.service ? root.service.elapsed : 0
   readonly property string status: Model.status(root.state)
   readonly property bool active: Model.isActive(root.state)
@@ -143,6 +151,9 @@ Panel {
   property bool noticeUrgent: false
   property string discardArmedPath: ""
   property string trashArmedPath: ""
+  property var pendingTrash: ({})
+  property string removingPath: ""
+  property string trashInFlightPath: ""
   property string historyAnchorPath: ""
   property int historyAnchorIndex: 0
   property bool suppressHistoryHover: false
@@ -666,6 +677,68 @@ Panel {
     return root.visibleRecents[index]
   }
 
+  function addPendingTrash(path) {
+    var next = {}
+    for (var key in root.pendingTrash) next[key] = true
+    next[String(path)] = true
+    root.pendingTrash = next
+  }
+
+  function dropPendingTrash(path) {
+    var next = {}
+    for (var key in root.pendingTrash) {
+      if (key !== String(path)) next[key] = true
+    }
+    root.pendingTrash = next
+  }
+
+  function prunePendingTrash() {
+    var next = {}
+    var rows = root.recents || []
+    for (var key in root.pendingTrash) {
+      var found = false
+      for (var i = 0; i < rows.length; i++) {
+        if (String(rows[i].path || "") === key) {
+          found = true
+          break
+        }
+      }
+      if (found) next[key] = true
+    }
+    root.pendingTrash = next
+  }
+
+  function beginOptimisticTrash(row) {
+    if (!row || !row.path) return
+    if (root.removingPath !== "" || trashProc.running) return
+    var path = String(row.path)
+    var index = -1
+    for (var i = 0; i < root.visibleRecents.length; i++) {
+      if (String(root.visibleRecents[i].path || "") === path) {
+        index = i
+        break
+      }
+    }
+    root.historyAnchorPath = path
+    root.historyAnchorIndex = index >= 0 ? index + 1 : root.selectedIndex
+    root.suppressHistoryHover = true
+    root.trashInFlightPath = path
+    root.removingPath = path
+    historyHoverTimer.interval = 1200
+    historyHoverTimer.restart()
+    trashTimer.restart()
+  }
+
+  function commitOptimisticTrash() {
+    var path = root.removingPath
+    if (path === "") return
+    root.addPendingTrash(path)
+    root.removingPath = ""
+    if (trashProc.running) return
+    trashProc.command = ["reel", "trash", path]
+    trashProc.running = true
+  }
+
   function trashTake(row) {
     if (!row || !row.path) return
     if (root.trashArmedPath !== String(row.path)) {
@@ -675,21 +748,7 @@ Panel {
       return
     }
     root.trashArmedPath = ""
-    if (trashProc.running) return
-    var index = -1
-    for (var i = 0; i < root.visibleRecents.length; i++) {
-      if (String(root.visibleRecents[i].path || "") === String(row.path)) {
-        index = i
-        break
-      }
-    }
-    root.historyAnchorPath = String(row.path)
-    root.historyAnchorIndex = index >= 0 ? index + 1 : root.selectedIndex
-    root.suppressHistoryHover = true
-    historyHoverTimer.interval = 1200
-    historyHoverTimer.restart()
-    trashProc.command = ["reel", "trash", String(row.path)]
-    trashProc.running = true
+    root.beginOptimisticTrash(row)
   }
 
   // Keep the history cursor on the row the user was looking at after the list
@@ -1117,6 +1176,11 @@ Panel {
   }
 
   onRecentsChanged: {
+    root.prunePendingTrash()
+    root.settleHistorySelection()
+  }
+
+  onPendingTrashChanged: {
     root.settleHistorySelection()
   }
 
@@ -2368,6 +2432,8 @@ Panel {
 
     readonly property bool armed: root.trashArmedPath !== "" && root.trashArmedPath === String(row.path || "")
     readonly property string preview: String(row.preview || "")
+    readonly property bool removing: root.removingPath !== ""
+      && root.removingPath === String(row.path || "")
     readonly property bool menuOpen: root.takeMenuOpen && root.takeMenuRow !== null
       && String(root.takeMenuRow.path || "") === String(row.path || "")
 
@@ -2388,8 +2454,16 @@ Panel {
     foreground: root.foreground
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(56)
+    implicitHeight: removing ? 0 : Style.space(56)
     radius: Style.cornerRadius
+    clip: true
+    opacity: removing ? 0 : 1
+    Behavior on opacity {
+      NumberAnimation { duration: Style.duration(120) }
+    }
+    Behavior on implicitHeight {
+      NumberAnimation { duration: Style.duration(160); easing.type: Easing.OutCubic }
+    }
 
     Row {
       anchors.fill: parent
@@ -2897,6 +2971,13 @@ Panel {
   }
 
   Timer {
+    id: trashTimer
+    interval: 170
+    repeat: false
+    onTriggered: root.commitOptimisticTrash()
+  }
+
+  Timer {
     id: historyHoverTimer
     interval: 260
     repeat: false
@@ -2992,8 +3073,13 @@ Panel {
     stderr: StdioCollector { id: trashErr; waitForEnd: true }
     onExited: function(code) {
       var message = String(trashErr.text || "").trim()
-      if (code !== 0) root.setNotice(message.replace(/^reel:\s*/, "") || "Could not move that take to the trash.", true)
-      else root.setNotice("Take moved to the trash.")
+      if (code !== 0) {
+        root.dropPendingTrash(root.trashInFlightPath)
+        root.setNotice(message.replace(/^reel:\s*/, "") || "Could not move that take to the trash.", true)
+      } else {
+        root.setNotice("Take moved to the trash.")
+      }
+      root.trashInFlightPath = ""
       if (root.service) root.service.refresh()
     }
   }
