@@ -2125,7 +2125,7 @@ Panel {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.leftMargin: Style.space(46)
-            anchors.rightMargin: Style.space(14)
+            anchors.rightMargin: Style.space(38)
             anchors.verticalCenter: parent.verticalCenter
             textFormat: Text.PlainText
             text: root.notice
@@ -2133,6 +2133,23 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             wrapMode: Text.WordWrap
+          }
+
+          PanelActionButton {
+            iconText: "󰅖"
+            tooltipText: "Dismiss"
+            foreground: root.secondary
+            hoverColor: root.noticeUrgent ? root.urgent : root.accent
+            fontFamily: root.fontFamily
+            size: Style.space(22)
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.topMargin: Style.space(5)
+            anchors.rightMargin: Style.space(6)
+            onClicked: {
+              noticeTimer.stop()
+              root.notice = ""
+            }
           }
 
           Rectangle {

@@ -486,7 +486,10 @@ The toast is the only notification surface. It floats over the body.
   at `0.38` (info) or urgent at `0.55` (error).
 - Leading bar: `3` px accent or urgent, full height, animates width in `180` ms.
 - Medallion: `22` circle, `0.45` accent/urgent ring, `6` dot.
-- Text: `body`, foreground or urgent, wrapped, left inset `46`, right inset `14`.
+- Text: `body`, foreground or urgent, wrapped, left inset `46`, right inset `38`.
+- Close: `22 × 22` icon button at the top-right, `6` right inset and `5` top
+  inset, glyph `󰅖`. Secondary ink at rest; accent or urgent on hover. It stops
+  the timer and dismisses the toast immediately.
 - Progress: `2` px bottom bar, `0.55` opacity, linear, matches the `1900` ms
   lifetime.
 - Show: opacity `160` ms, y `200` ms, scale `200` ms with a gentle `OutBack`
