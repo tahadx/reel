@@ -37,8 +37,8 @@ should restyle the entire plugin.
 2. **Accent is a signal.** Accent marks live state, the primary action, the
    active tab, or focus. It may appear in several roles at once, but never
    twice for the same role, and never as decoration.
-3. **Fixed frame, moving content.** The identity, status, history control, and
-   primary actions never scroll. Only the page body scrolls.
+3. **Fixed frame, moving content.** The identity, status, history control,
+   primary actions, and settings tabs never scroll. Only the page body scrolls.
 4. **Density is respect.** A recorder is a tool. Show more, scroll less, and
    use `Style.space()` for every gap.
 5. **Motion explains.** Transitions are short, one-shot, and quiet. Motion
@@ -213,7 +213,7 @@ here.`
 - Content: **440 × 410** logical pixels (`fittedContentWidth(Style.space(440))`,
   `Style.space(410)`).
 - Fixed header: hero (24 high) + `10` gap + actions (38 high) + `10` gap +
-  separator (1 high).
+  settings tabs (30 high, `8` above, `2` below) + `1` px hairline.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, keyboard cursor, and
   edge-hover scrolling are the only scroll inputs.
@@ -245,9 +245,9 @@ ColumnLayout {
 }
 ```
 
-Do not put the hero or primary actions back inside the `ScrollView`. Do not
-give the `ScrollView` `anchors.fill: parent` inside the layout. Do not set
-`implicitHeight` on the key catcher. The header is the frame.
+Do not put the hero, primary actions, or tab strip back inside the `ScrollView`.
+Do not give the `ScrollView` `anchors.fill: parent` inside the layout. Do not
+set `implicitHeight` on the key catcher. The header is the frame.
 
 ### Layout rules
 
@@ -377,7 +377,8 @@ Rules:
 The tab strip sits above the scroll area and stays fixed while the settings body
 scrolls underneath it.
 
-- Height `30`; four equal tabs: Media, Zoom, Output, Keys.
+- Height `30`; four equal tabs: Media, Zoom, Output, Keys. The strip keeps
+  `Style.space(8)` above and `Style.space(2)` below.
 - Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(16)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
@@ -632,8 +633,9 @@ Rules:
   line**.
 - Auto-scroll runs on a `16` ms timer and accelerates from `3` to `7` px per
   tick. It stops at the content bounds.
-- The fixed header is not part of the scroll region.
-- Opening the panel and entering history reset the scroll to the top.
+- The hero, actions, and tab strip are not part of the scroll region.
+- Opening the panel, entering history, and switching settings tabs reset the
+  scroll to the top.
 
 ---
 
@@ -644,7 +646,8 @@ Rules:
 | Hover / cursor color (shell primitives) | `60` ms            | OutCubic           |
 | Button press scale                      | `90` ms            | OutCubic           |
 | Hover, focus, border, chip              | `120` ms           | OutCubic           |
-| Tab underline/color, trash fade         | `120` ms           | OutCubic           |
+| Tab hover underline, trash fade         | `120` ms           | OutCubic           |
+| Tab active underline/color              | `150` ms           | OutCubic           |
 | Toast hide                              | `120`–`150` ms     | InCubic            |
 | Trash row collapse                      | `160` ms           | OutCubic           |
 | Toast show                              | `160`–`200` ms     | OutCubic / OutBack |
@@ -657,8 +660,9 @@ Rules:
 Rules:
 
 - Animate opacity, color, small offsets, and small scale only.
-- Never animate width, height, or font size — except the explicit trash row
-  collapse, which exists to remove a row without a jump.
+- Never animate width, height, or font size — except the trash row collapse,
+  which removes a row without a jump, and the tab underline width, which tracks
+  the active tab.
 - No spring, no generic bounce. The toast is the only overshoot, and it is
   capped at `1.06` scale / `1.12` y.
 - Wrap every duration in `Style.duration(ms)`.
