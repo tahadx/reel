@@ -7,12 +7,37 @@ use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Wait for a child without letting a wedged passthrough hold the save
+/// forever. A 10 minute cap is far beyond a normal trim/loudnorm pass.
+fn run_with_timeout(mut command: Command, timeout: Duration) -> bool {
+    let Ok(mut child) = command.spawn() else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if Instant::now() < deadline => {
+                thread::sleep(Duration::from_millis(50));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
+}
 
 pub fn make_preview(file: &Path, preview: &Path, seek: f64) -> bool {
     if !file.is_file() {
         return false;
     }
-    let status = Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .args(["-y", "-ss", &format!("{seek:.3}"), "-i"])
         .arg(file)
         .args(["-frames:v", "1", "-q:v", "3"])
@@ -20,13 +45,12 @@ pub fn make_preview(file: &Path, preview: &Path, seek: f64) -> bool {
         .args(["-loglevel", "error"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-    status.map(|s| s.success()).unwrap_or(false)
+        .stderr(Stdio::null());
+    run_with_timeout(command, Duration::from_secs(30))
 }
 
 fn first_gop_has_discard(file: &Path) -> bool {
-    util::run_stdout(
+    util::run_stdout_within(
         "ffprobe",
         &[
             "-v",
@@ -41,6 +65,7 @@ fn first_gop_has_discard(file: &Path) -> bool {
             "csv=p=0",
             &file.display().to_string(),
         ],
+        Duration::from_secs(20),
     )
     .map(|out| out.contains('D'))
     .unwrap_or(false)
@@ -73,14 +98,13 @@ fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
         Ok(file) => file,
         Err(_) => return false,
     };
-    Command::new("ffmpeg")
+    let mut command = Command::new("ffmpeg");
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
-        .stderr(Stdio::from(err))
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+        .stderr(Stdio::from(err));
+    run_with_timeout(command, Duration::from_secs(600))
 }
 
 /// A finished file must have a video stream and a real duration. Checking the
@@ -90,7 +114,7 @@ fn valid_video(file: &Path) -> bool {
     if !file.is_file() || fs::metadata(file).map(|m| m.len()).unwrap_or(0) == 0 {
         return false;
     }
-    let video = util::run_stdout(
+    let video = util::run_stdout_within(
         "ffprobe",
         &[
             "-v",
@@ -103,6 +127,7 @@ fn valid_video(file: &Path) -> bool {
             "csv=p=0",
             &file.display().to_string(),
         ],
+        Duration::from_secs(20),
     )
     .map(|out| out.contains("video"))
     .unwrap_or(false);
@@ -248,6 +273,18 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     };
 
     let file = args.file;
+
+    // Publish the job pid before touching ffmpeg. The service can then tell a
+    // live save from one that died and left the bar on "Saving".
+    if let Some(current) = state::read(paths) {
+        let status = state::field_str(&current, "status").unwrap_or_default();
+        let current_file = state::field_str(&current, "file").unwrap_or_default();
+        if status == "finalizing" && current_file == file.display().to_string() {
+            let mut next = current;
+            state::set(&mut next, "finalizePid", json!(std::process::id()));
+            let _ = state::write(paths, &next);
+        }
+    }
 
     // Render the thumbnail before the save pass. It comes from the raw capture
     // either way, and generating it first means history keeps an image even if

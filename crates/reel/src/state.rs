@@ -112,6 +112,24 @@ pub fn reconcile(paths: &Paths) {
         paths::remove_quiet(&paths.starting);
         return;
     }
+    if status == "finalizing" {
+        let pid = field_i64(&state, "finalizePid").unwrap_or(0) as i32;
+        let at = field_i64(&state, "finalizeAt").unwrap_or(0);
+        let now = paths::now_secs();
+        if paths_pid_alive(pid) {
+            return;
+        }
+        // The save job needs a moment to start and publish its pid. Do not
+        // race the stop path while it is still shutting the encoder down.
+        if pid <= 0 && at > 0 && now.saturating_sub(at) < 20 {
+            return;
+        }
+        state["status"] = json!("idle");
+        state["error"] =
+            json!("The save pass stopped. The take is still in your recordings folder.");
+        let _ = write(paths, &state);
+        return;
+    }
     if status != "recording" && status != "paused" {
         return;
     }
@@ -155,4 +173,87 @@ pub fn status_json(paths: &Paths) -> Value {
 pub fn with_status(mut state: Value, status: &str) -> Value {
     set(&mut state, "status", json!(status));
     state
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use std::path::PathBuf;
+
+    fn temp_paths() -> Paths {
+        let root = std::env::temp_dir().join(format!(
+            "reel-state-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = fs::create_dir_all(&root);
+        Paths {
+            state: root.join("state.json"),
+            last: root.join("last.json"),
+            lock: root.join("lock"),
+            log: root.join("reel.log"),
+            pid_file: root.join("reel.pid"),
+            socket: root.join("reel.sock"),
+            starting: root.join("starting.pid"),
+            cancel: root.join("cancel"),
+            webcam_pid: root.join("webcam.pid"),
+            config_dir: root.join("config"),
+            config: root.join("config.json"),
+            previews: root.join("previews"),
+            runtime: PathBuf::from(&root),
+        }
+    }
+
+    #[test]
+    fn a_dead_finalize_job_returns_to_idle() {
+        let paths = temp_paths();
+        let mut state = json!({
+            "status": "finalizing",
+            "file": "/tmp/reel-test.mp4",
+            "finalizePid": 999_999,
+            "finalizeAt": paths::now_secs() - 30,
+        });
+        write(&paths, &state).unwrap();
+        reconcile(&paths);
+        state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
+        assert!(field_str(&state, "error").unwrap().contains("save pass"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
+
+    #[test]
+    fn a_new_finalize_job_gets_a_grace_period() {
+        let paths = temp_paths();
+        let state = json!({
+            "status": "finalizing",
+            "file": "/tmp/reel-test.mp4",
+            "finalizePid": 0,
+            "finalizeAt": paths::now_secs(),
+        });
+        write(&paths, &state).unwrap();
+        reconcile(&paths);
+        let state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("finalizing"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
+
+    #[test]
+    fn a_live_finalize_job_stays_finalizing() {
+        let paths = temp_paths();
+        let state = json!({
+            "status": "finalizing",
+            "file": "/tmp/reel-test.mp4",
+            "finalizePid": std::process::id(),
+            "finalizeAt": paths::now_secs() - 30,
+        });
+        write(&paths, &state).unwrap();
+        reconcile(&paths);
+        let state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("finalizing"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
 }

@@ -188,7 +188,7 @@ pub fn at_least_int(value: &str, minimum: i64) -> i64 {
 }
 
 pub fn has_audio_stream(file: &Path) -> bool {
-    let Some(out) = run_stdout(
+    let Some(out) = run_stdout_within(
         "ffprobe",
         &[
             "-v",
@@ -201,6 +201,7 @@ pub fn has_audio_stream(file: &Path) -> bool {
             "csv=p=0",
             &file.display().to_string(),
         ],
+        std::time::Duration::from_secs(20),
     ) else {
         return false;
     };
@@ -208,7 +209,7 @@ pub fn has_audio_stream(file: &Path) -> bool {
 }
 
 pub fn duration_of(file: &Path) -> f64 {
-    let Some(out) = run_stdout(
+    let Some(out) = run_stdout_within(
         "ffprobe",
         &[
             "-v",
@@ -219,6 +220,7 @@ pub fn duration_of(file: &Path) -> f64 {
             "csv=p=0",
             &file.display().to_string(),
         ],
+        std::time::Duration::from_secs(20),
     ) else {
         return 0.0;
     };

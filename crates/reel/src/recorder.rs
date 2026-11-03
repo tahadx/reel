@@ -986,7 +986,13 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
             anyhow::bail!("Reel is not recording.");
         }
         if !file.is_empty() && Path::new(&file).is_file() && !discard {
-            let next = state::with_status(current, "finalizing");
+            let mut next = state::with_status(current, "finalizing");
+            state::set(
+                &mut next,
+                "finalizeAt",
+                serde_json::json!(paths::now_secs()),
+            );
+            state::set(&mut next, "finalizePid", serde_json::json!(0));
             let _ = state::write(paths, &next);
         }
     }
@@ -1063,7 +1069,15 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     );
     match job {
         Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {file}")),
-        Err(err) => paths::log(paths, &format!("stop: cannot spawn finalize: {err}")),
+        Err(err) => {
+            paths::log(paths, &format!("stop: cannot spawn finalize: {err}"));
+            let message = "The take was captured, but the save job could not start.";
+            let _ = state::write(
+                paths,
+                &state::idle_with_error_preserving_last(paths, message),
+            );
+            util::notify("Reel", Some(message), "critical");
+        }
     }
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);

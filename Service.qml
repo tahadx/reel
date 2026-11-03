@@ -38,6 +38,7 @@ Item {
   property bool configureFailed: false
 
   readonly property bool active: Model.isActive(root.state)
+  readonly property bool finalizing: Model.status(root.state) === "finalizing"
   readonly property bool busy: Model.isBusy(root.state)
   readonly property bool starting: Model.status(root.state) === "starting"
   // The encoder is launched and warming up; the take is running even though
@@ -210,7 +211,7 @@ Item {
     id: pollTimer
     interval: 3000
     repeat: true
-    running: root.active || root.starting
+    running: root.active || root.starting || root.finalizing
     onTriggered: if (root.configured && !statusProc.running) statusProc.running = true
   }
 }
