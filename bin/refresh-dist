@@ -10,9 +10,28 @@ ROOT="$(pwd -P)"
 SYSROOT="$(rustc --print sysroot)"
 LINKER="$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
 
-# Pin the linker and normalize every path that rustc can embed. With rust-lld,
-# one codegen unit, LTO, and no host strip step, the same sources produce the
-# same bytes on Arch, Ubuntu, and CI.
+# Fingerprint every input that can change the engine. The local pre-push hook
+# compares this value; CI rebuilds the binary itself and compares exact bytes.
+fingerprint() {
+  local file
+  {
+    printf '%s\n' Cargo.toml Cargo.lock rust-toolchain.toml
+    find crates/reel -type f \( -name '*.rs' -o -name 'Cargo.toml' \) -print \
+      | LC_ALL=C sort
+  } | while IFS= read -r file; do
+    printf '%s\n' "$file"
+    sha256sum -- "$file"
+  done | sha256sum | cut -d' ' -f1
+}
+
+if [[ "${1:-}" == "--print-fingerprint" ]]; then
+  fingerprint
+  exit 0
+fi
+
+# Pin the linker and normalize every path that rustc can embed. CI rebuilds
+# this on its pinned runner and compares exact bytes; the local hook compares a
+# source fingerprint because host toolchains can produce different bytes.
 remaps=("--remap-path-prefix=${ROOT}=/build/reel")
 remaps+=("--remap-path-prefix=${HOME}=/build/home")
 if [[ -n "${CARGO_HOME:-}" && "${CARGO_HOME}" != "${HOME}"/* ]]; then
@@ -26,4 +45,5 @@ export RUSTFLAGS="${RUSTFLAGS:-} ${remaps[*]} -C linker=${LINKER} -C link-arg=--
 cargo build --release -p reel --target "$TARGET"
 mkdir -p bin/dist
 cp -f "target/$TARGET/release/reel" bin/dist/reel-native
+fingerprint > bin/dist/reel-native.fingerprint
 bin/dist/reel-native --version

@@ -16,14 +16,14 @@ if command -v omarchy >/dev/null 2>&1; then
 fi
 echo "pre-push: dist freshness"
 # The plugin ships the engine, so a stale bin/dist records with old code no
-# matter what crates/ says. The build is byte-reproducible, so compare the
-# exact bytes CI will rebuild.
-before=$(sha256sum bin/dist/reel-native 2>/dev/null | cut -d' ' -f1 || echo missing)
-bin/refresh-dist
-after=$(sha256sum bin/dist/reel-native | cut -d' ' -f1)
+# matter what crates/ says. Local toolchains can produce different bytes than
+# CI, so the local hook checks the source fingerprint. CI rebuilds the
+# committed binary and compares exact bytes on its pinned runner.
+before=$(cat bin/dist/reel-native.fingerprint 2>/dev/null || echo missing)
+after=$(bin/refresh-dist --print-fingerprint)
 if [[ "$before" != "$after" ]]; then
-  echo "pre-push: bin/dist was stale and has been rebuilt — commit bin/dist and push again" >&2
-  echo "pre-push: (if crates/ has uncommitted changes, commit or stash them first)" >&2
+  echo "pre-push: bin/dist is stale for these sources." >&2
+  echo "pre-push: run bin/refresh-dist (or use the CI reel-dist artifact) and commit bin/dist." >&2
   exit 1
 fi
 echo "pre-push: all green"

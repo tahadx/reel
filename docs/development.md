@@ -9,6 +9,7 @@ engine, so a normal install does not need Rust.
 - `Panel.qml`, `Service.qml`, and `Model.js` — the bar widget, background
   service, and pure JavaScript helpers.
 - `bin/dist/reel-native` — the committed x86_64 musl engine.
+- `bin/dist/reel-native.fingerprint` — source fingerprint for the local hook.
 - `bin/refresh-dist`, `bin/stamp-version`, and `bin/check-release` — release
   tooling.
 - `bin/lint-qml`, `bin/test-qml`, and `tests/` — QML and installer checks.
@@ -47,25 +48,34 @@ bin/refresh-dist
 ```
 
 It builds `reel` for `x86_64-unknown-linux-musl`, copies the binary to
-`bin/dist/reel-native`, and prints its version. Commit the refreshed binary in
-the same commit as the source change. CI and the pre-push hook rebuild it and
-fail unless the bytes match exactly.
+`bin/dist/reel-native`, writes a source fingerprint, and prints its version.
+Commit the refreshed binary and fingerprint in the same commit as the source
+change.
 
-The build is byte-reproducible: `bin/refresh-dist` pins the toolchain's
-`rust-lld`, normalizes source and Cargo paths, disables the linker build ID,
-and relies on Cargo's own `strip = true` instead of the host `strip`. The same
-sources therefore produce the same engine on Arch, Ubuntu, and CI.
+CI is the byte-level authority. It rebuilds the committed engine on its pinned
+runner and fails unless the rebuilt bytes are identical to `bin/dist/reel-native`.
+The workflow records the engine SHA-256 in the job summary, so the shipped
+binary has a public reproducibility witness tied to the commit. If a local
+build differs from the CI build, download the `reel-dist` artifact from that CI
+run and commit it.
 
-The static musl build does not depend on the host glibc. `bin/check-release` verifies that the manifest and crate
-versions agree, that the engine is executable on this machine, and that it
-reports the manifest version.
+The local pre-push hook compares the source fingerprint instead of bytes,
+because host toolchains and linkers can produce different binaries. The build
+pins the toolchain's `rust-lld`, normalizes source and Cargo paths, disables the
+linker build ID, and relies on Cargo's own `strip = true` instead of the host
+`strip`.
+
+The static musl build does not depend on the host glibc.
+`bin/check-release` verifies that the manifest and crate versions agree, that
+the engine is executable on this machine, and that it reports the manifest
+version.
 
 ## Release
 
 1. Stamp the version with `bin/stamp-version X.Y.Z`.
 2. Rebuild the shipped engine with `bin/refresh-dist`.
-3. Commit both version files and the engine, tag the commit `vX.Y.Z`, and push
-   the tag.
+3. Commit both version files, the engine, and its fingerprint, tag the commit
+   `vX.Y.Z`, and push the tag.
 
 The release workflow rebuilds the engine from the tag and refuses to publish
 if `manifest.json` or `crates/reel/Cargo.toml` disagree with it. It uploads a
