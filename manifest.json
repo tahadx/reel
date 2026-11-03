@@ -23,6 +23,7 @@
     "defaults": {
       "desktopAudio": "on",
       "microphoneAudio": "off",
+      "noiseCancellation": "off",
       "cursor": "on",
       "webcam": "off",
       "countdown": 0,
@@ -59,6 +60,17 @@
           "off"
         ],
         "defaultValue": "off"
+      },
+      {
+        "key": "noiseCancellation",
+        "type": "enum",
+        "label": "Noise reduction",
+        "options": [
+          "off",
+          "on"
+        ],
+        "defaultValue": "off",
+        "description": "Reduce steady background noise in the microphone mix during the save pass."
       },
       {
         "key": "cursor",

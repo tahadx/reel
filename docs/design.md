@@ -375,33 +375,33 @@ Rules:
 The tab strip is the first thing inside the scroll body. It scrolls with the
 settings, not with the fixed frame.
 
-- Height `30`; five equal tabs: Quick, Video, Zoom, Output, Keys.
+- Height `30`; four equal tabs: Media, Zoom, Output, Keys.
 - Label `bodySmall`; active `accent` + bold; inactive `dim`; hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(16)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- Every tab carries a numeric `KeyHintChip` (`1`–`5`).
+- Every tab carries a numeric `KeyHintChip` (`1`–`4`).
 - No pills, no icons, no counters, no badges.
-- Each panel open returns to Quick; the selected tab is not persisted.
+- Each panel open returns to Media; the selected tab is not persisted.
 - Switching is instant. Only the underline and label colors animate.
 
 ### 6.5.1 Settings taxonomy
 
-The five tabs are fixed. New settings must fit one of them.
+The four tabs are fixed. New settings must fit one of them.
 
 | Tab    | Belongs here                                                              | Does not belong                  |
 | :----- | :------------------------------------------------------------------------ | :------------------------------- |
-| Quick  | Desktop audio, microphone, webcam corner, pointer, manual zoom, countdown | Encoder or file-format details   |
-| Video  | Frame rate, quality, codec, resolution cap, container                     | Capture input or output location |
-| Zoom   | Zoom depth, pan step                                                      | Anything unrelated to zoom       |
+| Media  | Capture section: countdown, webcam corner, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
+| Zoom   | Manual zoom, zoom depth, pan step                                         | Anything unrelated to zoom       |
 | Output | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
 | Keys   | Read-only shortcut reference                                              | Editable key bindings            |
 
 Rules:
 
-- No sixth tab. The `1`–`5` shortcuts are part of the interface contract.
+- No fifth tab. The `1`–`4` shortcuts are part of the interface contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab.
-- Keep the Quick tab to six rows. It is a workflow, not a dump.
+- Media uses section labels so the capture, audio, and video groups still scan
+  quickly.
 
 ### 6.6 Settings rows
 
@@ -595,7 +595,7 @@ Rules:
 | `h` `l`           | Move horizontally or cycle an option |
 | `enter` / `space` | Start, stop, save, open, or activate |
 | `tab`             | Switch sections or settings tabs     |
-| `1`–`5`           | Jump to a settings tab               |
+| `1`–`4`           | Jump to a settings tab               |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |

@@ -14,8 +14,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Pause and resume without ending the file.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Alt+Scroll`, capped by a configurable zoom depth.
-- Desktop audio, microphone, pointer capture, 30/60/120 fps, quality presets,
-  codec and resolution limits, MP4/MKV, and a webcam corner overlay.
+- Desktop audio, microphone, optional microphone noise reduction, pointer
+  capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
+  and a webcam corner overlay.
 - A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
   menu with share and trash, path copy, and drag-out to drop the video into
@@ -181,6 +182,12 @@ default). The keyboard and scroll controls come from the optional shortcut
 block; touchpad pinch is registered by Reel when a take starts. If you already
 have your own two-finger pinch binding, Reel overrides it for the take and
 reloads your config afterwards so it comes back.
+
+**Noise reduction** is off by default. Turn it on in Settings → **Media**
+with the microphone enabled; Reel reduces steady background noise during the
+save pass, before the take is normalized. It only runs for takes that captured
+the microphone. It uses FFmpeg's noise reduction, so EasyEffects is not
+required.
 
 The settings page covers all capture options and the filename prefix. History
 takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.

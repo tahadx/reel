@@ -129,10 +129,17 @@ fn valid_video(file: &Path) -> bool {
     video && util::duration_of(file) > 0.0
 }
 
-/// Trim the first frame, mute the PipeWire pop, normalize the audio, and either
-/// stream-copy the video or re-encode it. The source is left untouched until
-/// the finished file has been validated and moved into place.
-pub fn finalize_video(paths: &Paths, file: &Path, trim_start: f64, output: &Path) -> Result<()> {
+/// Trim the first frame, mute the PipeWire pop, optionally reduce microphone
+/// noise, normalize the audio, and either stream-copy the video or re-encode
+/// it. The source is left untouched until the finished file has been validated
+/// and moved into place.
+pub fn finalize_video(
+    paths: &Paths,
+    file: &Path,
+    trim_start: f64,
+    output: &Path,
+    noise_cancellation: bool,
+) -> Result<()> {
     if !file.is_file() {
         anyhow::bail!("recording is missing");
     }
@@ -162,9 +169,7 @@ pub fn finalize_video(paths: &Paths, file: &Path, trim_start: f64, output: &Path
         }
     }
 
-    let audio_filter = String::from(
-        "volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05,loudnorm=I=-14:TP=-1.5:LRA=11",
-    );
+    let audio_filter = audio_filter(noise_cancellation);
 
     let attempt = |use_audio: bool| -> bool {
         let mut args: Vec<String> = vec![
@@ -240,6 +245,17 @@ pub fn finalize_video(paths: &Paths, file: &Path, trim_start: f64, output: &Path
     }
 }
 
+fn audio_filter(noise_cancellation: bool) -> String {
+    let mut filter = String::from("volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05");
+    if noise_cancellation {
+        // Opt-in and only requested for takes that captured the microphone.
+        // Denoise before loudnorm so the normalizer measures clean speech.
+        filter.push_str(",afftdn=nf=-30");
+    }
+    filter.push_str(",loudnorm=I=-14:TP=-1.5:LRA=11");
+    filter
+}
+
 /// The hidden `__finalize` process spawned by `stop`.
 pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // Keep the take's framing with its result so the panel can show the same
@@ -292,7 +308,15 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut error = String::new();
     let mut saved = output.clone();
-    if finalize_video(paths, &file, args.trim_start, &output).is_ok() {
+    if finalize_video(
+        paths,
+        &file,
+        args.trim_start,
+        &output,
+        args.noise_cancellation,
+    )
+    .is_ok()
+    {
         // The trimmed take now owns the normal name. The raw countdown capture
         // must not linger as a second, shippable copy.
         if quarantined {
@@ -372,4 +396,21 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
             .status();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_filter_only_denoises_when_requested() {
+        let plain = audio_filter(false);
+        assert!(plain.contains("loudnorm"));
+        assert!(!plain.contains("afftdn"));
+
+        let denoised = audio_filter(true);
+        assert!(denoised.contains("afftdn=nf=-30"));
+        assert!(denoised.contains("loudnorm"));
+        assert!(denoised.find("afftdn").unwrap() < denoised.find("loudnorm").unwrap());
+    }
 }

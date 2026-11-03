@@ -65,6 +65,7 @@ Panel {
   readonly property var defaults: ({
     "desktopAudio": "on",
     "microphoneAudio": "off",
+    "noiseCancellation": "off",
     "cursor": "on",
     "webcam": "off",
     "countdown": 0,
@@ -81,13 +82,18 @@ Panel {
     "webcamDevice": ""
   })
 
-  readonly property var quickSettingRows: [
-    { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾" },
-    { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
+  readonly property var mediaSettingRows: [
+    { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
-    { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
-    { key: "countdown", label: "Countdown", glyph: "󰔛" }
+    { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
+    { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
+    { key: "noiseCancellation", label: "Noise reduction", glyph: "󰍬" },
+    { key: "fps", label: "Frame rate", glyph: "󰈫", section: "Video" },
+    { key: "quality", label: "Quality", glyph: "󰓅" },
+    { key: "codec", label: "Video codec", glyph: "󰈙" },
+    { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
+    { key: "container", label: "Container", glyph: "󰉋" }
   ]
   readonly property var shortcutRows: [
     { keys: "Shift+U", what: "update Reel" },
@@ -96,7 +102,7 @@ Panel {
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
     { keys: "tab", what: "switch sections or settings tabs" },
-    { keys: "1–5", what: "switch settings tabs" },
+    { keys: "1–4", what: "switch settings tabs" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -111,15 +117,9 @@ Panel {
     { keys: "esc", what: "go back, then close" }
   ]
   readonly property var settingsTabs: [
-    { id: "quick", label: "Quick", rows: root.quickSettingRows },
-    { id: "video", label: "Video", rows: [
-      { key: "fps", label: "Frame rate", glyph: "󰈫" },
-      { key: "quality", label: "Quality", glyph: "󰓅" },
-      { key: "codec", label: "Video codec", glyph: "󰈙" },
-      { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
-      { key: "container", label: "Container", glyph: "󰉋" }
-    ] },
+    { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
+      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
       { key: "panStep", label: "Pan step", glyph: "󰆞" }
     ] },
@@ -145,7 +145,7 @@ Panel {
   property bool keyboardScroll: false
   property bool carryingFile: false
   property int settingsIndex: 0
-  property string settingsTab: "quick"
+  property string settingsTab: "media"
   property bool hasOmacut: false
 
   property string notice: ""
@@ -254,13 +254,14 @@ Panel {
 
   function isSwitch(key) {
     return key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-      || key === "notifications" || key === "manualZoom"
+      || key === "notifications" || key === "manualZoom" || key === "noiseCancellation"
   }
 
   function optionList(key) {
     switch (key) {
     case "desktopAudio": return ["on", "off"]
     case "microphoneAudio": return ["on", "off"]
+    case "noiseCancellation": return ["off", "on"]
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
     case "countdown": return ["0", "3", "5", "10"]
@@ -312,6 +313,7 @@ Panel {
     switch (key) {
     case "desktopAudio":
     case "microphoneAudio":
+    case "noiseCancellation":
     case "cursor":
     case "notifications":
     case "manualZoom":
@@ -942,7 +944,7 @@ Panel {
       return
     }
     var key = raw.toLowerCase()
-    if (root.page === "home" && key.length === 1 && key >= "1" && key <= "5") {
+    if (root.page === "home" && key.length === 1 && key >= "1" && key <= "4") {
       var tab = Number(key) - 1
       if (tab >= 0 && tab < root.settingsTabs.length) {
         root.clearHover()
@@ -1217,7 +1219,7 @@ Panel {
       root.selectedIndex = 0
       root.cursorActive = true
       root.settingsIndex = 0
-      root.settingsTab = "quick"
+      root.settingsTab = "media"
       root.carryingFile = false
       root.notice = ""
       root.discardArmed = false
@@ -1759,18 +1761,31 @@ Panel {
                 Repeater {
                   model: root.settingsTab === "keys" ? [] : root.settingsRows()
 
-                SettingRow {
-                  required property var modelData
-                  required property int index
-                  width: parent.width
-                  settingKey: modelData.key
-                  label: modelData.label
-                  glyph: modelData.glyph
-                  kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
-                  infoValue: modelData.value === undefined ? "" : String(modelData.value)
-                  rowIndex: index
+                  Column {
+                    required property var modelData
+                    required property int index
+                    width: parent.width
+                    spacing: Style.space(4)
+
+                    PanelSectionHeader {
+                      visible: modelData.section !== undefined
+                        && String(modelData.section) !== ""
+                      text: modelData.section === undefined ? "" : String(modelData.section)
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+
+                    SettingRow {
+                      width: parent.width
+                      settingKey: modelData.key
+                      label: modelData.label
+                      glyph: modelData.glyph
+                      kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
+                      infoValue: modelData.value === undefined ? "" : String(modelData.value)
+                      rowIndex: index
+                    }
+                  }
                 }
-              }
 
                 Repeater {
                   model: root.settingsTab === "keys" ? root.shortcutRows : []

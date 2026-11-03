@@ -35,6 +35,7 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | --- | --- | --- |
 | `--desktop-audio` | `on`, `off` | `on` |
 | `--microphone-audio` | `on`, `off` | `off` |
+| `--noise-reduction` | `on`, `off` | `off` |
 | `--cursor` | `on`, `off` | `on` |
 | `--webcam` | `off`, `small`, `medium`, `large` | `off` |
 | `--webcam-device` | camera path, such as `/dev/video0` | first camera |
@@ -87,6 +88,13 @@ reel config apply '{"fps": 60}'
 ```
 
 If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
+
+`noiseCancellation` is off by default and appears in Settings → **Media** as
+Noise reduction.
+When it is on and the take captured the microphone, the save pass applies
+FFT-based noise reduction before normalizing the audio. It is a save-pass
+filter, so it does not add latency while recording and cannot clean an already
+finished take.
 
 ## Runtime files
 

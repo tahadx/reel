@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 struct Settings {
     desktop: bool,
     mic: bool,
+    noise_cancellation: bool,
     cursor: bool,
     webcam: String,
     webcam_device: String,
@@ -39,6 +40,7 @@ impl Settings {
         json!({
             "desktopAudio": self.desktop,
             "microphoneAudio": self.mic,
+            "noiseCancellation": self.noise_cancellation,
             "cursor": self.cursor,
             "webcam": self.webcam,
             "webcamDevice": self.webcam_device,
@@ -114,6 +116,12 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         "microphoneAudio",
         "off",
     ));
+    let noise_cancellation = util::normalize_switch(&effective(
+        &options.noise_cancellation,
+        &stored,
+        "noiseCancellation",
+        "off",
+    ));
     let cursor = util::normalize_switch(&effective(&options.cursor, &stored, "cursor", "on"));
     let webcam = util::pick_choice(
         &effective(&options.webcam, &stored, "webcam", "off"),
@@ -174,6 +182,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     Ok(Settings {
         desktop,
         mic,
+        noise_cancellation,
         cursor,
         webcam,
         webcam_device,
@@ -820,6 +829,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "codec": settings.codec,
                 "desktopAudio": settings.desktop,
                 "microphoneAudio": settings.mic,
+                "noiseCancellation": settings.noise_cancellation,
                 "cursor": settings.cursor,
                 "webcam": settings.webcam,
                 "fps": capture_fps,
@@ -995,7 +1005,18 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
 }
 
 pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
-    let (status, pid, file, output, started_at, target, target_kind, target_label, trim_start);
+    let (
+        status,
+        pid,
+        file,
+        output,
+        started_at,
+        target,
+        target_kind,
+        target_label,
+        trim_start,
+        noise_cancellation,
+    );
     {
         let _lock = Lock::acquire(paths)?;
         let current = state::read_or_idle(paths);
@@ -1014,6 +1035,17 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
             .unwrap_or_default()
             .parse::<f64>()
             .unwrap_or(0.0);
+
+        // Noise reduction is a save-pass filter, so it only applies when this
+        // take actually captured the microphone.
+        let take_settings = current.get("settings").cloned().unwrap_or(Value::Null);
+        let enabled =
+            |value: &Value, key: &str| value.get(key).and_then(Value::as_bool).unwrap_or(false);
+        let mic_on =
+            enabled(&current, "microphoneAudio") || enabled(&take_settings, "microphoneAudio");
+        let noise_on =
+            enabled(&current, "noiseCancellation") || enabled(&take_settings, "noiseCancellation");
+        noise_cancellation = mic_on && noise_on;
 
         if status == "starting" {
             let _ = paths::write_atomic(&paths.cancel, "");
@@ -1107,6 +1139,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         &target,
         &target_kind,
         &target_label,
+        noise_cancellation,
     );
     match job {
         Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {output}")),
@@ -1156,6 +1189,7 @@ mod tests {
         let settings = Settings {
             desktop: true,
             mic: false,
+            noise_cancellation: true,
             cursor: true,
             webcam: "off".into(),
             webcam_device: String::new(),
@@ -1174,6 +1208,7 @@ mod tests {
         assert_eq!(value["fps"], 60);
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
+        assert_eq!(value["noiseCancellation"], true);
         assert_eq!(value["manualZoom"], true);
         assert_eq!(value["zoomMax"], 2.0);
     }

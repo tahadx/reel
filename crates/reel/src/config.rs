@@ -10,6 +10,7 @@ pub fn defaults() -> Value {
     serde_json::json!({
         "desktopAudio": true,
         "microphoneAudio": false,
+        "noiseCancellation": false,
         "cursor": true,
         "webcam": "off",
         "countdown": 0,

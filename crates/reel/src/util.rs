@@ -257,6 +257,7 @@ pub fn spawn_finalize(
     target: &str,
     target_kind: &str,
     target_label: &str,
+    noise_cancellation: bool,
 ) -> std::io::Result<u32> {
     let exe = std::env::current_exe()?;
     let log = std::fs::OpenOptions::new()
@@ -264,7 +265,8 @@ pub fn spawn_finalize(
         .append(true)
         .open(&paths.log)?;
     let err = log.try_clone()?;
-    let child = Command::new(exe)
+    let mut command = Command::new(exe);
+    command
         .arg("__finalize")
         .arg("--file")
         .arg(file)
@@ -281,7 +283,11 @@ pub fn spawn_finalize(
         .arg("--target-kind")
         .arg(target_kind)
         .arg("--target-label")
-        .arg(target_label)
+        .arg(target_label);
+    if noise_cancellation {
+        command.arg("--noise-cancellation");
+    }
+    let child = command
         .stdin(Stdio::null())
         .stdout(Stdio::from(log))
         .stderr(Stdio::from(err))

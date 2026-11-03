@@ -128,6 +128,8 @@ pub struct StartArgs {
     pub desktop_audio: Option<String>,
     #[arg(long = "microphone-audio", alias = "mic")]
     pub microphone_audio: Option<String>,
+    #[arg(long = "noise-reduction", alias = "noise-cancellation")]
+    pub noise_cancellation: Option<String>,
     #[arg(long)]
     pub cursor: Option<String>,
     #[arg(long)]
@@ -200,6 +202,9 @@ pub struct FinalizeArgs {
     pub target_kind: String,
     #[arg(long = "target-label", default_value = "")]
     pub target_label: String,
+    /// Apply microphone noise reduction during the save pass.
+    #[arg(long = "noise-cancellation")]
+    pub noise_cancellation: bool,
 }
 
 #[derive(Args, Debug)]
