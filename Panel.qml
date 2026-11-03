@@ -1681,7 +1681,8 @@ Panel {
                           textFormat: Text.PlainText
                           text: settingsTabItem.modelData.label
                           color: settingsTabItem.active ? root.accent
-                            : settingsTabItem.hot ? root.foreground : root.dim
+                            : settingsTabItem.hot ? root.foreground
+                            : Util.alpha(root.foreground, 0.85)
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.bodySmall
                           font.letterSpacing: 0.2
@@ -3020,9 +3021,21 @@ Panel {
       width: Math.max(keyHint.minimumWidth, labelText.implicitWidth + Style.space(10))
       height: Style.space(18)
       radius: Style.space(4)
-      color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.12) : root.restFill
+      // Opaque base: the keycap shadow sits underneath, and a translucent
+      // fill would let it darken the whole pill in light themes.
+      color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.12) : Commons.Color.background
       border.width: 1
-      border.color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.26) : root.hairline
+      border.color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.26)
+        : keyHint.active ? Util.alpha(root.accent, 0.55)
+        : root.strongBorder
+
+      Rectangle {
+        anchors.fill: parent
+        radius: parent.radius
+        visible: !keyHint.onAccent
+        color: keyHint.active ? Util.alpha(root.accent, 0.14)
+          : Util.alpha(root.foreground, 0.08)
+      }
 
       Text {
         id: labelText
@@ -3030,7 +3043,7 @@ Panel {
         textFormat: Text.PlainText
         text: keyHint.label
         color: keyHint.onAccent ? keyHint.ink
-          : keyHint.active ? root.foreground : root.secondary
+          : keyHint.active ? root.foreground : Util.alpha(root.foreground, 0.82)
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
         font.bold: true
@@ -3074,7 +3087,7 @@ Panel {
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: shortcut.row ? String(shortcut.row.what || "") : ""
-        color: shortcut.hasCursor ? root.foreground : root.secondary
+        color: shortcut.hasCursor ? root.foreground : Util.alpha(root.foreground, 0.82)
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight

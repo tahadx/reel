@@ -376,7 +376,7 @@ The tab strip is the first thing inside the scroll body. It scrolls with the
 settings, not with the fixed frame.
 
 - Height `30`; four equal tabs: Media, Zoom, Output, Keys.
-- Label `bodySmall`; active `accent` + bold; inactive `dim`; hover `foreground`.
+- Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(16)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
 - Every tab carries a numeric `KeyHintChip` (`1`–`4`).
@@ -418,7 +418,10 @@ Rules:
   foreground at `0.18`, thumb secondary. Thumb moves in `120` ms.
 - Shortcut rows (Keys tab): height `30`, square, key chip + description.
   Key chip minimum width `56`, height `18`, radius `4`, keycap shadow, caption
-  bold. Description `bodySmall` secondary.
+  bold. Chip fill is an opaque theme background plus `0.08` foreground at rest,
+  accent at `0.14` when active; the opaque base keeps the keycap shadow from
+  tinting the pill in light themes. Border is `strongBorder`, accent at `0.55`
+  when active. Description `bodySmall` foreground at `0.82`.
 - The cursor accent edge is `2` px, inset `2` from the left, height row minus
   `10`.
 - Clicking a cycle row moves forward. Right-click moves backward.
