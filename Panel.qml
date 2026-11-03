@@ -90,6 +90,7 @@ Panel {
     { key: "countdown", label: "Countdown", glyph: "󰔛" }
   ]
   readonly property var shortcutRows: [
+    { keys: "Shift+U", what: "update Reel" },
     { keys: "↑ ↓ / j k", what: "move between rows" },
     { keys: "← →", what: "move across an action row" },
     { keys: "h / l", what: "move horizontally or cycle an option" },
@@ -585,6 +586,19 @@ Panel {
     root.setNotice("Path copied.")
   }
 
+  // The updater runs in a floating terminal rather than the panel process: the
+  // plugin update reloads this widget, so an in-panel Process would be torn
+  // down before its installer finished. The terminal also keeps the installer
+  // prompt and its output visible.
+  function updateReel() {
+    root.closeTakeMenu()
+    root.close()
+    Quickshell.execDetached([
+      "omarchy-launch-floating-terminal-with-presentation",
+      "reel update"
+    ])
+  }
+
   function share(row) {
     if (!row || !row.path) return
     if (shareProc.running) return
@@ -915,12 +929,19 @@ Panel {
   }
 
   function onTextKey(text) {
-    var key = String(text || "").toLowerCase()
+    var raw = String(text || "")
     if (root.takeMenuOpen) {
-      if (key === "a") root.closeTakeMenu()
+      if (raw.toLowerCase() === "a") root.closeTakeMenu()
       return
     }
     if (root.typingPrefix) return
+    // Shift+U is the updater. Check the unlowered text so it does not fall
+    // through to u, which shares the selected take.
+    if (raw === "U") {
+      root.updateReel()
+      return
+    }
+    var key = raw.toLowerCase()
     if (root.page === "home" && key.length === 1 && key >= "1" && key <= "5") {
       var tab = Number(key) - 1
       if (tab >= 0 && tab < root.settingsTabs.length) {
@@ -2366,7 +2387,7 @@ Panel {
       }
       // Share is handled here as well as in the root key map so it works while
       // the actions menu is open and survives any other text-key handling.
-      if (event.text === "u" || event.text === "U") {
+      if (event.text === "u") {
         if (root.takeMenuOpen) root.closeTakeMenu()
         root.shareSelected()
         event.accepted = true

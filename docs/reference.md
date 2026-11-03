@@ -49,7 +49,9 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 
 `reel update` updates the installed Omarchy plugin, then runs the installer from
 the updated checkout. If the Hyprland shortcut block is missing, the installer
-asks before adding it. `--binds` adds or refreshes it without prompting.
+asks before adding it. `--binds` adds or refreshes it without prompting. From an
+open panel, `Shift+U` runs the same command in a floating terminal so the
+updater and its prompt stay visible while the plugin reloads.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.

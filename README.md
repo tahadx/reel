@@ -58,6 +58,9 @@ Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 reel update
 ```
 
+From an open panel, `Shift+U` runs the same command in a floating terminal, so
+the updater and its shortcut prompt stay visible while the plugin reloads.
+
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
 the installer from the freshly updated plugin checkout. It relinks the `reel`
 command, rechecks dependencies, and reloads the widget. It never downloads a
@@ -135,6 +138,7 @@ take. Monitors and dragged areas record exactly those screen pixels.
 
 | Key | Action |
 | --- | --- |
+| `Shift+U` | Update Reel in a terminal |
 | `↑` / `↓` or `j` / `k` | Move between rows |
 | `←` / `→` or `h` / `l` | Move horizontally; cycle the focused option |
 | `Enter` / `Space` | Activate the selected action |

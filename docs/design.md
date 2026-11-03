@@ -589,6 +589,7 @@ Rules:
 
 | Key               | Action                               |
 | :---------------- | :----------------------------------- |
+| `Shift+U`         | Update Reel in a terminal            |
 | `↑` `↓` / `j` `k` | Move between rows                    |
 | `←` `→`           | Move across the action row           |
 | `h` `l`           | Move horizontally or cycle an option |
