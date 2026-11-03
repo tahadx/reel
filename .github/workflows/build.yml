@@ -80,18 +80,20 @@ jobs:
           fi
 
       # A committed engine that no longer matches crates/ would ship the wrong
-      # recorder. Rebuild and compare the source fingerprint; bytes differ
-      # between linkers, so they are not a portable freshness signal.
+      # recorder. The pinned rust-lld build is byte-reproducible, so CI rebuilds
+      # from the checkout and compares the exact bytes.
       - name: Dist freshness
         run: |
           set -euo pipefail
-          before=$(cat bin/dist/reel-native.fingerprint 2>/dev/null || echo missing)
+          before=$(sha256sum bin/dist/reel-native | cut -d' ' -f1)
           bin/refresh-dist
-          after=$(cat bin/dist/reel-native.fingerprint)
+          after=$(sha256sum bin/dist/reel-native | cut -d' ' -f1)
           if [ "$before" != "$after" ]; then
             echo "::error::bin/dist/reel-native is stale. Run bin/refresh-dist and commit the result."
             exit 1
           fi
+          echo "### Engine SHA-256" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum bin/dist/reel-native | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Upload rebuilt dist
         if: failure()
