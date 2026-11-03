@@ -2,6 +2,7 @@ use crate::paths::{self, Paths};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::fs;
+use std::path::Path;
 
 pub fn idle() -> Value {
     json!({ "status": "idle" })
@@ -125,7 +126,7 @@ pub fn reconcile(paths: &Paths) {
             return;
         }
         state["status"] = json!("idle");
-        state["error"] = match untrimmed_capture(&state) {
+        state["error"] = match recover_capture(&mut state) {
             Some(capture) => json!(format!(
                 "The save pass stopped. Untrimmed footage is at {capture}."
             )),
@@ -142,7 +143,7 @@ pub fn reconcile(paths: &Paths) {
         return;
     }
     state["status"] = json!("idle");
-    state["error"] = match untrimmed_capture(&state) {
+    state["error"] = match recover_capture(&mut state) {
         Some(capture) => json!(format!(
             "The recorder exited without a stop. Untrimmed footage is at {capture}."
         )),
@@ -152,15 +153,54 @@ pub fn reconcile(paths: &Paths) {
     crate::zoom::disable_recording_zoom(paths);
 }
 
+/// Quarantine a countdown capture that predates the `output` field before it
+/// can appear in history. An ordinary take with no countdown needs no move.
+fn quarantine_legacy_capture(state: &mut Value) -> Option<String> {
+    let file = field_str(state, "file")?;
+    let capture = Path::new(&file);
+    if !capture.is_file() || paths::is_untrimmed(capture) {
+        return None;
+    }
+    let output = field_str(state, "output").unwrap_or_default();
+    if !output.is_empty() && output != file {
+        return None;
+    }
+    let trim_start = field_str(state, "trimStart")
+        .and_then(|raw| raw.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    if trim_start <= 0.0 {
+        return None;
+    }
+
+    let quarantined = paths::quarantine_capture(capture).ok()?;
+    let quarantined = quarantined.display().to_string();
+    set(state, "file", json!(quarantined.clone()));
+    set(
+        state,
+        "output",
+        json!(if output.is_empty() { file } else { output }),
+    );
+    Some(quarantined)
+}
+
+fn recover_capture(state: &mut Value) -> Option<String> {
+    quarantine_legacy_capture(state).or_else(|| untrimmed_capture(state))
+}
+
 /// A capture that still needs its countdown trimmed off, if it is on disk.
 fn untrimmed_capture(state: &Value) -> Option<String> {
     let capture = field_str(state, "file")?;
-    let output = field_str(state, "output").unwrap_or_else(|| capture.clone());
-    if capture != output && std::path::Path::new(&capture).is_file() {
-        Some(capture)
-    } else {
-        None
+    if !Path::new(&capture).is_file() {
+        return None;
     }
+    let output = field_str(state, "output").unwrap_or_default();
+    if output.is_empty() {
+        let trim_start = field_str(state, "trimStart")
+            .and_then(|raw| raw.parse::<f64>().ok())
+            .unwrap_or(0.0);
+        return (trim_start > 0.0).then_some(capture);
+    }
+    (capture != output).then_some(capture)
 }
 
 fn paths_pid_alive(pid: i32) -> bool {
@@ -263,6 +303,36 @@ mod tests {
         reconcile(&paths);
         let state = read(&paths).unwrap();
         assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
+        assert!(field_str(&state, "error").unwrap().contains("Untrimmed"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
+
+    #[test]
+    fn a_dead_recorder_quarantines_a_legacy_countdown() {
+        let paths = temp_paths();
+        let videos = paths.runtime.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let file = videos.join("reel-legacy.mp4");
+        fs::write(&file, b"raw").unwrap();
+        let state = json!({
+            "status": "recording",
+            "file": file.display().to_string(),
+            "trimStart": 3.0,
+            "pid": 999_999,
+        });
+        write(&paths, &state).unwrap();
+        reconcile(&paths);
+
+        let state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
+        let capture = field_str(&state, "file").unwrap();
+        assert!(capture.ends_with("-untrimmed.mp4"));
+        assert!(!file.exists());
+        assert!(Path::new(&capture).is_file());
+        assert_eq!(
+            field_str(&state, "output").as_deref(),
+            Some(file.display().to_string().as_str())
+        );
         assert!(field_str(&state, "error").unwrap().contains("Untrimmed"));
         let _ = fs::remove_dir_all(paths.runtime);
     }

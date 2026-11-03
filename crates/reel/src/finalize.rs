@@ -276,17 +276,52 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         Value::String(args.target_label)
     };
 
-    let file = args.file;
-    let output = args.output.unwrap_or_else(|| file.clone());
-    let quarantined = output != file;
+    let mut file = args.file;
+    let mut output = args.output.unwrap_or_else(|| file.clone());
+    let original_file = file.display().to_string();
+    let mut quarantined = output != file;
+
+    // Defense in depth for a state file written before `output` existed: a
+    // countdown capture must never be finalized in place. `stop` normally
+    // quarantines it first; if an older or malformed caller did not, move it
+    // aside here rather than risk leaving pre-roll footage under the ordinary
+    // take name after a failed trim.
+    if !quarantined && args.trim_start > 0.0 && !paths::is_untrimmed(&file) {
+        match paths::quarantine_capture(&file) {
+            Ok(capture) => {
+                output = file;
+                file = capture;
+                quarantined = true;
+            }
+            Err(err) => {
+                let message = format!(
+                    "The countdown capture could not be quarantined before saving: {err}. \
+                     The original file was left untouched at {}.",
+                    file.display()
+                );
+                let _ = state::write(
+                    paths,
+                    &state::idle_with_error_preserving_last(paths, &message),
+                );
+                util::notify("Reel", Some(&message), "critical");
+                anyhow::bail!(message);
+            }
+        }
+    }
 
     // Publish the job pid before touching ffmpeg. The service can then tell a
     // live save from one that died and left the bar on "Saving".
     if let Some(current) = state::read(paths) {
         let status = state::field_str(&current, "status").unwrap_or_default();
         let current_file = state::field_str(&current, "file").unwrap_or_default();
-        if status == "finalizing" && current_file == file.display().to_string() {
+        if status == "finalizing"
+            && (current_file == original_file || current_file == file.display().to_string())
+        {
             let mut next = current;
+            if quarantined {
+                state::set(&mut next, "file", json!(file.display().to_string()));
+                state::set(&mut next, "output", json!(output.display().to_string()));
+            }
             state::set(&mut next, "finalizePid", json!(std::process::id()));
             let _ = state::write(paths, &next);
         }

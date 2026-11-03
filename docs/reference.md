@@ -231,6 +231,8 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error
   names the file so the overlay footage is never offered as an ordinary take.
+  A countdown take started by an older Reel and stopped after an engine update
+  is moved to the same `-untrimmed` name before the save pass runs.
   `reel doctor` checks the tools used by the save pass.
 
 ## Uninstall

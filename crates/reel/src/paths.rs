@@ -106,6 +106,66 @@ pub fn untrimmed_path(file: &Path) -> PathBuf {
     }
 }
 
+/// The normal name a quarantined raw capture would be saved under. Older
+/// state files only recorded `file`, so this recovers the final path when the
+/// capture was already moved aside.
+pub fn trimmed_path(file: &Path) -> PathBuf {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let stem = stem.strip_suffix("-untrimmed").unwrap_or(&stem);
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    if ext.is_empty() {
+        parent.join(stem)
+    } else {
+        parent.join(format!("{stem}.{ext}"))
+    }
+}
+
+/// A free `-untrimmed` name. If a stale quarantine already owns the first
+/// name, number it before the marker so history still skips the file.
+pub fn quarantine_path(file: &Path) -> PathBuf {
+    let first = untrimmed_path(file);
+    if !first.exists() {
+        return first;
+    }
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    let mut suffix = 2;
+    loop {
+        let name = if ext.is_empty() {
+            format!("{stem}-{suffix}-untrimmed")
+        } else {
+            format!("{stem}-{suffix}-untrimmed.{ext}")
+        };
+        let candidate = parent.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        suffix += 1;
+    }
+}
+
+/// Move a raw capture out of the ordinary take name before a fallible save
+/// pass. Never overwrite another quarantine.
+pub fn quarantine_capture(file: &Path) -> std::io::Result<PathBuf> {
+    let target = quarantine_path(file);
+    std::fs::rename(file, &target)?;
+    Ok(target)
+}
+
 /// True for a raw capture that never made it through the countdown trim.
 pub fn is_untrimmed(file: &Path) -> bool {
     file.file_stem()
@@ -329,5 +389,37 @@ mod tests {
             "/home/a/Videos/Reel/reel-1.2.3-untrimmed.mp4"
         )));
         assert!(!is_untrimmed(file));
+    }
+
+    #[test]
+    fn trimmed_names_undo_the_quarantine_marker() {
+        let raw = Path::new("/home/a/Videos/Reel/reel-1.2.3-untrimmed.mp4");
+
+        assert_eq!(
+            trimmed_path(raw),
+            Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4")
+        );
+        assert_eq!(
+            trimmed_path(Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4")),
+            Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4")
+        );
+    }
+
+    #[test]
+    fn a_stale_quarantine_gets_a_new_numbered_name() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-paths-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("reel-1.mp4");
+        assert_eq!(quarantine_path(&file), root.join("reel-1-untrimmed.mp4"));
+        fs::write(root.join("reel-1-untrimmed.mp4"), b"old").unwrap();
+        assert_eq!(quarantine_path(&file), root.join("reel-1-2-untrimmed.mp4"));
+        let _ = fs::remove_dir_all(root);
     }
 }

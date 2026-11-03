@@ -1004,6 +1004,41 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
     paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
 }
 
+/// Resolve the raw capture and final output for a take stopped by possibly
+/// newer code. Older state files only carry `file`; a countdown take from that
+/// version recorded straight into the ordinary name, so quarantine it before
+/// any fallible finalization.
+fn resolve_capture_paths(
+    file: String,
+    output: String,
+    trim_start: f64,
+) -> Result<(String, String)> {
+    let output = output.trim().to_string();
+    let in_place = output.is_empty() || output == file;
+    let capture = Path::new(&file);
+
+    if trim_start > 0.0 && in_place && !file.is_empty() && !paths::is_untrimmed(capture) {
+        let quarantined = paths::quarantine_capture(capture).with_context(|| {
+            format!(
+                "cannot move {} out of the ordinary take list",
+                capture.display()
+            )
+        })?;
+        let output = if output.is_empty() { file } else { output };
+        return Ok((quarantined.display().to_string(), output));
+    }
+
+    if output.is_empty() {
+        if paths::is_untrimmed(capture) {
+            let trimmed = paths::trimmed_path(capture).display().to_string();
+            return Ok((file, trimmed));
+        }
+        return Ok((file.clone(), file));
+    }
+
+    Ok((file, output))
+}
+
 pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     let (
         status,
@@ -1069,13 +1104,6 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         }
     }
 
-    // Older state files only carry `file`; the final path falls back to it.
-    let output = if output.is_empty() {
-        file.clone()
-    } else {
-        output
-    };
-
     paths::kill(pid, libc::SIGINT);
     crate::zoom::disable_recording_zoom(paths);
     if !wait_for_exit(pid, Duration::from_secs(8)) {
@@ -1122,6 +1150,44 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         paths::remove_quiet(&paths.cancel);
         util::notify("Reel", Some(message), "critical");
         anyhow::bail!("{message}");
+    }
+
+    // Older state files predate the `output` field. A countdown take from
+    // that version recorded straight into the ordinary name, so an engine
+    // upgrade landing mid-take must move the raw capture aside before any
+    // fallible save pass. Otherwise a failed trim would leave the pre-roll
+    // visible in history and available to share.
+    let (file, output) = match resolve_capture_paths(file, output, trim_start) {
+        Ok(paths) => paths,
+        Err(err) => {
+            let message = format!(
+                "The countdown capture could not be quarantined before saving: {err}. \
+                 The original file was left untouched at the recorded path."
+            );
+            let _ = state::write(
+                paths,
+                &state::idle_with_error_preserving_last(paths, &message),
+            );
+            paths::remove_quiet(&paths.starting);
+            paths::remove_quiet(&paths.cancel);
+            util::notify("Reel", Some(&message), "critical");
+            return Err(err);
+        }
+    };
+
+    // The save job owns the state by its `file` field. Point that at the
+    // quarantined capture before spawning so a failed job still reconciles to
+    // the recovery path instead of leaving the bar on "Saving".
+    {
+        let _lock = Lock::acquire(paths).ok();
+        if let Some(current) = state::read(paths) {
+            if state::field_str(&current, "status").as_deref() == Some("finalizing") {
+                let mut next = current;
+                state::set(&mut next, "file", serde_json::json!(file.clone()));
+                state::set(&mut next, "output", serde_json::json!(output.clone()));
+                let _ = state::write(paths, &next);
+            }
+        }
     }
 
     // Do not render a preview here: it delayed the stop response for every
@@ -1232,6 +1298,71 @@ mod tests {
         assert_eq!(sanitize_prefix("Bad/name"), "Bad-name-");
         assert_eq!(sanitize_prefix("Already-"), "Already-");
         assert_eq!(sanitize_prefix("..."), "reel-");
+    }
+
+    #[test]
+    fn a_legacy_countdown_take_is_quarantined_before_finalize() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-recorder-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("reel-1.mp4");
+        fs::write(&file, b"raw").unwrap();
+
+        let (capture, output) =
+            resolve_capture_paths(file.display().to_string(), String::new(), 3.0).unwrap();
+
+        assert_eq!(output, file.display().to_string());
+        assert_eq!(capture, paths::untrimmed_path(&file).display().to_string());
+        assert!(!file.exists());
+        assert!(Path::new(&capture).is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_legacy_plain_take_keeps_its_name() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-recorder-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let file = root.join("reel-1.mp4");
+        fs::write(&file, b"raw").unwrap();
+
+        let (capture, output) =
+            resolve_capture_paths(file.display().to_string(), String::new(), 0.0).unwrap();
+
+        assert_eq!(capture, file.display().to_string());
+        assert_eq!(output, file.display().to_string());
+        assert!(file.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn an_existing_output_is_left_alone() {
+        assert_eq!(
+            resolve_capture_paths(
+                "/videos/take-untrimmed.mp4".into(),
+                "/videos/take.mp4".into(),
+                3.0,
+            )
+            .unwrap(),
+            (
+                "/videos/take-untrimmed.mp4".into(),
+                "/videos/take.mp4".into()
+            )
+        );
     }
 
     #[test]
