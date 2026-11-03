@@ -634,6 +634,7 @@ mod tests {
             starting: root.join("starting.pid"),
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
+            session_telemetry: root.join("session.telemetry.jsonl"),
             config_dir: root.join("config"),
             config: root.join("config.json"),
             previews: root.join("previews"),

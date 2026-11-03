@@ -18,6 +18,7 @@ pub struct Paths {
     pub starting: PathBuf,
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
+    pub session_telemetry: PathBuf,
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
@@ -60,6 +61,7 @@ impl Paths {
             starting: runtime.join("starting"),
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
+            session_telemetry: runtime.join("session.telemetry.jsonl"),
             config: config_dir.join("reel.json"),
             config_dir,
             previews,
@@ -104,6 +106,18 @@ pub fn untrimmed_path(file: &Path) -> PathBuf {
     } else {
         parent.join(format!("{stem}-untrimmed.{ext}"))
     }
+}
+
+/// `<take-stem>.telemetry.jsonl` next to a saved take.
+// Called by `telemetry::persist`, which feat/auto-zoom wires into finalize.
+#[allow(dead_code)]
+pub fn telemetry_path(file: &Path) -> PathBuf {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    parent.join(format!("{stem}.telemetry.jsonl"))
 }
 
 /// The normal name a quarantined raw capture would be saved under. Older
@@ -375,6 +389,15 @@ mod tests {
         assert_eq!(preview_file_name(one), preview_file_name(one));
         assert_ne!(preview_file_name(one), preview_file_name(two));
         assert!(preview_file_name(one).ends_with("-preview.jpg"));
+    }
+
+    #[test]
+    fn telemetry_names_follow_the_take() {
+        let file = Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4");
+        assert_eq!(
+            telemetry_path(file),
+            Path::new("/home/a/Videos/Reel/reel-1.2.3.telemetry.jsonl")
+        );
     }
 
     #[test]

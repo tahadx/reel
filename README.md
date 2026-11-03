@@ -17,6 +17,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay.
+- **Capture mode**: Auto, Quick, or Studio. Studio records the pointer out of
+  the frame and keeps pointer telemetry for later effects; Quick keeps the
+  previous baked-pointer behavior.
 - A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
   menu with share and trash, path copy, and drag-out to drop the video into
@@ -188,6 +191,12 @@ with the microphone enabled; Reel reduces steady background noise during the
 save pass, before the take is normalized. It only runs for takes that captured
 the microphone. It uses FFmpeg's noise reduction, so EasyEffects is not
 required.
+
+**Capture mode** is Auto by default. Auto uses Studio only when a Studio effect
+is on, so ordinary takes behave as before. Choosing Studio always records the
+pointer separately from the video and needs read access to `/dev/input`; add
+your user to the `input` group and log in again. If telemetry cannot start,
+Reel saves the take as a Quick recording and logs why.
 
 The settings page covers all capture options and the filename prefix. History
 takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.

@@ -78,6 +78,7 @@ Panel {
     "manualZoom": "on",
     "zoomMax": "2.0",
     "panStep": "60",
+    "captureMode": "auto",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -86,6 +87,7 @@ Panel {
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
+    { key: "captureMode", label: "Capture mode", glyph: "󰑮" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󰍬" },
@@ -264,6 +266,7 @@ Panel {
     case "microphoneAudio": return ["on", "off"]
     case "noiseCancellation": return ["off", "on"]
     case "cursor": return ["on", "off"]
+    case "captureMode": return ["auto", "quick", "studio"]
     case "webcam": return ["off", "small", "medium", "large"]
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
@@ -325,6 +328,8 @@ Panel {
       return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
+    case "captureMode":
+      return value.charAt(0).toUpperCase() + value.slice(1)
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -547,14 +552,13 @@ Panel {
 
   function togglePause() {
     if (!root.active) return
-    if (controlProc.running) {
+    if (pauseProc.running) {
       root.setNotice("Reel is still finishing the last command.")
       return
     }
     root.cancelling = false
-    root.controlAction = "pause"
-    controlProc.command = ["reel", "toggle-pause"]
-    controlProc.running = true
+    pauseProc.command = ["reel", "toggle-pause"]
+    pauseProc.running = true
   }
 
   function toggleRecording() {
@@ -3364,6 +3368,23 @@ Panel {
       root.cancelling = false
       if (root.service) root.service.refresh()
       if (action === "start" && code !== 0) openAfterAction.restart()
+    }
+  }
+
+  // A Studio take keeps `reel start` alive for the whole take, so pause uses
+  // its own process instead of waiting for controlProc to return.
+  Process {
+    id: pauseProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: pauseErr; waitForEnd: true }
+    onExited: function(code) {
+      var message = String(pauseErr.text || "").trim()
+      if (code !== 0 && !root.cancelling) {
+        root.setNotice(message.replace(/^reel:\s*/, "") || "That action failed.", true)
+      }
+      root.cancelling = false
+      if (root.service) root.service.refresh()
     }
   }
 

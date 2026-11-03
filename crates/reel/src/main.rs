@@ -6,6 +6,7 @@ mod paths;
 mod recorder;
 mod state;
 mod target;
+mod telemetry;
 mod util;
 mod webcam;
 mod zoom;

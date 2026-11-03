@@ -1,0 +1,5 @@
+{"v":1,"type":"start","t":0.0,"t0_ns":123456789,"clock":"CLOCK_MONOTONIC","capture":{"kind":"monitor","target":"monitor:DP-1","monitor":"DP-1","x":0,"y":0,"width":2560,"height":1440,"scale":1.5,"transform":0},"fps":60,"source":"evdev","error":null}
+{"v":1,"type":"move","t":1.234,"x":100.5,"y":200.25}
+{"v":1,"type":"button","t":1.5,"button":"left","state":"down","x":100.5,"y":200.25}
+{"v":1,"type":"sync","t":2.0,"x":100.0,"y":200.0,"source":"hyprctl"}
+{"v":1,"type":"stop","t":10.0,"reason":"stopped","error":null}
