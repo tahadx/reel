@@ -9,6 +9,18 @@ TARGET=x86_64-unknown-linux-musl
 ROOT="$(pwd -P)"
 SYSROOT="$(rustc --print sysroot)"
 LINKER="$SYSROOT/lib/rustlib/x86_64-unknown-linux-gnu/bin/rust-lld"
+RUST_SRC="$SYSROOT/lib/rustlib/src/rust"
+HIDDEN_SRC="$SYSROOT/lib/rustlib/src/.rust-reel-build"
+
+# rust-src makes rustc embed local std source paths, which breaks the
+# byte-identical CI build. Hide it for the build and restore it on exit.
+restore_rust_src() {
+  if [[ -d "$HIDDEN_SRC" && ! -e "$RUST_SRC" ]]; then
+    mv "$HIDDEN_SRC" "$RUST_SRC"
+  fi
+}
+trap restore_rust_src EXIT INT TERM
+restore_rust_src
 
 # Fingerprint every input that can change the engine. The local pre-push hook
 # compares this value; CI rebuilds the binary itself and compares exact bytes.
@@ -27,6 +39,15 @@ fingerprint() {
 if [[ "${1:-}" == "--print-fingerprint" ]]; then
   fingerprint
   exit 0
+fi
+
+if [[ -d "$RUST_SRC" ]]; then
+  if [[ -w "$(dirname "$RUST_SRC")" ]]; then
+    mv "$RUST_SRC" "$HIDDEN_SRC"
+  else
+    echo "refresh-dist: cannot hide rust-src; make the toolchain writable or remove rust-src." >&2
+    exit 1
+  fi
 fi
 
 # Pin the linker and normalize every path that rustc can embed. CI rebuilds

@@ -1,0 +1,20 @@
+#!/bin/bash
+# Rebuild the shipped engine whenever a commit stages engine inputs. The dist
+# binary and its fingerprint are added to the same commit, so no separate
+# "chore(dist)" commit is needed.
+set -euo pipefail
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+
+ENGINE=(crates/reel Cargo.toml Cargo.lock rust-toolchain.toml)
+
+if git diff --cached --quiet -- "${ENGINE[@]}"; then
+  exit 0
+fi
+if ! git diff --quiet -- "${ENGINE[@]}"; then
+  echo "pre-commit: commit or stash unstaged engine changes first." >&2
+  exit 1
+fi
+
+echo "pre-commit: refreshing the shipped engine"
+bin/refresh-dist
+git add bin/dist/reel-native bin/dist/reel-native.fingerprint

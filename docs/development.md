@@ -33,15 +33,19 @@ checks QML syntax; unresolved Omarchy imports are expected outside the shell.
 the installer.
 
 Formatting, clippy, the tests above, and the shipped-engine check run in CI.
-The pre-push hook mirrors them:
+Enable the local hooks once:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
+`pre-commit` rebuilds `bin/dist` and stages the binary and fingerprint whenever
+a commit stages engine inputs, so the engine is never a separate manual commit.
+`pre-push` mirrors the remaining checks.
+
 ## Shipped engine
 
-Run `bin/refresh-dist` after every change under `crates/`:
+The pre-commit hook runs this automatically when engine inputs are staged:
 
 ```sh
 bin/refresh-dist
@@ -49,8 +53,11 @@ bin/refresh-dist
 
 It builds `reel` for `x86_64-unknown-linux-musl`, copies the binary to
 `bin/dist/reel-native`, writes a source fingerprint, and prints its version.
-Commit the refreshed binary and fingerprint in the same commit as the source
-change.
+The hook stages both files in the same commit as the source change.
+
+`bin/refresh-dist` hides the toolchain's `rust-src` directory for the build and
+restores it immediately. Without that, rustc embeds local std source paths and
+the binary differs from CI even though the sources match.
 
 CI is the byte-level authority. It rebuilds the committed engine on its pinned
 runner and fails unless the rebuilt bytes are identical to `bin/dist/reel-native`.
