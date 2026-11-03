@@ -38,8 +38,7 @@
       "notifications": "off",
       "manualZoom": "on",
       "zoomMax": 2.0,
-      "panStep": 60,
-      "captureMode": "auto"
+      "panStep": 60
     },
     "schema": [
       {
@@ -82,18 +81,6 @@
           "off"
         ],
         "defaultValue": "on"
-      },
-      {
-        "key": "captureMode",
-        "type": "enum",
-        "label": "Capture mode",
-        "options": [
-          "auto",
-          "quick",
-          "studio"
-        ],
-        "defaultValue": "auto",
-        "description": "Auto uses Studio only when a Studio effect is on. Quick bakes the pointer as before. Studio always records clean pointer telemetry for later effects."
       },
       {
         "key": "webcam",

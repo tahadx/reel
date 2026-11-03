@@ -35,10 +35,9 @@ struct Settings {
     filename_prefix: String,
     manual_zoom: bool,
     zoom_max: f64,
-    /// `auto`, `quick`, or `studio` as the user asked for it.
-    capture_mode_requested: String,
-    /// The mode this take actually uses: `quick` or `studio`.
-    capture_mode: String,
+    /// True when a Studio effect needs clean capture and pointer telemetry.
+    /// This is internal; there is no user-facing mode switch.
+    studio: bool,
 }
 
 impl Settings {
@@ -60,12 +59,7 @@ impl Settings {
             "filenamePrefix": self.filename_prefix,
             "manualZoom": self.manual_zoom,
             "zoomMax": self.zoom_max,
-            "captureMode": self.capture_mode,
         })
-    }
-
-    fn studio(&self) -> bool {
-        self.capture_mode == "studio"
     }
 }
 
@@ -110,8 +104,9 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
     Some(if codec == "av1" { qp * 4 } else { qp })
 }
 
-/// Studio effects that ask `captureMode=auto` for a clean capture. The keys
-/// are owned by later branches; missing or stale values mean off.
+/// Studio is an internal capture path, not a setting: it is used only when a
+/// Studio effect needs clean input. The keys are owned by later branches;
+/// missing or stale values mean off.
 ///
 /// Cursor synthesis has no switch in v1, so it cannot select Studio here yet.
 /// It joins this list when its branch adds a key the engine honors.
@@ -201,18 +196,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .or_else(|| config::zoom_max_value(stored.get("zoomMax")))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
-    let capture_mode_requested = util::pick_choice(
-        &config::cfg_in(&stored, "captureMode", "auto"),
-        "auto",
-        &["auto", "quick", "studio"],
-    );
-    let capture_mode = match capture_mode_requested.as_str() {
-        "quick" => "quick",
-        "studio" => "studio",
-        _ if auto_studio_effects(&stored) => "studio",
-        _ => "quick",
-    }
-    .to_string();
+    let studio = auto_studio_effects(&stored);
 
     Ok(Settings {
         desktop,
@@ -231,8 +215,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         filename_prefix,
         manual_zoom,
         zoom_max,
-        capture_mode_requested,
-        capture_mode,
+        studio,
     })
 }
 
@@ -598,7 +581,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // Resolve the pointer source before the encoder launches. That is what
     // lets a failed listener fall back to Quick instead of silently recording
     // a Studio take with no pointer data.
-    let capture_space = if settings.studio() {
+    let capture_space = if settings.studio {
         match telemetry::CaptureSpace::resolve(
             target,
             &choice.kind,
@@ -623,12 +606,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // A new take always starts with an empty runtime file, so a failed save
     // from the previous take cannot be mistaken for this one.
     telemetry::clear(paths);
-    if settings.capture_mode_requested == "quick" {
-        paths::log(
-            paths,
-            "capture: captureMode=quick disables Studio effects for this take",
-        );
-    }
     let mut prepared = capture_space
         .as_ref()
         .map(|space| telemetry::Prepared::new(paths, space));
@@ -636,7 +613,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         .as_ref()
         .map(telemetry::Prepared::available)
         .unwrap_or(false);
-    if settings.studio() && !studio {
+    if settings.studio && !studio {
         let code = prepared
             .as_ref()
             .and_then(telemetry::Prepared::error)
@@ -731,11 +708,10 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} mode={} requested={} cursor={} telemetry={} output={}",
+            "capture: target={} fps={} path={} cursor={} telemetry={} output={}",
             target,
             capture_fps,
-            settings.capture_mode,
-            settings.capture_mode_requested,
+            if studio { "studio" } else { "quick" },
             if studio {
                 "off"
             } else if settings.cursor {
@@ -793,7 +769,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // The encoder is live. Start the listener, or leave the diagnostic pair
     // behind when Studio fell back to Quick.
     let mut listener = None;
-    if settings.studio() {
+    if settings.studio {
         match (prepared.take(), capture_space.as_ref()) {
             (Some(prepared), Some(space)) if studio => {
                 listener = prepared.start(space.clone(), capture_fps, t0, t0_ns);
@@ -846,7 +822,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "targetLabel": &choice.label,
                 "targetWarning": &choice.warning,
                 "monitor": &choice.monitor,
-                "captureMode": settings.capture_mode,
                 "telemetry": telemetry_on,
                 "settings": settings.to_json(),
                 "startedAt": started_at,
@@ -927,7 +902,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                     "targetLabel": &choice.label,
                     "targetWarning": &choice.warning,
                     "monitor": &choice.monitor,
-                    "captureMode": settings.capture_mode,
                     "telemetry": telemetry_on,
                     "settings": settings.to_json(),
                     "startedAt": paths::now_secs(),
@@ -983,7 +957,6 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "targetLabel": &choice.label,
                 "targetWarning": &choice.warning,
                 "monitor": &choice.monitor,
-                "captureMode": settings.capture_mode,
                 "telemetry": telemetry_on,
                 "quality": settings.quality,
                 "codec": settings.codec,
@@ -1461,12 +1434,10 @@ mod tests {
             filename_prefix: "reel-".into(),
             manual_zoom: true,
             zoom_max: 2.0,
-            capture_mode_requested: "auto".into(),
-            capture_mode: "quick".into(),
+            studio: false,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);
-        assert_eq!(value["captureMode"], "quick");
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
         assert_eq!(value["noiseCancellation"], true);
@@ -1475,7 +1446,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_mode_only_asks_for_studio_when_an_effect_is_on() {
+    fn studio_capture_is_only_used_when_an_effect_is_on() {
         assert!(!auto_studio_effects(&json!({})));
         assert!(!auto_studio_effects(&json!({
             "autoZoomStyle": "off",

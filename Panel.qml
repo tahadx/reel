@@ -78,7 +78,6 @@ Panel {
     "manualZoom": "on",
     "zoomMax": "2.0",
     "panStep": "60",
-    "captureMode": "auto",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -87,7 +86,6 @@ Panel {
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
-    { key: "captureMode", label: "Capture mode", glyph: "󰑮" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󰍬" },
@@ -266,7 +264,6 @@ Panel {
     case "microphoneAudio": return ["on", "off"]
     case "noiseCancellation": return ["off", "on"]
     case "cursor": return ["on", "off"]
-    case "captureMode": return ["auto", "quick", "studio"]
     case "webcam": return ["off", "small", "medium", "large"]
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
@@ -328,8 +325,6 @@ Panel {
       return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
-    case "captureMode":
-      return value.charAt(0).toUpperCase() + value.slice(1)
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":

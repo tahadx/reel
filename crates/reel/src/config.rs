@@ -26,8 +26,7 @@ pub fn defaults() -> Value {
         "openWithOmacut": true,
         "manualZoom": "on",
         "zoomMax": 2.0,
-        "panStep": 60,
-        "captureMode": "auto"
+        "panStep": 60
     })
 }
 
