@@ -179,6 +179,17 @@ omarchy-shell io.github.tahadx.reel close
 - **Debugging:** Inspect `$XDG_RUNTIME_DIR/reel/reel.log` and `reel status` if a take or panel state misbehaves.
 - **Final report:** Always list files changed, commands run, verification evidence, and any deferred work.
 
+## Commits
+
+Every commit must have a description body, not just a subject line.
+
+Subject: `type(area): summary` (50 characters or less). `type` is one of `feat`,
+`fix`, `docs`, `refactor`, `test`, `chore`, `build`. `area` is the part touched:
+`panel`, `settings`, `history`, `engine`, `finalize`, `recorder`, `cli`, `dist`,
+`docs`, `ci`, `install`, `marketplace`. Then the summary. Body: what was wrong,
+what the fix does, and how it was verified (build, tests,
+`omarchy plugin validate .`, live panel check).
+
 ## Release & update flow
 
 - **User update:** `reel update` (or `Shift+U` in the panel) runs `omarchy plugin update io.github.tahadx.reel --yes` followed by `./install.sh` from the updated checkout.
