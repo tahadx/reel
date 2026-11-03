@@ -48,7 +48,8 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--filename-prefix` | text prepended to the timestamp | empty (`reel-`) |
 
 `reel update` updates the installed Omarchy plugin, then runs the installer from
-the updated checkout. It skips Hyprland bindings unless `--binds` is passed.
+the updated checkout. If the Hyprland shortcut block is missing, the installer
+asks before adding it. `--binds` adds or refreshes it without prompting.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.

@@ -61,7 +61,7 @@ pub enum Command {
     Doctor,
     /// Update the installed plugin and re-run its installer.
     Update {
-        /// Also add or refresh the optional Hyprland bindings.
+        /// Add or refresh the optional Hyprland bindings without prompting.
         #[arg(long)]
         binds: bool,
     },

@@ -56,9 +56,11 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
         );
     }
     let mut command = Command::new("bash");
-    command.arg(&installer).arg("--yes");
-    if !binds {
-        command.arg("--no-binds");
+    command.arg(&installer);
+    // Without --binds, leave the installer interactive. It only asks when the
+    // shortcut block is missing; an existing block is left alone.
+    if binds {
+        command.arg("--yes");
     }
     let status = command
         .status()

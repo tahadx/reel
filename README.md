@@ -63,8 +63,9 @@ the installer from the freshly updated plugin checkout. It relinks the `reel`
 command, rechecks dependencies, and reloads the widget. It never downloads a
 second copy of the installer.
 
-By default it leaves `~/.config/hypr/bindings.lua` alone. Pass `--binds` to add
-or refresh the optional shortcuts:
+By default it leaves `~/.config/hypr/bindings.lua` alone when the Reel block is
+already there. If the block is missing, the installer asks before adding it.
+Pass `--binds` to add or refresh the optional shortcuts without prompting:
 
 ```sh
 reel update --binds
