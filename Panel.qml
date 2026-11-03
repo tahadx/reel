@@ -1621,17 +1621,12 @@ Panel {
           }
         }
 
-        PanelSeparator {
-          Layout.fillWidth: true
-          visible: root.page === "home"
-          foreground: root.foreground
-        }
-
         // The tab strip stays above the scroll area so it is always reachable
         // while the settings body scrolls underneath it.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
+          Layout.topMargin: Style.space(8)
           Layout.bottomMargin: Style.space(2)
           visible: root.page === "home"
 

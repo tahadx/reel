@@ -235,12 +235,12 @@ ColumnLayout {
 
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
-  PanelSeparator { Layout.fillWidth: true }
+  Item { Layout.fillWidth: true /* fixed settings tabs */ }
 
   ScrollView {
     Layout.fillWidth: true
     Layout.fillHeight: true
-    // tabs, settings, history
+    // settings, history
   }
 }
 ```
@@ -367,7 +367,9 @@ Rules:
 ### 6.4 Separator
 
 - `1` px, `0.12` foreground, full content width.
-- Visible on the home page between the fixed actions and the scrolling body.
+- On home, the only divider is the hairline at the bottom of the fixed tab
+  strip. It separates the fixed actions and tabs from the scrolling body.
+- There is no second separator between the action row and the tabs.
 - Hidden on history, where the section header provides the break.
 
 ### 6.5 Settings tabs
