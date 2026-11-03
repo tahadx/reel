@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod finalize;
 mod paths;
+mod quarantine;
 mod recorder;
 mod state;
 mod target;
