@@ -9,6 +9,67 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
+/// Update the installed Omarchy plugin, then run the installer from the
+/// updated checkout. The installer is version-matched to the engine it just
+/// fetched, so there is no second download or curl-to-shell step.
+pub fn update(paths: &Paths, binds: bool) -> Result<()> {
+    state::reconcile(paths);
+    match state::status(paths).as_str() {
+        "idle" => {}
+        "finalizing" => anyhow::bail!("Reel is still saving the last take. Try again in a moment."),
+        _ => anyhow::bail!("Stop the current take before updating Reel."),
+    }
+
+    const ID: &str = "io.github.tahadx.reel";
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    let plugin_dir = config_home.join("omarchy/plugins").join(ID);
+    if !plugin_dir.is_dir() {
+        anyhow::bail!(
+            "Reel is not installed as an Omarchy plugin at {}",
+            plugin_dir.display()
+        );
+    }
+    if !util::have("omarchy") {
+        anyhow::bail!("The omarchy command is not on PATH.");
+    }
+
+    println!("== Reel: update ==");
+    println!("  updating {ID}");
+    let status = Command::new("omarchy")
+        .args(["plugin", "update", ID, "--yes"])
+        .status()
+        .context("could not run omarchy plugin update")?;
+    if !status.success() {
+        anyhow::bail!("omarchy plugin update failed for {ID}");
+    }
+
+    let installer = plugin_dir.join("install.sh");
+    if !installer.is_file() {
+        anyhow::bail!(
+            "the updated plugin has no installer at {}",
+            installer.display()
+        );
+    }
+    let mut command = Command::new("bash");
+    command.arg(&installer).arg("--yes");
+    if !binds {
+        command.arg("--no-binds");
+    }
+    let status = command
+        .status()
+        .context("could not run the updated Reel installer")?;
+    if !status.success() {
+        anyhow::bail!("the updated Reel installer failed");
+    }
+    println!("Reel updated.");
+    Ok(())
+}
+
 pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
     if as_json {
         println!("{}", serde_json::to_string(&state::status_json(paths))?);

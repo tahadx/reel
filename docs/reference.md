@@ -24,6 +24,7 @@ its own:
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
+| `reel update [--binds]` | Update the plugin and rerun its installer |
 
 `reel toggle` accepts the same options as `reel start`. `reel stop` fails when
 no take is active. `reel trash` accepts only files inside the recordings folder.
@@ -45,6 +46,9 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--container` | `mp4`, `mkv` | `mp4` |
 | `--output-dir` | folder path; `~` expands | XDG Videos `/Reel` |
 | `--filename-prefix` | text prepended to the timestamp | empty (`reel-`) |
+
+`reel update` updates the installed Omarchy plugin, then runs the installer from
+the updated checkout. It skips Hyprland bindings unless `--binds` is passed.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.

@@ -59,6 +59,12 @@ pub enum Command {
     Output,
     /// Check the tools Reel needs.
     Doctor,
+    /// Update the installed plugin and re-run its installer.
+    Update {
+        /// Also add or refresh the optional Hyprland bindings.
+        #[arg(long)]
+        binds: bool,
+    },
     /// Zoom in on the pointer during recording.
     #[command(name = "zoom-in")]
     ZoomIn {

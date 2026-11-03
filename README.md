@@ -55,19 +55,30 @@ Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 ### Updating
 
 ```sh
+reel update
+```
+
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
+the installer from the freshly updated plugin checkout. It relinks the `reel`
+command, rechecks dependencies, and reloads the widget. It never downloads a
+second copy of the installer.
+
+By default it leaves `~/.config/hypr/bindings.lua` alone. Pass `--binds` to add
+or refresh the optional shortcuts:
+
+```sh
+reel update --binds
+```
+
+Installs older than the update command need the two steps once:
+
+```sh
 omarchy plugin update io.github.tahadx.reel
 ~/.config/omarchy/plugins/io.github.tahadx.reel/install.sh
 ```
 
-`omarchy plugin update` only fast-forwards the plugin checkout and validates its
-manifest — it cannot run `install.sh`. Re-run the installer after updating to
-relink the `reel` command, recheck dependencies, and refresh the optional
-shortcut block. That is how new commands, such as the zoom controls, reach an
-existing install.
-
-Re-running the installer is safe. If you never accepted the shortcuts, it does
-not touch `~/.config/hypr/bindings.lua` unless you accept at the prompt; pass
-`--no-binds` to skip it explicitly or `--yes` to accept non-interactively.
+Re-running the installer is safe. It only writes the shortcut block when you
+accept at the prompt or pass `--yes`; `--no-binds` skips it explicitly.
 
 ### Default shortcuts
 

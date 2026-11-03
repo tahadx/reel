@@ -41,6 +41,7 @@ fn run() -> anyhow::Result<u8> {
         Command::Preview { json, note_only } => commands::preview(&paths, json, note_only)?,
         Command::Output => commands::output(&paths),
         Command::Doctor => commands::doctor(&paths),
+        Command::Update { binds } => commands::update(&paths, binds)?,
         Command::ZoomIn { step, pos_step } => {
             let s = step.or(pos_step).unwrap_or(0.25);
             commands::zoom_in(&paths, s)?;
