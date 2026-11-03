@@ -146,6 +146,7 @@ Panel {
   property bool carryingFile: false
   property int settingsIndex: 0
   property string settingsTab: "media"
+  onSettingsTabChanged: Qt.callLater(root.resetScroll)
   property bool hasOmacut: false
 
   property string notice: ""
@@ -1626,6 +1627,113 @@ Panel {
           foreground: root.foreground
         }
 
+        // The tab strip stays above the scroll area so it is always reachable
+        // while the settings body scrolls underneath it.
+        Item {
+          Layout.fillWidth: true
+          Layout.preferredHeight: Style.space(30)
+          Layout.bottomMargin: Style.space(2)
+          visible: root.page === "home"
+
+          Row {
+            id: settingsTabRow
+            anchors.fill: parent
+            spacing: 0
+
+            Repeater {
+              model: root.settingsTabs
+
+              delegate: Item {
+                id: settingsTabItem
+                required property var modelData
+                required property int index
+                width: settingsTabRow.width / root.settingsTabs.length
+                height: settingsTabRow.height
+
+                readonly property bool active: root.settingsTab === modelData.id
+                readonly property bool hot: settingsTabMouse.containsMouse
+
+                Row {
+                  anchors.centerIn: parent
+                  spacing: Style.space(6)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: settingsTabItem.modelData.label
+                    color: settingsTabItem.active ? root.accent
+                      : settingsTabItem.hot ? root.foreground
+                      : Util.alpha(root.foreground, 0.85)
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.letterSpacing: 0.2
+                    font.bold: settingsTabItem.active
+                    anchors.verticalCenter: parent.verticalCenter
+                    Behavior on color {
+                      ColorAnimation { duration: Style.duration(150) }
+                    }
+                  }
+
+                  KeyHintChip {
+                    label: String(settingsTabItem.index + 1)
+                    active: settingsTabItem.active
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
+                }
+
+                Rectangle {
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 1
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  width: Math.max(0, parent.width - Style.space(16))
+                  height: 1
+                  color: Util.alpha(root.foreground, 0.35)
+                  opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
+                  Behavior on opacity {
+                    NumberAnimation { duration: Style.duration(120) }
+                  }
+                }
+
+                Rectangle {
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 1
+                  anchors.horizontalCenter: parent.horizontalCenter
+                  z: 1
+                  width: settingsTabItem.active
+                    ? Math.max(0, parent.width - Style.space(16)) : 0
+                  height: Math.max(1, Style.space(2))
+                  color: root.accent
+                  Behavior on width {
+                    NumberAnimation {
+                      duration: Style.duration(150)
+                      easing.type: Easing.OutCubic
+                    }
+                  }
+                }
+
+                MouseArea {
+                  id: settingsTabMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.settingsTab = settingsTabItem.modelData.id
+                    root.settingsIndex = 0
+                    root.cursorActive = true
+                    root.typingPrefix = false
+                  }
+                }
+              }
+            }
+          }
+
+          Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: 1
+            color: root.hairline
+          }
+        }
+
         ScrollView {
           Layout.fillWidth: true
           Layout.fillHeight: true
@@ -1650,109 +1758,6 @@ Panel {
               visible: root.page === "home"
               width: parent.width
               spacing: Style.space(12)
-
-              Item {
-                width: parent.width
-                implicitHeight: Style.space(30)
-
-                Row {
-                  id: settingsTabRow
-                  anchors.fill: parent
-                  spacing: 0
-
-                  Repeater {
-                    model: root.settingsTabs
-
-                    delegate: Item {
-                      id: settingsTabItem
-                      required property var modelData
-                      required property int index
-                      width: settingsTabRow.width / root.settingsTabs.length
-                      height: settingsTabRow.height
-
-                      readonly property bool active: root.settingsTab === modelData.id
-                      readonly property bool hot: settingsTabMouse.containsMouse
-
-                      Row {
-                        anchors.centerIn: parent
-                        spacing: Style.space(6)
-
-                        Text {
-                          textFormat: Text.PlainText
-                          text: settingsTabItem.modelData.label
-                          color: settingsTabItem.active ? root.accent
-                            : settingsTabItem.hot ? root.foreground
-                            : Util.alpha(root.foreground, 0.85)
-                          font.family: root.fontFamily
-                          font.pixelSize: Style.font.bodySmall
-                          font.letterSpacing: 0.2
-                          font.bold: settingsTabItem.active
-                          anchors.verticalCenter: parent.verticalCenter
-                          Behavior on color {
-                            ColorAnimation { duration: Style.duration(150) }
-                          }
-                        }
-
-                        KeyHintChip {
-                          label: String(settingsTabItem.index + 1)
-                          active: settingsTabItem.active
-                          anchors.verticalCenter: parent.verticalCenter
-                        }
-                      }
-
-                      Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 1
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: Math.max(0, parent.width - Style.space(16))
-                        height: 1
-                        color: Util.alpha(root.foreground, 0.35)
-                        opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
-                        Behavior on opacity {
-                          NumberAnimation { duration: Style.duration(120) }
-                        }
-                      }
-
-                      Rectangle {
-                        anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 1
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        z: 1
-                        width: settingsTabItem.active
-                          ? Math.max(0, parent.width - Style.space(16)) : 0
-                        height: Math.max(1, Style.space(2))
-                        color: root.accent
-                        Behavior on width {
-                          NumberAnimation {
-                            duration: Style.duration(150)
-                            easing.type: Easing.OutCubic
-                          }
-                        }
-                      }
-
-                      MouseArea {
-                        id: settingsTabMouse
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                          root.settingsTab = settingsTabItem.modelData.id
-                          root.settingsIndex = 0
-                          root.cursorActive = true
-                          root.typingPrefix = false
-                        }
-                      }
-                    }
-                  }
-                }
-
-                Rectangle {
-                  anchors.bottom: parent.bottom
-                  width: parent.width
-                  height: 1
-                  color: root.hairline
-                }
-              }
 
               Column {
                 id: settingsBody

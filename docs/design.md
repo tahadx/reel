@@ -372,8 +372,8 @@ Rules:
 
 ### 6.5 Settings tabs
 
-The tab strip is the first thing inside the scroll body. It scrolls with the
-settings, not with the fixed frame.
+The tab strip sits above the scroll area and stays fixed while the settings body
+scrolls underneath it.
 
 - Height `30`; four equal tabs: Media, Zoom, Output, Keys.
 - Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
@@ -382,7 +382,8 @@ settings, not with the fixed frame.
 - Every tab carries a numeric `KeyHintChip` (`1`–`4`).
 - No pills, no icons, no counters, no badges.
 - Each panel open returns to Media; the selected tab is not persisted.
-- Switching is instant. Only the underline and label colors animate.
+- Switching is instant. The underline and label colors animate, and the body
+  returns to the top of the selected tab.
 
 ### 6.5.1 Settings taxonomy
 
