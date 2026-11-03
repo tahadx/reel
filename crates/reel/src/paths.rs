@@ -86,6 +86,48 @@ pub fn legacy_preview_path(file: &Path) -> PathBuf {
     PathBuf::from(format!("{}-preview.jpg", file.with_extension("").display()))
 }
 
+/// Raw captures that still contain the countdown are written here first. The
+/// name keeps them out of the recent list until the countdown has been trimmed
+/// away, so a failed save cannot offer overlay footage as an ordinary take.
+pub fn untrimmed_path(file: &Path) -> PathBuf {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    if ext.is_empty() {
+        parent.join(format!("{stem}-untrimmed"))
+    } else {
+        parent.join(format!("{stem}-untrimmed.{ext}"))
+    }
+}
+
+/// True for a raw capture that never made it through the countdown trim.
+pub fn is_untrimmed(file: &Path) -> bool {
+    file.file_stem()
+        .map(|stem| {
+            stem.to_string_lossy()
+                .to_ascii_lowercase()
+                .ends_with("-untrimmed")
+        })
+        .unwrap_or(false)
+}
+
+/// True for a half-written save pass that died before the rename.
+pub fn is_partial(file: &Path) -> bool {
+    file.file_name()
+        .map(|name| {
+            name.to_string_lossy()
+                .to_ascii_lowercase()
+                .contains(".part.")
+        })
+        .unwrap_or(false)
+}
+
 fn preview_file_name(file: &Path) -> String {
     let stem = file
         .file_stem()
@@ -273,5 +315,19 @@ mod tests {
         assert_eq!(preview_file_name(one), preview_file_name(one));
         assert_ne!(preview_file_name(one), preview_file_name(two));
         assert!(preview_file_name(one).ends_with("-preview.jpg"));
+    }
+
+    #[test]
+    fn untrimmed_names_keep_the_folder_and_extension() {
+        let file = Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4");
+
+        assert_eq!(
+            untrimmed_path(file),
+            Path::new("/home/a/Videos/Reel/reel-1.2.3-untrimmed.mp4")
+        );
+        assert!(is_untrimmed(Path::new(
+            "/home/a/Videos/Reel/reel-1.2.3-untrimmed.mp4"
+        )));
+        assert!(!is_untrimmed(file));
     }
 }

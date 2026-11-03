@@ -185,6 +185,9 @@ pub enum ConfigAction {
 pub struct FinalizeArgs {
     #[arg(long)]
     pub file: PathBuf,
+    /// Final path for the trimmed take. Empty trims in place.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
     #[arg(long = "trim-start", default_value_t = 0.0)]
     pub trim_start: f64,
     #[arg(long, default_value = "")]

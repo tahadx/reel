@@ -125,8 +125,12 @@ pub fn reconcile(paths: &Paths) {
             return;
         }
         state["status"] = json!("idle");
-        state["error"] =
-            json!("The save pass stopped. The take is still in your recordings folder.");
+        state["error"] = match untrimmed_capture(&state) {
+            Some(capture) => json!(format!(
+                "The save pass stopped. Untrimmed footage is at {capture}."
+            )),
+            None => json!("The save pass stopped. The take is still in your recordings folder."),
+        };
         let _ = write(paths, &state);
         return;
     }
@@ -138,9 +142,25 @@ pub fn reconcile(paths: &Paths) {
         return;
     }
     state["status"] = json!("idle");
-    state["error"] = json!("The recorder exited without a stop.");
+    state["error"] = match untrimmed_capture(&state) {
+        Some(capture) => json!(format!(
+            "The recorder exited without a stop. Untrimmed footage is at {capture}."
+        )),
+        None => json!("The recorder exited without a stop."),
+    };
     let _ = write(paths, &state);
     crate::zoom::disable_recording_zoom(paths);
+}
+
+/// A capture that still needs its countdown trimmed off, if it is on disk.
+fn untrimmed_capture(state: &Value) -> Option<String> {
+    let capture = field_str(state, "file")?;
+    let output = field_str(state, "output").unwrap_or_else(|| capture.clone());
+    if capture != output && std::path::Path::new(&capture).is_file() {
+        Some(capture)
+    } else {
+        None
+    }
 }
 
 fn paths_pid_alive(pid: i32) -> bool {
@@ -222,6 +242,28 @@ mod tests {
         state = read(&paths).unwrap();
         assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
         assert!(field_str(&state, "error").unwrap().contains("save pass"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
+
+    #[test]
+    fn a_dead_save_names_untrimmed_footage() {
+        let paths = temp_paths();
+        let videos = paths.runtime.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let raw = videos.join("reel-1-untrimmed.mp4");
+        fs::write(&raw, b"raw").unwrap();
+        let state = json!({
+            "status": "finalizing",
+            "file": raw.display().to_string(),
+            "output": videos.join("reel-1.mp4").display().to_string(),
+            "finalizePid": 999_999,
+            "finalizeAt": paths::now_secs() - 30,
+        });
+        write(&paths, &state).unwrap();
+        reconcile(&paths);
+        let state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
+        assert!(field_str(&state, "error").unwrap().contains("Untrimmed"));
         let _ = fs::remove_dir_all(paths.runtime);
     }
 

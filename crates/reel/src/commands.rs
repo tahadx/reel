@@ -137,6 +137,13 @@ fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
             if ext != "mp4" && ext != "mkv" {
                 return None;
             }
+            // Raw captures that still carry the countdown never belong in
+            // history. They stay on disk under a `-untrimmed` name and the
+            // failure notice points at them. Half-written save passes are
+            // skipped for the same reason.
+            if paths::is_untrimmed(&path) || paths::is_partial(&path) {
+                return None;
+            }
             let modified = entry
                 .metadata()
                 .ok()
@@ -604,6 +611,51 @@ pub fn zoom_pan(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn untrimmed_footage_stays_out_of_recent_takes() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-recent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths {
+            state: root.join("state.json"),
+            last: root.join("last.json"),
+            lock: root.join("lock"),
+            log: root.join("reel.log"),
+            pid_file: root.join("reel.pid"),
+            socket: root.join("reel.sock"),
+            starting: root.join("starting.pid"),
+            cancel: root.join("cancel"),
+            webcam_pid: root.join("webcam.pid"),
+            config_dir: root.join("config"),
+            config: root.join("config.json"),
+            previews: root.join("previews"),
+            runtime: root.clone(),
+        };
+        fs::create_dir_all(&paths.config_dir).unwrap();
+        fs::write(
+            &paths.config,
+            format!("{{\"outputDir\":\"{}\"}}", videos.display()),
+        )
+        .unwrap();
+        fs::write(videos.join("reel-1.mp4"), b"take").unwrap();
+        fs::write(videos.join("reel-2-untrimmed.mp4"), b"raw").unwrap();
+        fs::write(videos.join("reel-3.part.4242.mp4"), b"part").unwrap();
+
+        let takes = recent_takes(&paths, 10);
+        assert_eq!(takes.len(), 1);
+        assert!(takes[0].path.ends_with("reel-1.mp4"));
+        assert!(!paths::is_partial(Path::new("reel-1.mp4")));
+        assert!(paths::is_partial(Path::new("reel-1.part.42.mp4")));
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn zoom_in_stops_at_the_configured_depth() {

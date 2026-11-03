@@ -71,18 +71,13 @@ fn first_gop_has_discard(file: &Path) -> bool {
     .unwrap_or(false)
 }
 
-fn work_path(file: &Path, output: Option<&Path>) -> PathBuf {
+fn work_path(file: &Path, output: &Path) -> PathBuf {
     let ext = file
         .extension()
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
-    if let Some(output) = output {
-        let stem = output.with_extension("").to_string_lossy().to_string();
-        PathBuf::from(format!("{stem}.part.{}.{ext}", std::process::id()))
-    } else {
-        let stem = file.with_extension("").to_string_lossy().to_string();
-        PathBuf::from(format!("{stem}-processed.{ext}"))
-    }
+    let stem = output.with_extension("").to_string_lossy().to_string();
+    PathBuf::from(format!("{stem}.part.{}.{ext}", std::process::id()))
 }
 
 fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
@@ -135,14 +130,9 @@ fn valid_video(file: &Path) -> bool {
 }
 
 /// Trim the first frame, mute the PipeWire pop, normalize the audio, and either
-/// stream-copy the video or re-encode it. With an output path the source is
-/// left untouched.
-pub fn finalize_video(
-    paths: &Paths,
-    file: &Path,
-    trim_start: f64,
-    output: Option<&Path>,
-) -> Result<()> {
+/// stream-copy the video or re-encode it. The source is left untouched until
+/// the finished file has been validated and moved into place.
+pub fn finalize_video(paths: &Paths, file: &Path, trim_start: f64, output: &Path) -> Result<()> {
     if !file.is_file() {
         anyhow::bail!("recording is missing");
     }
@@ -229,10 +219,8 @@ pub fn finalize_video(
     }
 
     if ok && valid_video(&work) {
-        let destination = output.unwrap_or(file);
-        fs::rename(&work, destination).with_context(|| {
-            format!("cannot move the finished take to {}", destination.display())
-        })?;
+        fs::rename(&work, output)
+            .with_context(|| format!("cannot move the finished take to {}", output.display()))?;
         Ok(())
     } else {
         paths::remove_quiet(&work);
@@ -273,6 +261,8 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     };
 
     let file = args.file;
+    let output = args.output.unwrap_or_else(|| file.clone());
+    let quarantined = output != file;
 
     // Publish the job pid before touching ffmpeg. The service can then tell a
     // live save from one that died and left the bar on "Saving".
@@ -292,7 +282,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // cache file from an earlier pass is reused.
     let mut preview = args.preview;
     if preview.is_empty() || !Path::new(&preview).is_file() {
-        let generated = paths.preview_path(&file);
+        let generated = paths.preview_path(&output);
         if make_preview(&file, &generated, args.trim_start + 0.2) {
             preview = generated.display().to_string();
         } else {
@@ -301,22 +291,38 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     }
 
     let mut error = String::new();
-    if let Err(err) = finalize_video(paths, &file, args.trim_start, None) {
-        let _ = err;
+    let mut saved = output.clone();
+    if finalize_video(paths, &file, args.trim_start, &output).is_ok() {
+        // The trimmed take now owns the normal name. The raw countdown capture
+        // must not linger as a second, shippable copy.
+        if quarantined {
+            paths::remove_quiet(&file);
+        }
+    } else if quarantined {
+        // The raw capture is already named `-untrimmed`, and the recent list
+        // skips that suffix. Point the user at it instead of offering it as a
+        // normal take.
+        saved = file.clone();
+        error = format!(
+            "The countdown could not be trimmed. Untrimmed footage is at {}.",
+            file.display()
+        );
+    } else {
         error = "The take was saved, but the final pass failed.".into();
     }
 
-    let duration = util::duration_of(&file);
-    let size = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+    let duration = util::duration_of(&saved);
+    let size = fs::metadata(&saved).map(|m| m.len()).unwrap_or(0);
 
     let last = json!({
-        "path": file.display().to_string(),
+        "path": saved.display().to_string(),
         "preview": preview,
         "target": target,
         "targetKind": target_kind,
         "targetLabel": target_label,
         "duration": duration,
         "size": size,
+        "untrimmed": quarantined && !error.is_empty(),
         "startedAt": args.started_at,
         "finishedAt": paths::now_secs(),
         "error": error,

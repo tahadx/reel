@@ -250,6 +250,7 @@ pub fn notifications_on(paths: &Paths) -> bool {
 pub fn spawn_finalize(
     paths: &Paths,
     file: &Path,
+    output: &Path,
     preview: &std::path::Path,
     trim_start: f64,
     started_at: i64,
@@ -267,6 +268,8 @@ pub fn spawn_finalize(
         .arg("__finalize")
         .arg("--file")
         .arg(file)
+        .arg("--output")
+        .arg(output)
         .arg("--preview")
         .arg(preview)
         .arg("--trim-start")

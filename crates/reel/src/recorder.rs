@@ -475,7 +475,7 @@ fn unique_recording(dir: &str, container: &str, prefix: &str) -> String {
     let base = format!("{prefix}{}", paths::file_stamp());
     let mut candidate = format!("{dir}/{base}.{container}");
     let mut suffix = 2;
-    while Path::new(&candidate).exists() {
+    while Path::new(&candidate).exists() || paths::untrimmed_path(Path::new(&candidate)).exists() {
         candidate = format!("{dir}/{base}-{suffix}.{container}");
         suffix += 1;
     }
@@ -532,6 +532,17 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         &settings.container,
         &settings.filename_prefix,
     );
+    // A countdown is recorded into the same capture and trimmed off in the save
+    // pass. Give that raw file its own `-untrimmed` name so the recent list,
+    // and any share action built on it, never see overlay footage while the
+    // trim is pending or after it fails.
+    let capture_file = if settings.countdown > 0 {
+        paths::untrimmed_path(Path::new(&file))
+            .display()
+            .to_string()
+    } else {
+        file.clone()
+    };
     let capture_fps = settings.fps;
 
     let mut capture: Vec<String> = vec![
@@ -558,7 +569,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         "-ipc".into(),
         paths.socket.display().to_string(),
         "-o".into(),
-        file.clone(),
+        capture_file.clone(),
     ];
 
     match target.as_str() {
@@ -600,7 +611,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     }
 
     util::debug(&format!(
-        "capture: launching gpu-screen-recorder for {file}"
+        "capture: launching gpu-screen-recorder for {capture_file}"
     ));
     paths::remove_quiet(&paths.socket);
     paths::remove_quiet(&paths.pid_file);
@@ -612,7 +623,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             target,
             capture_fps,
             if settings.cursor { "on" } else { "off" },
-            file
+            capture_file
         ),
     );
 
@@ -668,7 +679,8 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "status": "starting",
                 "stage": "warmup",
                 "pid": pid,
-                "file": &file,
+                "file": &capture_file,
+                "output": &file,
                 "target": target,
                 "targetKind": &choice.kind,
                 "targetLabel": &choice.label,
@@ -680,8 +692,12 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         );
     }
 
-    let ready_file =
-        wait_for_capture_file(paths, Path::new(&file), pid as i32, Duration::from_secs(15));
+    let ready_file = wait_for_capture_file(
+        paths,
+        Path::new(&capture_file),
+        pid as i32,
+        Duration::from_secs(15),
+    );
 
     // A stop during the warmup writes the cancel marker; the take never got
     // going, so tear it down quietly instead of reporting a start failure.
@@ -693,6 +709,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         webcam::cleanup(paths);
         paths::remove_quiet(&paths.pid_file);
         paths::remove_quiet(&paths.socket);
+        paths::remove_quiet(Path::new(&capture_file));
         paths::remove_quiet(Path::new(&file));
         let _ = state::write(paths, &state::idle_preserving_last(paths));
         paths::remove_quiet(&paths.starting);
@@ -722,6 +739,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         };
         fail_start(paths, &message);
         paths::remove_quiet(&paths.pid_file);
+        paths::remove_quiet(Path::new(&capture_file));
         paths::remove_quiet(Path::new(&file));
         return Err(anyhow::anyhow!(message));
     }
@@ -738,7 +756,8 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                     "status": "starting",
                     "stage": "countdown",
                     "pid": pid,
-                    "file": &file,
+                    "file": &capture_file,
+                    "output": &file,
                     "target": target,
                     "targetKind": &choice.kind,
                     "targetLabel": &choice.label,
@@ -767,6 +786,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             webcam::cleanup(paths);
             paths::remove_quiet(&paths.pid_file);
             paths::remove_quiet(&paths.socket);
+            paths::remove_quiet(Path::new(&capture_file));
             paths::remove_quiet(Path::new(&file));
             let _ = state::write(paths, &state::idle_preserving_last(paths));
             paths::remove_quiet(&paths.starting);
@@ -789,7 +809,8 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             &json!({
                 "status": "recording",
                 "pid": pid,
-                "file": file,
+                "file": &capture_file,
+                "output": &file,
                 "target": target,
                 "targetKind": &choice.kind,
                 "targetLabel": &choice.label,
@@ -958,14 +979,33 @@ pub fn toggle_pause(paths: &Paths) -> Result<()> {
     }
 }
 
+/// Remove every artifact Reel keeps for a take: the capture, its zoom sidecar,
+/// cached previews, and an old in-folder preview.
+fn remove_take_artifacts(paths: &Paths, path: &Path) {
+    let stem = path.with_extension("").display().to_string();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_default();
+    paths::remove_quiet(path);
+    paths::remove_quiet(&path.with_extension("zoom.json"));
+    paths::remove_quiet(&paths.preview_path(path));
+    paths::remove_quiet(&paths::legacy_preview_path(path));
+    paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
+}
+
 pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
-    let (status, pid, file, started_at, target, target_kind, target_label, trim_start);
+    let (status, pid, file, output, started_at, target, target_kind, target_label, trim_start);
     {
         let _lock = Lock::acquire(paths)?;
         let current = state::read_or_idle(paths);
         status = state::field_str(&current, "status").unwrap_or_default();
         pid = state::field_i64(&current, "pid").unwrap_or(0) as i32;
         file = state::field_str(&current, "file").unwrap_or_default();
+        output = state::field_str(&current, "output")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
         started_at = state::field_i64(&current, "startedAt").unwrap_or_else(paths::now_secs);
         target = state::field_str(&current, "target").unwrap_or_default();
         target_kind = state::field_str(&current, "targetKind").unwrap_or_default();
@@ -997,6 +1037,13 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         }
     }
 
+    // Older state files only carry `file`; the final path falls back to it.
+    let output = if output.is_empty() {
+        file.clone()
+    } else {
+        output
+    };
+
     paths::kill(pid, libc::SIGINT);
     crate::zoom::disable_recording_zoom(paths);
     if !wait_for_exit(pid, Duration::from_secs(8)) {
@@ -1011,17 +1058,10 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
 
     if discard {
         if !file.is_empty() {
-            let path = Path::new(&file);
-            let stem = path.with_extension("").display().to_string();
-            let ext = path
-                .extension()
-                .map(|e| e.to_string_lossy().to_string())
-                .unwrap_or_default();
-            paths::remove_quiet(path);
-            paths::remove_quiet(&path.with_extension("zoom.json"));
-            paths::remove_quiet(&paths.preview_path(path));
-            paths::remove_quiet(&paths::legacy_preview_path(path));
-            paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
+            remove_take_artifacts(paths, Path::new(&file));
+        }
+        if !output.is_empty() && output != file {
+            remove_take_artifacts(paths, Path::new(&output));
         }
         let _ = state::write(paths, &state::idle_preserving_last(paths));
         return Ok(());
@@ -1055,11 +1095,12 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     // Do not render a preview here: it delayed the stop response for every
     // take. The finalize child renders one from the raw capture before its
     // save pass, so a failed or interrupted save still leaves a thumbnail.
-    let preview = paths.preview_path(Path::new(&file));
+    let preview = paths.preview_path(Path::new(&output));
 
     let job = util::spawn_finalize(
         paths,
         Path::new(&file),
+        Path::new(&output),
         &preview,
         trim_start,
         started_at,
@@ -1068,20 +1109,24 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         &target_label,
     );
     match job {
-        Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {file}")),
+        Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {output}")),
         Err(err) => {
             paths::log(paths, &format!("stop: cannot spawn finalize: {err}"));
-            let message = "The take was captured, but the save job could not start.";
+            let message = if output != file {
+                format!("The take could not be saved. Untrimmed footage is at {file}.")
+            } else {
+                "The take was captured, but the save job could not start.".into()
+            };
             let _ = state::write(
                 paths,
-                &state::idle_with_error_preserving_last(paths, message),
+                &state::idle_with_error_preserving_last(paths, &message),
             );
-            util::notify("Reel", Some(message), "critical");
+            util::notify("Reel", Some(&message), "critical");
         }
     }
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);
-    println!("{file}");
+    println!("{output}");
     Ok(())
 }
 

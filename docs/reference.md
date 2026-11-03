@@ -218,7 +218,10 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   should work; restart the shell if the panel was loaded before the compositor
   was ready.
 - **The save pass failed** — the original recording is kept and the error is
-  written to the log. `reel doctor` checks the tools used by the save pass.
+  written to the log. A take recorded with a countdown stays under an
+  `-untrimmed` name, and history skips it, until the trim succeeds; the error
+  names the file so the overlay footage is never offered as an ordinary take.
+  `reel doctor` checks the tools used by the save pass.
 
 ## Uninstall
 
