@@ -2,6 +2,7 @@ use crate::config;
 use crate::paths::{self, Paths};
 use crate::state;
 use crate::util;
+use crate::webcam;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -492,6 +493,24 @@ pub fn preview(paths: &Paths, as_json: bool, note_only: bool) -> Result<()> {
         );
     } else {
         println!("{}", destination.display());
+    }
+    Ok(())
+}
+
+pub fn webcams(as_json: bool) -> Result<()> {
+    let found = webcam::devices();
+    if as_json {
+        let cameras: Vec<_> = found
+            .iter()
+            .map(|camera| json!({ "id": camera.id, "path": camera.path, "label": camera.label }))
+            .collect();
+        println!("{}", serde_json::to_string(&json!({ "cameras": cameras }))?);
+    } else if found.is_empty() {
+        println!("No cameras found.");
+    } else {
+        for camera in &found {
+            println!("{}\t{}", camera.id, camera.label);
+        }
     }
     Ok(())
 }

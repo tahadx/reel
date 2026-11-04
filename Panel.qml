@@ -90,6 +90,7 @@ Panel {
   readonly property var mediaSettingRows: [
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
+    { key: "webcamDevice", label: "Webcam device", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
@@ -150,6 +151,8 @@ Panel {
   property string settingsTab: "media"
   onSettingsTabChanged: Qt.callLater(root.resetScroll)
   property bool hasOmacut: false
+  // Cameras for the Webcam device row, from `reel webcams --json`.
+  property var cameras: []
 
   property string notice: ""
   property bool noticeUrgent: false
@@ -268,6 +271,7 @@ Panel {
     case "noiseCancellation": return ["off", "on"]
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
+    case "webcamDevice": return Model.cameraChoices(root.cameras, root.valueString("webcamDevice", ""))
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
     case "quality": return ["very_low", "low", "medium", "high", "very_high", "ultra"]
@@ -328,6 +332,8 @@ Panel {
       return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
+    case "webcamDevice":
+      return Model.cameraLabel(root.cameras, value)
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -1089,6 +1095,7 @@ Panel {
     root.beginKeyboardScroll()
     root.focusSection = "settings"
     root.settingsIndex = 0
+    if (!cameraProbe.running) cameraProbe.running = true
     root.typingPrefix = false
     root.cursorActive = true
     root.historyAnchorPath = ""
@@ -3333,6 +3340,21 @@ Panel {
     running: false
     command: ["sh", "-c", "command -v omacut >/dev/null 2>&1"]
     onExited: function(code) { root.hasOmacut = code === 0 }
+  }
+
+  // Cameras can be plugged in while the shell runs, so this is re-read every
+  // time settings open rather than only at startup.
+  Process {
+    id: cameraProbe
+    running: false
+    command: ["reel", "webcams", "--json"]
+    stdout: StdioCollector { id: cameraOut; waitForEnd: true }
+    // Only the list changes here: a stored camera that is unplugged keeps its
+    // setting and shows as unplugged, and a failed probe keeps the last list.
+    onExited: function(code) {
+      if (code !== 0) return
+      root.cameras = Model.parseCameras(String(cameraOut.text || ""))
+    }
   }
 
   Process {

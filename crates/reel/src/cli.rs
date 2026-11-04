@@ -55,6 +55,11 @@ pub enum Command {
         #[arg(long = "note-only")]
         note_only: bool,
     },
+    /// List the cameras available for the webcam corner.
+    Webcams {
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the recordings folder.
     Output,
     /// Check the tools Reel needs.

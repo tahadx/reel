@@ -22,6 +22,7 @@ its own:
 | `reel trash <file>` | Move a take to the trash |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
+| `reel webcams [--json]` | List the cameras available for the webcam corner |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
 | `reel update [--binds]` | Update the plugin and rerun its installer |
@@ -98,6 +99,16 @@ reel config apply '{"fps": 60}'
 ```
 
 If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
+
+`webcamDevice` is empty by default, which records the first camera Reel finds.
+Settings -> **Webcam device** cycles Auto plus the cameras from `reel webcams`
+and stores the camera's `/dev/v4l/by-id` link, which stays the same when cameras
+are unplugged or plugged in a different order (a `/dev/videoN` node is stored
+only when udev made no link). The list is read each time settings open, so a
+camera plugged in while the shell runs appears without a reload. A chosen camera
+that is unplugged stays selected and shows as unplugged; a take started while it
+is missing uses the first camera found and says so in a notification. The device
+only matters while **Webcam corner** is on.
 
 `noiseCancellation` is off by default and appears in Settings → **Media** as
 Noise reduction.
