@@ -337,11 +337,11 @@ a place for identity text or metadata.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
   - Fill `restFill`, hairline border.
 - Trailing control contains, in order:
-  1. **Update button** — `PanelActionButton` with a single dot, always
-     reserved. `dim` when current, `accent` when an update is waiting; the dot
-     brightens on hover or keyboard focus. Tooltip `Check for updates` or
-     `Update available: vX.Y.Z (Shift+U)`. Activating updates when one is
-     waiting, otherwise checks again.
+  1. **Version pill** — `bodySmall` bold in a `22`-high pill next to history.
+     Rest: `vX.Y.Z`, `restFill` + `hairline`, secondary ink. Checking:
+     `Checking...`. Update waiting: `↑ vX.Y.Z` (or `↑ Update`), accent ink,
+     `0.16` accent fill, accent border. Clicking checks when current and
+     updates when one is waiting.
   2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
      history page is active, tooltip `History (Shift+H)` / `Back from history`.
 - There is no Reel mark or title in the hero. The bar keeps the drawn mark.

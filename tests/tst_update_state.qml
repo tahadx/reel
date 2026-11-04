@@ -33,4 +33,20 @@ TestCase {
     compare(state.error, "The remote could not be reached.")
     compare(state.available, false)
   }
+
+  function test_parsesTheCliVersion() {
+    compare(Model.parseVersion("reel 0.3.0"), "0.3.0")
+    compare(Model.parseVersion("reel 0.3.0+4"), "0.3.0+4")
+    compare(Model.parseVersion("0.3.0"), "0.3.0")
+    compare(Model.parseVersion("not a version"), "")
+    compare(Model.parseVersion(""), "")
+  }
+
+  function test_updatePillShowsVersionCheckingAndUpdate() {
+    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.0", available: false }, "0.3.0", false), "v0.3.0")
+    compare(Model.updatePillLabel({}, "0.3.0", true), "Checking...")
+    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.1", available: true }, "0.3.0", false), "↑ v0.3.1")
+    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.0", available: true }, "0.3.0", false), "↑ Update")
+    compare(Model.updatePillLabel({ current: "", latest: "", available: false }, "", false), "v…")
+  }
 }

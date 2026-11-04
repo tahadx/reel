@@ -31,6 +31,26 @@ function parseUpdate(text) {
   }
 }
 
+// `reel --version` prints "reel 0.3.0". Keep only the semver so the pill can
+// show the running engine version without depending on the update check.
+function parseVersion(text) {
+  var value = String(text || "").trim()
+  if (value === "") return ""
+  var match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\s*$/.exec(value)
+  return match ? match[1] : ""
+}
+
+function updatePillLabel(info, version, checking) {
+  if (checking) return "Checking..."
+  var update = object(info)
+  var current = String(version || update.current || "")
+  if (update.available === true) {
+    var latest = String(update.latest || "")
+    return latest !== "" && latest !== current ? "↑ v" + latest : "↑ Update"
+  }
+  return current !== "" ? "v" + current : "v…"
+}
+
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }

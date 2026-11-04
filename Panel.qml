@@ -470,14 +470,26 @@ Panel {
   // The header button is both the manual refresh and the update cue: a quiet
   // dot when the install is current, the same dot in accent when a newer
   // commit is waiting.
+  function currentVersion() {
+    var value = root.service && root.service.version ? String(root.service.version) : ""
+    if (value === "") value = String(root.updateInfo.current || "")
+    return value
+  }
+
+  function updatePillLabel() {
+    return Model.updatePillLabel(root.updateInfo, root.currentVersion(), root.updateChecking)
+  }
+
   function updateVersionLabel() {
     var latest = String(root.updateInfo.latest || "")
-    var current = String(root.updateInfo.current || "")
+    var current = root.currentVersion()
     return latest !== "" && latest !== current ? "v" + latest : ""
   }
 
   function updateTooltip() {
     if (root.updateChecking) return "Checking for updates"
+    if (String(root.updateInfo.error || "") !== "")
+      return "Could not check for updates. Click to retry."
     if (root.updateAvailable) {
       var version = root.updateVersionLabel()
       return version !== ""
@@ -1487,43 +1499,66 @@ Panel {
             Row {
               spacing: Style.space(2)
 
-              PanelActionButton {
-                id: updateButton
-                iconText: ""
-                tooltipText: root.updateTooltip()
-                foreground: root.updateAvailable ? root.accent : root.dim
-                hoverColor: root.accent
-                fontFamily: root.fontFamily
-                enabled: !root.updateChecking
-                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
+              // The version pill is the update control: low-contrast at rest,
+              // accent when an update is waiting, and "Checking..." on a
+              // manual check.
+              Rectangle {
+                id: versionPill
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: Math.max(Style.space(52),
+                  versionLabel.implicitWidth + Style.space(16))
+                width: implicitWidth
+                height: Style.space(22)
+                radius: height / 2
+                color: root.updateAvailable
+                  ? Util.alpha(root.accent, 0.16)
+                  : versionPill.hot ? root.hoverFill : root.restFill
+                border.width: 1
+                border.color: root.updateAvailable ? root.accent
+                  : versionPill.hot ? root.accent : root.hairline
+
+                readonly property bool hot: (root.hoverSection === "header" && root.hoverIndex === 0)
                   || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
                     && root.hoverSection === "")
 
-                Rectangle {
+                Behavior on color {
+                  ColorAnimation { duration: Style.duration(120) }
+                }
+                Behavior on border.color {
+                  ColorAnimation { duration: Style.duration(120) }
+                }
+
+                Text {
+                  id: versionLabel
                   anchors.centerIn: parent
-                  width: Style.space(9)
-                  height: width
-                  radius: width / 2
+                  textFormat: Text.PlainText
+                  text: root.updatePillLabel()
                   color: root.updateAvailable ? root.accent
-                    : updateButton.hasCursor ? root.foreground : root.dim
-                  opacity: !updateButton.enabled ? 0.35
-                    : root.updateAvailable || updateButton.hasCursor ? 1 : 0.6
-                  Behavior on color {
-                    ColorAnimation { duration: Style.duration(120) }
-                  }
-                  Behavior on opacity {
-                    NumberAnimation { duration: Style.duration(120) }
+                    : versionPill.hot ? root.foreground : root.secondary
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: versionMouse
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
+                  enabled: !root.updateChecking
+                  onContainsMouseChanged: root.setRowHover("header", 0, containsMouse)
+                  onClicked: {
+                    root.cursorActive = true
+                    root.focusSection = "header"
+                    root.selectedIndex = 0
+                    root.handleUpdate()
                   }
                 }
 
-                onHovered: function(on) {
-                  root.setRowHover("header", 0, on)
-                }
-                onClicked: {
-                  root.cursorActive = true
-                  root.focusSection = "header"
-                  root.selectedIndex = 0
-                  root.handleUpdate()
+                PanelToolTip {
+                  visible: versionMouse.containsMouse
+                  text: root.updateTooltip()
+                  fontFamily: root.fontFamily
                 }
               }
 

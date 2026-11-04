@@ -25,6 +25,7 @@ Item {
   property var state: Model.emptyState()
   property var recents: []
   property string outputDir: ""
+  property string version: ""
   property string lastError: ""
   property int tick: 0
   property bool recentPending: false
@@ -56,6 +57,7 @@ Item {
     if (!root.configured) return
     root.refreshRecent()
     root.refreshOutputDir()
+    if (root.version === "" && !versionProc.running) versionProc.running = true
     if (!statusProc.running) statusProc.running = true
   }
 
@@ -92,6 +94,15 @@ Item {
 
   function applyUpdate(text) {
     root.updateInfo = Model.parseUpdate(String(text || ""))
+    // The check reports the running engine version even when the remote is
+    // unreachable, so it is a second source for the pill until --version
+    // answers.
+    if (root.updateInfo.current !== "") root.version = root.updateInfo.current
+  }
+
+  function applyVersion(text) {
+    var value = Model.parseVersion(String(text || ""))
+    if (value !== "") root.version = value
   }
 
   function applyState(text) {
@@ -215,6 +226,16 @@ Item {
         var value = String(text || "").trim()
         if (value !== "") root.outputDir = value
       }
+    }
+  }
+
+  Process {
+    id: versionProc
+    running: false
+    command: ["reel", "--version"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyVersion(String(text || ""))
     }
   }
 
