@@ -331,7 +331,7 @@ a place for identity text or metadata.
 - Height: `22`, the pill height.
 - Leading control: **recording status pill** — `60 × 22` slot, pill radius,
   always visible.
-  - Idle: dim dot + `0:00` in secondary.
+  - Idle: dim dot + `Ready` in secondary.
   - Recording: accent dot + live clock, foreground.
   - Paused: secondary dot + frozen clock, no pulse.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.

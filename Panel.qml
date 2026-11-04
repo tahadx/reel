@@ -1467,7 +1467,7 @@ Panel {
 
                   Text {
                     textFormat: Text.PlainText
-                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "0:00"
+                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "Ready"
                     color: root.active
                       ? root.paused ? root.secondary : root.foreground
                       : root.secondary
