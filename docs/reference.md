@@ -103,11 +103,41 @@ needs read access to `/dev/input`; add your user to the `input` group
 (`sudo usermod -aG input "$USER"`) and log in again. If the devices cannot be
 read, the take still records and simply has no pointer telemetry.
 
+## Auto zoom
+
+**Auto zoom** in Settings → **Zoom** → Saved take is off by default. When it is
+on, button presses during the take become short zoom blocks in the saved file.
+**Auto zoom depth** sets the magnification (1.5×, 2×, or 2.5×).
+
+The save pass builds the camera from the take's telemetry, not from the live
+zoom:
+
+- Clicks within 2.5 seconds and 350 pixels of each other become one block, and
+  the block aims at their centroid.
+- Each block eases in over 500 ms before the first click, holds through the
+  last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
+  keyframe.
+- The viewport is clamped inside the capture, so a zoom never shows empty
+  space.
+- Keyframe times are saved-take time: the countdown is subtracted, so a zoom
+  stays on its click after trimming.
+
+Only takes recorded with **Record the pointer** on have telemetry, so a take
+started with the pointer off never zooms. If the telemetry is missing or
+unreadable the take saves normally, without a zoom and without a project file.
+
+Every saved take with telemetry writes `<take-stem>.project.json` next to the
+video, even when auto zoom is off; that file holds the capture facts and the
+camera path. The raw log is kept beside it as
+`<take-stem>.telemetry.jsonl`. Edit the project and run
+`reel render --project <path>` to change the zoom without recording again; see
+[Re-rendering a take](#re-rendering-a-take).
+
 ## Re-rendering a take
 
-A take can carry a `project.json` next to the video. It is the render contract:
-`reel render` reads it instead of the live settings, so a hand edit is all it
-takes to change the camera and render again.
+A saved take with pointer telemetry carries a `project.json` next to the video.
+It is the render contract: `reel render` reads it instead of the live settings,
+so a hand edit is all it takes to change the camera and render again.
 
 ```sh
 reel render --project ~/Videos/Reel/reel-2026-11-03_12-00-00.project.json
@@ -171,7 +201,8 @@ the XDG Videos directory, so it may not be `~/Videos`.
 Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
 uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
 is on, Reel records it in the runtime folder and copies it next to the saved
-video as `<take-stem>.telemetry.jsonl`. JPEG previews are kept
+video as `<take-stem>.telemetry.jsonl`, with the render contract beside it as
+`<take-stem>.project.json`. JPEG previews are kept
 in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
 by older Reel versions are moved into the cache when history is first read.
 

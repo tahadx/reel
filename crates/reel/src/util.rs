@@ -258,6 +258,7 @@ pub fn spawn_finalize(
     target_kind: &str,
     target_label: &str,
     noise_cancellation: bool,
+    telemetry: Option<&Path>,
 ) -> std::io::Result<u32> {
     let exe = std::env::current_exe()?;
     let log = std::fs::OpenOptions::new()
@@ -286,6 +287,9 @@ pub fn spawn_finalize(
         .arg(target_label);
     if noise_cancellation {
         command.arg("--noise-cancellation");
+    }
+    if let Some(telemetry) = telemetry {
+        command.arg("--telemetry").arg(telemetry);
     }
     let child = command
         .stdin(Stdio::null())

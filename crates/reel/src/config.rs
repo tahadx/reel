@@ -26,7 +26,9 @@ pub fn defaults() -> Value {
         "openWithOmacut": true,
         "manualZoom": "on",
         "zoomMax": 2.0,
-        "panStep": 60
+        "panStep": 60,
+        "autoZoomStyle": "off",
+        "autoZoomDepth": 2.0
     })
 }
 
@@ -81,6 +83,24 @@ pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
     parsed
         .filter(|zoom| zoom.is_finite())
         .map(|zoom| zoom.clamp(1.1, 4.0))
+}
+
+/// Auto zoom style for a take. Only the contract values are accepted; anything
+/// else is `off`, so a stale config cannot turn the save pass into an unknown
+/// mode.
+pub fn auto_zoom_style(settings: &Value) -> &'static str {
+    crate::project::valid_style(&cfg_in(settings, "autoZoomStyle", "off"))
+}
+
+/// Auto zoom depth for a take. Only the three contract depths are accepted;
+/// anything else falls back to 2x, like the project defaults.
+pub fn auto_zoom_depth(settings: &Value) -> f64 {
+    let parsed = match settings.get("autoZoomDepth") {
+        Some(Value::Number(number)) => number.as_f64(),
+        Some(Value::String(text)) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    };
+    crate::project::valid_depth(parsed.unwrap_or(2.0))
 }
 
 pub fn output_dir(paths: &Paths) -> PathBuf {
@@ -175,5 +195,52 @@ mod tests {
         assert_eq!(zoom_max_value(None), None);
         assert_eq!(zoom_max_value(Some(&serde_json::json!("0.8"))), Some(1.1));
         assert_eq!(zoom_max_value(Some(&serde_json::json!(9))), Some(4.0));
+    }
+
+    #[test]
+    fn auto_zoom_style_accepts_the_contract_values_only() {
+        for style in ["off", "subtle", "cinematic", "close"] {
+            let settings = serde_json::json!({ "autoZoomStyle": style });
+            assert_eq!(auto_zoom_style(&settings), style);
+        }
+        assert_eq!(
+            auto_zoom_style(&serde_json::json!({ "autoZoomStyle": "dramatic" })),
+            "off"
+        );
+        assert_eq!(auto_zoom_style(&serde_json::json!({})), "off");
+        // The stale key from old configs must not be read.
+        assert_eq!(
+            auto_zoom_style(&serde_json::json!({ "autoZoom": "cinematic" })),
+            "off"
+        );
+    }
+
+    #[test]
+    fn auto_zoom_depth_accepts_numbers_and_strings() {
+        assert_eq!(
+            auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": 1.5 })),
+            1.5
+        );
+        assert_eq!(
+            auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": "2.5" })),
+            2.5
+        );
+        assert_eq!(
+            auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": " 2.0 " })),
+            2.0
+        );
+    }
+
+    #[test]
+    fn auto_zoom_depth_falls_back_to_two() {
+        assert_eq!(auto_zoom_depth(&serde_json::json!({})), 2.0);
+        assert_eq!(
+            auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": 9 })),
+            2.0
+        );
+        assert_eq!(
+            auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": "deep" })),
+            2.0
+        );
     }
 }

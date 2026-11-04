@@ -1,9 +1,9 @@
 //! The `project.json` v1 contract.
 //!
-//! A Studio save writes this file next to the take. `reel render` reads it and
-//! never re-derives the look from live settings, so a project can be edited by
-//! hand and rendered again without opening the panel. Unknown fields are kept
-//! when a project is loaded and written back.
+//! A save writes this file next to the take when the take has telemetry.
+//! `reel render` reads it and never re-derives the look from live settings, so
+//! a project can be edited by hand and rendered again without opening the
+//! panel. Unknown fields are kept when a project is loaded and written back.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -25,6 +25,8 @@ pub const HOLD_AFTER_LAST_SECS: f64 = 0.9;
 pub const EASE_OUT_SECS: f64 = 0.5;
 /// The zoom depths the contract allows.
 pub const DEPTHS: [f64; 3] = [1.5, 2.0, 2.5];
+/// The camera styles the contract allows.
+pub const STYLES: [&str; 4] = ["off", "subtle", "cinematic", "close"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -330,11 +332,104 @@ pub struct Click {
     pub y: f64,
 }
 
+/// The parts of a telemetry file the save pass needs: the clicks that drive the
+/// camera and the `start` facts that fill the project's capture block.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Telemetry {
+    pub clicks: Vec<Click>,
+    pub capture: Capture,
+    /// Encoded video dimensions from the `start` record. `0` when absent.
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+    /// End of the recording in telemetry time. `0` when no `stop` record.
+    pub stop_t: f64,
+}
+
+/// Read a telemetry file into the clicks and capture facts the camera needs.
+///
+/// Malformed lines are skipped rather than failing the save: a truncated log
+/// still has usable clicks, and a take must never be lost to a bad telemetry
+/// line. A file with no `start` record still yields its clicks.
+pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("cannot read the telemetry at {}", path.display()))?;
+    let mut telemetry = Telemetry {
+        clicks: Vec::new(),
+        capture: Capture::default(),
+        width: 0,
+        height: 0,
+        fps: 0.0,
+        stop_t: 0.0,
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(record) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        match record.get("type").and_then(Value::as_str) {
+            Some("start") => {
+                telemetry.width = number(&record, "capture", "width");
+                telemetry.height = number(&record, "capture", "height");
+                telemetry.fps = record.get("fps").and_then(Value::as_f64).unwrap_or(0.0);
+                if let Some(capture) = record.get("capture").and_then(Value::as_object) {
+                    telemetry.capture = Capture {
+                        kind: string(capture, "kind"),
+                        target: string(capture, "target"),
+                        monitor: string(capture, "monitor"),
+                        extra: Map::new(),
+                    };
+                }
+            }
+            Some("button") => {
+                if record.get("state").and_then(Value::as_str) != Some("down") {
+                    continue;
+                }
+                let Some(t) = record.get("t").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(x) = record.get("x").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(y) = record.get("y").and_then(Value::as_f64) else {
+                    continue;
+                };
+                telemetry.clicks.push(Click { t, x, y });
+            }
+            Some("stop") => {
+                telemetry.stop_t = record.get("t").and_then(Value::as_f64).unwrap_or(0.0);
+            }
+            _ => {}
+        }
+    }
+    Ok(telemetry)
+}
+
+fn number(record: &Value, object: &str, key: &str) -> u32 {
+    record
+        .get(object)
+        .and_then(|value| value.get(key))
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .map(|value| value.round() as u32)
+        .unwrap_or(0)
+}
+
+fn string(record: &Map<String, Value>, key: &str) -> String {
+    record
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// The camera for a project, built from clicks.
 ///
-/// This is the boundary the telemetry save pass feeds. Until that pass lands,
-/// it is exercised by the tests and stays available for it.
-#[allow(dead_code)]
+/// The save pass feeds this from the take's telemetry; `reel render` then reads
+/// the resulting keyframes from `project.json`.
 pub fn build_camera(
     clicks: &[Click],
     style: &str,
@@ -343,10 +438,7 @@ pub fn build_camera(
     height: f64,
     trim_start: f64,
 ) -> Camera {
-    let style = match style {
-        "subtle" | "cinematic" | "close" => style,
-        _ => "off",
-    };
+    let style = valid_style(style);
     let mut camera = Camera {
         style: style.into(),
         depth: valid_depth(depth),
@@ -427,7 +519,6 @@ fn push_frame(frames: &mut Vec<Keyframe>, frame: Keyframe) {
 /// Greedy time-ordered clustering: a click joins the open cluster when it is
 /// within `CLUSTER_GAP_SECS` of the previous click and within
 /// `CLUSTER_RADIUS_PX` of the running centroid.
-#[allow(dead_code)]
 pub fn cluster_clicks(clicks: &[Click]) -> Vec<Vec<Click>> {
     let mut sorted: Vec<Click> = clicks
         .iter()
@@ -538,6 +629,15 @@ pub fn smoothstep(u: f64) -> f64 {
     u * u * (3.0 - 2.0 * u)
 }
 
+/// A camera style from the contract, or `off` for anything else.
+pub fn valid_style(style: &str) -> &'static str {
+    STYLES
+        .iter()
+        .copied()
+        .find(|allowed| *allowed == style)
+        .unwrap_or("off")
+}
+
 pub fn valid_depth(depth: f64) -> f64 {
     DEPTHS
         .iter()
@@ -547,7 +647,6 @@ pub fn valid_depth(depth: f64) -> f64 {
 }
 
 /// `<take-stem>.project.json`, next to the take.
-#[allow(dead_code)]
 pub fn project_path(take: &Path) -> PathBuf {
     let parent = take.parent().unwrap_or_else(|| Path::new(""));
     let stem = take
@@ -593,7 +692,6 @@ impl Project {
         Ok(project)
     }
 
-    #[allow(dead_code)]
     pub fn save(path: &Path, project: &Project) -> Result<()> {
         let body = serde_json::to_string_pretty(project)?;
         crate::paths::write_atomic(path, &body)
@@ -620,9 +718,8 @@ impl Project {
         }
     }
 
-    /// A project with the v1 defaults filled in. The Studio save pass adds the
-    /// telemetry and camera once those exist.
-    #[allow(dead_code)]
+    /// A project with the v1 defaults filled in. The save pass adds the capture
+    /// block, the telemetry name, and the camera.
     pub fn for_take(take: &Path, width: u32, height: u32, fps: f64, duration: f64) -> Project {
         Project {
             take: take
@@ -643,7 +740,6 @@ impl Project {
     }
 }
 
-#[allow(dead_code)]
 fn iso8601_now() -> String {
     // SAFETY: gmtime_r writes into a tm owned by this call and both pointers
     // are valid for its whole duration.
@@ -669,6 +765,60 @@ mod tests {
 
     fn click(t: f64, x: f64, y: f64) -> Click {
         Click { t, x, y }
+    }
+
+    fn telemetry_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/telemetry-basic.jsonl")
+    }
+
+    #[test]
+    fn telemetry_reader_keeps_downs_and_the_capture_block() {
+        let telemetry = read_telemetry(&telemetry_fixture()).unwrap();
+        assert_eq!(telemetry.width, 2560);
+        assert_eq!(telemetry.height, 1440);
+        assert_eq!(telemetry.fps, 60.0);
+        assert_eq!(telemetry.capture.kind, "monitor");
+        assert_eq!(telemetry.capture.target, "monitor:DP-1");
+        assert_eq!(telemetry.capture.monitor, "DP-1");
+        assert_eq!(telemetry.stop_t, 10.0);
+        // One `down` in the fixture: the `up` state is not a click, and the
+        // `move` and `sync` records carry no click.
+        assert_eq!(telemetry.clicks.len(), 1);
+        assert_eq!(telemetry.clicks[0].t, 1.5);
+        assert_eq!(telemetry.clicks[0].x, 100.5);
+        assert_eq!(telemetry.clicks[0].y, 200.25);
+    }
+
+    #[test]
+    fn telemetry_reader_skips_broken_lines() {
+        let dir = std::env::temp_dir().join(format!("reel-telemetry-{}", std::process::id()));
+        let path = dir.join("take.telemetry.jsonl");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"window\",\"target\":\"window:1\",\"monitor\":\"DP-2\",\"width\":1920,\"height\":1080},\"fps\":30}\n",
+                "not json\n",
+                "\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.0,\"state\":\"down\",\"x\":10.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":4.0,\"state\":\"down\",\"x\":10.0,\"y\":20.0}\n"
+            ),
+        )
+        .unwrap();
+
+        let telemetry = read_telemetry(&path).unwrap();
+        assert_eq!(telemetry.capture.kind, "window");
+        assert_eq!(telemetry.width, 1920);
+        assert_eq!(telemetry.fps, 30.0);
+        // The record without `y` is dropped; the valid one survives.
+        assert_eq!(telemetry.clicks, vec![click(4.0, 10.0, 20.0)]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn telemetry_reader_fails_on_a_missing_file() {
+        let missing = std::env::temp_dir().join("reel-telemetry-does-not-exist.jsonl");
+        assert!(read_telemetry(&missing).is_err());
     }
 
     #[test]

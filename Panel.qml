@@ -78,6 +78,8 @@ Panel {
     "manualZoom": "on",
     "zoomMax": "2.0",
     "panStep": "60",
+    "autoZoomStyle": "off",
+    "autoZoomDepth": "2.0",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -121,7 +123,9 @@ Panel {
     { id: "zoom", label: "Zoom", rows: [
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
-      { key: "panStep", label: "Pan step", glyph: "󰆞" }
+      { key: "panStep", label: "Pan step", glyph: "󰆞" },
+      { key: "autoZoomStyle", label: "Auto zoom", glyph: "󰍉", section: "Saved take" },
+      { key: "autoZoomDepth", label: "Auto zoom depth", glyph: "󰍉" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -272,6 +276,8 @@ Panel {
     case "manualZoom": return ["off", "on"]
     case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
     case "panStep": return ["30", "60", "120"]
+    case "autoZoomStyle": return ["off", "subtle", "cinematic", "close"]
+    case "autoZoomDepth": return ["1.5", "2.0", "2.5"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -318,6 +324,10 @@ Panel {
       return value === "on" ? "On" : "Off"
     case "zoomMax":
       return value + "x"
+    case "autoZoomDepth":
+      return value + "x"
+    case "autoZoomStyle":
+      return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "panStep":
       return value + " px"
     case "webcam":

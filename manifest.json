@@ -38,7 +38,9 @@
       "notifications": "off",
       "manualZoom": "on",
       "zoomMax": 2.0,
-      "panStep": 60
+      "panStep": 60,
+      "autoZoomStyle": "off",
+      "autoZoomDepth": 2.0
     },
     "schema": [
       {
@@ -236,6 +238,31 @@
         ],
         "defaultValue": 60,
         "description": "How far one keyboard pan moves the zoomed view, in screen pixels. Hold Shift for three times the step."
+      },
+      {
+        "key": "autoZoomStyle",
+        "type": "enum",
+        "label": "Auto zoom",
+        "options": [
+          "off",
+          "subtle",
+          "cinematic",
+          "close"
+        ],
+        "defaultValue": "off",
+        "description": "Zoom the saved take toward the places you clicked. Built from the take's pointer telemetry during the save pass; the pointer is still recorded in this version."
+      },
+      {
+        "key": "autoZoomDepth",
+        "type": "enum",
+        "label": "Auto zoom depth",
+        "options": [
+          1.5,
+          2.0,
+          2.5
+        ],
+        "defaultValue": 2.0,
+        "description": "Magnification for each click block when auto zoom is on."
       }
     ]
   }

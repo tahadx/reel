@@ -220,7 +220,9 @@ pub struct FinalizeArgs {
     /// Use a project contract for this save instead of the legacy trim.
     #[arg(long)]
     pub project: Option<PathBuf>,
-    /// Telemetry file for the save pass (read once telemetry is merged).
+    /// Pointer telemetry for this take. The save pass reads it to build the
+    /// camera and writes `<take>.project.json`; without it the save is
+    /// unchanged and no project is written.
     #[arg(long)]
     pub telemetry: Option<PathBuf>,
 }
