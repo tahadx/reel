@@ -112,10 +112,16 @@ Item {
     onTriggered: root.advance()
   }
 
-  OverlayWindow {
+  // Local patch: Omarchy 4.0.6 has no OverlayWindow, so use a plain layer window.
+  PanelWindow {
     id: overlay
-    shown: root.active
-    shownKeyboardFocus: WlrKeyboardFocus.None
+    readonly property bool contentRevealed: visible
+    visible: root.active
+    color: "transparent"
+    exclusionMode: ExclusionMode.Ignore
+    anchors { top: true; bottom: true; left: true; right: true }
+    WlrLayershell.layer: WlrLayer.Overlay
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     WlrLayershell.namespace: "reel-countdown"
     // Visual only: never block the bar or the desktop while counting down.
     mask: Region {}
