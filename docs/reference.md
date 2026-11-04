@@ -25,6 +25,7 @@ its own:
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
 | `reel update [--binds]` | Update the plugin and rerun its installer |
+| `reel update --check [--json] [--force]` | Check whether a newer commit is available |
 
 `reel toggle` accepts the same options as `reel start`. `reel stop` fails when
 no take is active. `reel trash` accepts only files inside the recordings folder.
@@ -53,6 +54,15 @@ the updated checkout. If the Hyprland shortcut block is missing, the installer
 asks before adding it. `--binds` adds or refreshes it without prompting. From an
 open panel, `Shift+U` runs the same command in a floating terminal so the
 updater and its prompt stay visible while the plugin reloads.
+
+`reel update --check` compares the installed checkout with the remote head and
+reports whether an update is waiting. It contacts the plugin's git origin, so it
+is the only network access Reel makes. The shell service runs it once when it
+starts and then once an hour; a result is cached for the hour, so a restart
+inside that window reads the cache instead of fetching again. `--force` ignores
+the cache, and `--json` prints the result for the panel. An update waiting shows
+as an accent dot on the bar mark and an accent update dot in the panel header;
+the same button checks again when the install is current.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.
@@ -115,6 +125,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/state.json` | Live state the bar watches |
 | `$XDG_RUNTIME_DIR/reel/last.json` | Metadata for the last completed take |
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log |
+| `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
@@ -239,6 +250,9 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   support (`wlr-screencopy` or `ext-image-copy-capture`). On Hyprland this
   should work; restart the shell if the panel was loaded before the compositor
   was ready.
+- **The update mark never appears** — checks run at most once an hour and need
+  network access to the plugin's git origin. Run `reel update --check` to see
+  the current answer or the connection error.
 - **The save pass failed** — the original recording is kept and the error is
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error

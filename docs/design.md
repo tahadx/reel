@@ -303,6 +303,7 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 | State            | Bar                                                   |
 | :--------------- | :---------------------------------------------------- |
 | Idle             | Drawn screen mark in `Style.bar.iconCanvas`, no label |
+| Update available | Idle mark plus a `4.5`-unit accent dot, top-right     |
 | Selecting target | Target glyph `󰒉`, no label                            |
 | Countdown        | Countdown number as the glyph                         |
 | Recording        | Dot + clock label; clock uses `urgent`                |
@@ -313,6 +314,9 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 Rules:
 
 - The mark is drawn, not a Nerd Font glyph: screen outline, center dot, stand.
+- The update dot is a badge, not a state: it shares the accent, sits inside the
+  idle mark, and disappears while a take owns the bar. The tooltip appends
+  `update available`.
 - Recording width is the measured clock width + `Style.space(30)`.
 - The dot pulses only while recording or capturing. Pause stops the pulse.
 - Hover uses one shared bar hover fill. No per-state hover color.
@@ -335,7 +339,12 @@ settings, target labels, or metadata.
      - Idle: opacity `0`; the slot stays reserved.
      - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
      - Pill fade: `120` ms.
-  2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
+  2. **Update button** — `PanelActionButton` with a single dot, always
+     reserved. `dim` when current, `accent` when an update is waiting; the dot
+     brightens on hover or keyboard focus. Tooltip `Check for updates` or
+     `Update available: vX.Y.Z (Shift+U)`. Activating updates when one is
+     waiting, otherwise checks again.
+  3. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
      history page is active, tooltip `History (Shift+H)` / `Back from history`.
 - Do not add a meta line under the title. It changes hero height and moves the
   title off the icon's optical center.

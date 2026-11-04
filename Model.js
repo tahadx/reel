@@ -11,6 +11,26 @@ function emptyRecent() {
   return { recordings: [] }
 }
 
+function emptyUpdate() {
+  return { current: "", latest: "", available: false, behind: 0, checkedAt: 0, error: "" }
+}
+
+function parseUpdate(text) {
+  try {
+    var raw = object(JSON.parse(String(text || "{}") || "{}"))
+    return {
+      current: String(raw.current || ""),
+      latest: String(raw.latest || ""),
+      available: raw.available === true,
+      behind: number(raw.behind, 0),
+      checkedAt: number(raw.checkedAt, 0),
+      error: String(raw.error || "")
+    }
+  } catch (e) {
+    return emptyUpdate()
+  }
+}
+
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }

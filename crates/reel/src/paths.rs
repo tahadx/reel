@@ -18,6 +18,9 @@ pub struct Paths {
     pub starting: PathBuf,
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
+    /// Cached result of the last update check, so restarts inside the hour do
+    /// not touch the network.
+    pub update: PathBuf,
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
@@ -40,6 +43,7 @@ impl Paths {
             starting: root.join("starting.pid"),
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
+            update: root.join("update.json"),
             config_dir: root.join("config"),
             config: root.join("config.json"),
             previews: root.join("previews"),
@@ -93,6 +97,7 @@ impl Paths {
             starting: runtime.join("starting"),
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
+            update: runtime.join("update.json"),
             config: config_dir.join("reel.json"),
             config_dir,
             previews,

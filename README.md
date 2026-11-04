@@ -22,6 +22,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   menu with share and trash, path copy, and drag-out to drop the video into
   another app.
 - Keyboard-first panel.
+- An update check: the bar and panel mark a waiting update, and the header
+  button checks again on demand.
 
 ## Requirements
 
@@ -61,6 +63,12 @@ reel update
 
 From an open panel, `Shift+U` runs the same command in a floating terminal, so
 the updater and its shortcut prompt stay visible while the plugin reloads.
+
+Reel also checks for updates by itself: once when the shell starts and then once
+an hour. A waiting update shows as an accent dot on the bar mark and an accent
+update dot in the panel header. The same header button checks again when Reel
+is current, so a manual refresh never needs a terminal. The check contacts only
+the plugin's own git origin; a result is cached for the hour.
 
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
 the installer from the freshly updated plugin checkout. It relinks the `reel`

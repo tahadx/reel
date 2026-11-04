@@ -128,7 +128,7 @@ assets/, preview.png     marketplace assets (preview.png shows the panel only)
 - **No shell interpolation:** Never interpolate user text into a shell command or `sh -c`. Pass queries, filenames, paths, and prompts via `stdin` or discrete `argv` elements.
 - **Path validation:** Reject empty, `NUL`, and newline values whenever a path is expected.
 - **Safe QML text rendering:** Always use `Text.PlainText` for dynamic or user-controlled strings; never use `Text.RichText`.
-- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, network calls, or credential handling.
+- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, or credential handling. The single network access is the update check (`reel update --check`): a `git fetch` against the plugin's own origin, at most once an hour or when the user asks. Nothing else may make a request.
 - **Log & repo hygiene:** Log actions, never payloads, secrets, tokens, or environment dumps. Treat `~/.config/omarchy/reel.json`, recordings, and local notes as private—never commit them or paste them into issues/screenshots.
 
 ## Known pitfalls

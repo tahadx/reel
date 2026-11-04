@@ -45,6 +45,11 @@ Panel {
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
     : root.home + "/Videos/Reel"
+  readonly property var updateInfo: root.service && root.service.updateInfo
+    ? root.service.updateInfo : Model.emptyUpdate()
+  readonly property bool updateAvailable: root.updateInfo.available === true
+  readonly property bool updateChecking: root.service
+    ? root.service.updateChecking === true : false
 
   readonly property color foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
   readonly property color accent: Commons.Color.accent
@@ -164,6 +169,7 @@ Panel {
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
+  property bool updateNoticePending: false
 
   // The take actions menu lives at panel level rather than inside each row so
   // the keyboard cursor keeps working while it is open. It anchors to the
@@ -451,12 +457,45 @@ Panel {
   }
 
   function barTooltip() {
-    if (root.finalizing) return "Reel · saving the take"
-    if (root.paused) return "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
-    if (root.capturing) return "Reel · recording " + Model.clock(root.elapsed)
-    if (root.starting) return "Reel · waiting for a selection"
-    if (root.active) return "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
-    return "Reel · click to open, right-click to record"
+    var text = "Reel · click to open, right-click to record"
+    if (root.finalizing) text = "Reel · saving the take"
+    else if (root.paused) text = "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
+    else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
+    else if (root.starting) text = "Reel · waiting for a selection"
+    else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
+    if (root.updateAvailable) text += " · update available"
+    return text
+  }
+
+  // The header button is both the manual refresh and the update cue: a quiet
+  // dot when the install is current, the same dot in accent when a newer
+  // commit is waiting.
+  function updateVersionLabel() {
+    var latest = String(root.updateInfo.latest || "")
+    var current = String(root.updateInfo.current || "")
+    return latest !== "" && latest !== current ? "v" + latest : ""
+  }
+
+  function updateTooltip() {
+    if (root.updateChecking) return "Checking for updates"
+    if (root.updateAvailable) {
+      var version = root.updateVersionLabel()
+      return version !== ""
+        ? "Update available: " + version + " (Shift+U)"
+        : "Update available (Shift+U)"
+    }
+    return "Check for updates"
+  }
+
+  function handleUpdate() {
+    if (root.updateChecking) return
+    if (root.updateAvailable) {
+      root.updateReel()
+      return
+    }
+    if (!root.service) return
+    root.updateNoticePending = true
+    root.service.checkForUpdates(true)
   }
 
   function primaryLabel() {
@@ -816,7 +855,7 @@ Panel {
 
   function sectionCount(section) {
     switch (section) {
-    case "header": return 1
+    case "header": return 2
     case "primary": return 3
     case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
@@ -910,7 +949,8 @@ Panel {
     root.clearHover()
     switch (root.focusSection) {
     case "header":
-      root.toggleHistory()
+      if (root.selectedIndex === 0) root.handleUpdate()
+      else root.toggleHistory()
       break
     case "primary":
       root.primaryAction(root.selectedIndex)
@@ -1269,6 +1309,19 @@ Panel {
         color: root.foreground
         opacity: 0.55
       }
+
+      // An update waiting is actionable, so it earns a mark on the idle
+      // widget. A take keeps the bar for its clock; the badge comes back
+      // when the take is done.
+      Rectangle {
+        visible: root.updateAvailable
+        x: 18.5 * parent.unit
+        y: 0.5 * parent.unit
+        width: 4.5 * parent.unit
+        height: width
+        radius: width / 2
+        color: root.accent
+      }
     }
 
     Row {
@@ -1508,13 +1561,34 @@ Panel {
               }
 
               PanelActionButton {
-                iconText: "󰋚"
-                tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
-                foreground: root.page === "history" ? root.accent : root.foreground
+                id: updateButton
+                iconText: ""
+                tooltipText: root.updateTooltip()
+                foreground: root.updateAvailable ? root.accent : root.dim
+                hoverColor: root.accent
                 fontFamily: root.fontFamily
+                enabled: !root.updateChecking
                 hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
                   || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
                     && root.hoverSection === "")
+
+                Rectangle {
+                  anchors.centerIn: parent
+                  width: Style.space(9)
+                  height: width
+                  radius: width / 2
+                  color: root.updateAvailable ? root.accent
+                    : updateButton.hasCursor ? root.foreground : root.dim
+                  opacity: !updateButton.enabled ? 0.35
+                    : root.updateAvailable || updateButton.hasCursor ? 1 : 0.6
+                  Behavior on color {
+                    ColorAnimation { duration: Style.duration(120) }
+                  }
+                  Behavior on opacity {
+                    NumberAnimation { duration: Style.duration(120) }
+                  }
+                }
+
                 onHovered: function(on) {
                   root.setRowHover("header", 0, on)
                 }
@@ -1522,6 +1596,25 @@ Panel {
                   root.cursorActive = true
                   root.focusSection = "header"
                   root.selectedIndex = 0
+                  root.handleUpdate()
+                }
+              }
+
+              PanelActionButton {
+                iconText: "󰋚"
+                tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
+                foreground: root.page === "history" ? root.accent : root.foreground
+                fontFamily: root.fontFamily
+                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 1)
+                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 1
+                    && root.hoverSection === "")
+                onHovered: function(on) {
+                  root.setRowHover("header", 1, on)
+                }
+                onClicked: {
+                  root.cursorActive = true
+                  root.focusSection = "header"
+                  root.selectedIndex = 1
                   root.toggleHistory()
                 }
               }
@@ -3382,7 +3475,33 @@ Panel {
       root.open()
       root.openSettings()
     }
-    function refresh(): void { if (root.service) root.service.refresh() }
+    function refresh(): void {
+      if (root.service) {
+        root.service.refresh()
+        root.service.checkForUpdates(true)
+      }
+    }
+  }
+
+  Connections {
+    target: root.service
+    function onUpdateInfoChanged() {
+      if (!root.updateNoticePending) return
+      root.updateNoticePending = false
+      var report = root.service && root.service.updateInfo
+        ? root.service.updateInfo : Model.emptyUpdate()
+      if (String(report.error || "") !== "") {
+        root.setNotice("Could not check for updates.", true)
+      } else if (report.available === true) {
+        var latest = String(report.latest || "")
+        var current = String(report.current || "")
+        root.setNotice(latest !== "" && latest !== current
+          ? "Update available: v" + latest + ". Press Shift+U to update."
+          : "Update available. Press Shift+U to update.")
+      } else {
+        root.setNotice("Reel is up to date.")
+      }
+    }
   }
 
   Component.onCompleted: {
