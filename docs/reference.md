@@ -97,11 +97,10 @@ filter, so it does not add latency while recording and cannot clean an already
 finished take.
 
 **Record the pointer** (`cursor`) controls pointer capture. When it is on, Reel
-also records local pointer movement and clicks so save-pass effects can place a
-cursor or a zoom. This needs read access to `/dev/input`; add your user to the
-`input` group (`sudo usermod -aG input "$USER"`) and log in again. If the
-devices cannot be read, the take still records and simply has no pointer
-telemetry.
+also records local pointer movement and clicks for later save-pass work. This
+needs read access to `/dev/input`; add your user to the `input` group
+(`sudo usermod -aG input "$USER"`) and log in again. If the devices cannot be
+read, the take still records and simply has no pointer telemetry.
 
 ## Runtime files
 
@@ -124,8 +123,8 @@ the XDG Videos directory, so it may not be `~/Videos`.
 
 Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
 uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
-is on, Reel records it in the runtime folder; the render pass can keep it next
-to the video as `<take-stem>.telemetry.jsonl`. JPEG previews are kept
+is on, Reel records it in the runtime folder and copies it next to the saved
+video as `<take-stem>.telemetry.jsonl`. JPEG previews are kept
 in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
 by older Reel versions are moved into the cache when history is first read.
 

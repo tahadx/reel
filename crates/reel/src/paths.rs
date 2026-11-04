@@ -148,8 +148,6 @@ pub fn untrimmed_path(file: &Path) -> PathBuf {
 }
 
 /// `<take-stem>.telemetry.jsonl` next to a saved take.
-// Called by `telemetry::persist`, which feat/auto-zoom wires into finalize.
-#[allow(dead_code)]
 pub fn telemetry_path(file: &Path) -> PathBuf {
     let stem = file
         .file_stem()

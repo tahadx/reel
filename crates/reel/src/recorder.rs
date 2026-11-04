@@ -1133,6 +1133,7 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
     paths::remove_quiet(path);
+    paths::remove_quiet(&paths::telemetry_path(path));
     paths::remove_quiet(&path.with_extension("zoom.json"));
     paths::remove_quiet(&paths.preview_path(path));
     paths::remove_quiet(&paths::legacy_preview_path(path));
@@ -1558,6 +1559,31 @@ mod tests {
                 "/videos/take.mp4".into()
             )
         );
+    }
+
+    #[test]
+    fn removing_a_take_also_removes_its_telemetry_sidecar() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-recorder-discard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-1.mp4");
+        fs::write(&take, b"video").unwrap();
+        let sidecar = paths::telemetry_path(&take);
+        fs::write(&sidecar, b"{}\n").unwrap();
+
+        remove_take_artifacts(&paths, &take);
+
+        assert!(!take.exists());
+        assert!(!sidecar.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

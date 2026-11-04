@@ -190,7 +190,7 @@ the microphone. It uses FFmpeg's noise reduction, so EasyEffects is not
 required.
 
 **Record the pointer** controls pointer capture. When it is on, Reel also keeps
-local pointer telemetry for save-pass effects. That needs read access to
+local pointer telemetry for later save-pass work. That needs read access to
 `/dev/input`; add your user to the `input` group and log in again. If the
 devices cannot be read, the take still records without pointer telemetry.
 

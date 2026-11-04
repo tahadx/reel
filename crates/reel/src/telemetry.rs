@@ -2,8 +2,8 @@
 //!
 //! Every line is one JSON object in `session.telemetry.jsonl`. Events are read
 //! from evdev and converted to capture-local pixels with the same facts the
-//! encoder used, so later render passes can place a cursor or a zoom on the
-//! exact pixel the user acted on.
+//! encoder used, so later render passes can align effects with the recorded
+//! frame.
 //!
 //! The listener is a thread in the process that launched the encoder. That
 //! process stays alive while telemetry is active (see `recorder::run_take`) so
@@ -461,10 +461,9 @@ impl Drop for Listener {
     }
 }
 
-/// Persist the runtime file next to a saved take. `feat/auto-zoom` calls this
-/// from the finalize pass after a successful save.
-// Not wired through finalize in this branch yet.
-#[allow(dead_code)]
+/// Copy the runtime file next to a saved take. The runtime copy is kept for
+/// debugging and cleared by the next take. The finalize pass calls this after
+/// a successful save.
 pub fn persist(paths: &Paths, take: &Path) -> Result<PathBuf> {
     let source = &paths.session_telemetry;
     if !source.is_file() {
@@ -475,17 +474,9 @@ pub fn persist(paths: &Paths, take: &Path) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("cannot create {}", parent.display()))?;
     }
-    match std::fs::rename(source, &target) {
-        Ok(()) => Ok(target),
-        Err(_) => {
-            // The runtime directory and the recordings folder can be on
-            // different filesystems, where rename cannot cross.
-            std::fs::copy(source, &target)
-                .with_context(|| format!("cannot copy telemetry to {}", target.display()))?;
-            paths::remove_quiet(source);
-            Ok(target)
-        }
-    }
+    std::fs::copy(source, &target)
+        .with_context(|| format!("cannot copy telemetry to {}", target.display()))?;
+    Ok(target)
 }
 
 /// A new take clears the runtime file, so a failed save cannot be mistaken for
@@ -1277,7 +1268,7 @@ mod tests {
     }
 
     #[test]
-    fn persisting_moves_the_runtime_file_next_to_the_take() {
+    fn persisting_copies_the_runtime_file_next_to_the_take() {
         let root = std::env::temp_dir().join(format!(
             "reel-telemetry-persist-{}-{}",
             std::process::id(),
@@ -1286,32 +1277,19 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        let runtime = root.join("run");
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
         let videos = root.join("Videos");
-        std::fs::create_dir_all(&runtime).unwrap();
         std::fs::create_dir_all(&videos).unwrap();
-        let paths = Paths {
-            state: runtime.join("state.json"),
-            last: runtime.join("last.json"),
-            lock: runtime.join("lock"),
-            log: runtime.join("reel.log"),
-            pid_file: runtime.join("reel.pid"),
-            socket: runtime.join("reel.sock"),
-            starting: runtime.join("starting"),
-            cancel: runtime.join("cancel"),
-            webcam_pid: runtime.join("webcam.pid"),
-            session_telemetry: runtime.join("session.telemetry.jsonl"),
-            config_dir: root.join("config"),
-            config: root.join("config.json"),
-            previews: root.join("previews"),
-            runtime,
-        };
         std::fs::write(&paths.session_telemetry, b"{}\n").unwrap();
         let take = videos.join("reel-1.mp4");
         let saved = persist(&paths, &take).unwrap();
         assert_eq!(saved, videos.join("reel-1.telemetry.jsonl"));
         assert!(saved.is_file());
-        assert!(!paths.session_telemetry.exists());
+        assert!(
+            paths.session_telemetry.is_file(),
+            "the runtime copy stays for debugging"
+        );
         let _ = std::fs::remove_dir_all(root);
     }
 
