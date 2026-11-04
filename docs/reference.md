@@ -22,6 +22,7 @@ its own:
 | `reel trash <file>` | Move a take to the trash |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
+| `reel render --project <path> [--output <path>]` | Render a take again from its project file |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
 | `reel update [--binds]` | Update the plugin and rerun its installer |
@@ -96,6 +97,51 @@ FFT-based noise reduction before normalizing the audio. It is a save-pass
 filter, so it does not add latency while recording and cannot clean an already
 finished take.
 
+## Re-rendering a take
+
+A take can carry a `project.json` next to the video. It is the render contract:
+`reel render` reads it instead of the live settings, so a hand edit is all it
+takes to change the camera and render again.
+
+```sh
+reel render --project ~/Videos/Reel/reel-2026-11-03_12-00-00.project.json
+reel render --project take.project.json --output take-wide.mp4
+```
+
+The default output is `<take-stem>.rendered.<ext>`, next to the take. A
+re-render never replaces the original file.
+
+The `camera` object holds the zoom path. `style` is `off`, `subtle`,
+`cinematic`, or `close`; `depth` is the magnification (`1.5`, `2.0`, or `2.5`);
+and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
+
+```json
+"camera": {
+  "style": "cinematic",
+  "depth": 2.0,
+  "easing": "smoothstep",
+  "keyframes": [
+    { "t": 0.0, "zoom": 1.0, "x": 1280.0, "y": 720.0 },
+    { "t": 1.5, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
+    { "t": 3.7, "zoom": 1.0, "x": 1280.0, "y": 720.0 }
+  ]
+}
+```
+
+`t` is seconds in the saved take. `x` and `y` are the viewport centre in source
+capture pixels. Keyframes are sorted by `t`, `zoom` is at least `1`, and every
+viewport is clamped so the frame never shows space outside the capture. Values
+between keyframes use smoothstep, so the camera is still at each keyframe.
+`style: "off"` disables the zoom even when keyframes are present.
+
+Unknown fields are preserved, and missing fields fall back to the v1 defaults.
+`trimStart` is only used by the hidden save pass; a re-render reads the saved
+take and does not trim it again.
+
+When the project is missing or has no camera keyframes, `reel render` encodes
+the take without a zoom. It uses the same audio filter and validation as the
+save pass, and the same project and inputs produce the same bytes.
+
 ## Runtime files
 
 | Path | Contents |
@@ -106,6 +152,7 @@ finished take.
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
+| `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
 | `~/Videos/Reel` | Default recordings folder |
 

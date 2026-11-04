@@ -55,6 +55,8 @@ pub enum Command {
         #[arg(long = "note-only")]
         note_only: bool,
     },
+    /// Render a take again from its project file.
+    Render(RenderArgs),
     /// Print the recordings folder.
     Output,
     /// Check the tools Reel needs.
@@ -161,6 +163,16 @@ pub struct StartArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct RenderArgs {
+    /// Project file written next to the take.
+    #[arg(long)]
+    pub project: PathBuf,
+    /// Output path. Defaults to `<take-stem>.rendered.<ext>`.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub action: Option<ConfigAction>,
@@ -205,6 +217,12 @@ pub struct FinalizeArgs {
     /// Apply microphone noise reduction during the save pass.
     #[arg(long = "noise-cancellation")]
     pub noise_cancellation: bool,
+    /// Use a project contract for this save instead of the legacy trim.
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+    /// Telemetry file for the save pass (read once telemetry is merged).
+    #[arg(long)]
+    pub telemetry: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

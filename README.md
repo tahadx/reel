@@ -189,6 +189,12 @@ save pass, before the take is normalized. It only runs for takes that captured
 the microphone. It uses FFmpeg's noise reduction, so EasyEffects is not
 required.
 
+If a take has a `project.json` next to it, `reel render --project <path>`
+renders it again with the camera path in that file. The default output is
+`<take-stem>.rendered.<ext>`, and the original take is never replaced. The
+project schema and the keyframe fields are in
+[docs/reference.md](docs/reference.md#re-rendering-a-take).
+
 The settings page covers all capture options and the filename prefix. History
 takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.
 

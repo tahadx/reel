@@ -71,7 +71,7 @@ fn first_gop_has_discard(file: &Path) -> bool {
     .unwrap_or(false)
 }
 
-fn work_path(file: &Path, output: &Path) -> PathBuf {
+pub(crate) fn work_path(file: &Path, output: &Path) -> PathBuf {
     let ext = file
         .extension()
         .map(|e| e.to_string_lossy().to_string())
@@ -80,7 +80,7 @@ fn work_path(file: &Path, output: &Path) -> PathBuf {
     PathBuf::from(format!("{stem}.part.{}.{ext}", std::process::id()))
 }
 
-fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
+pub(crate) fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
     paths::log(paths, &format!("finalize: ffmpeg {}", args.join(" ")));
     let Ok(log) = OpenOptions::new()
         .create(true)
@@ -105,7 +105,7 @@ fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
 /// A finished file must have a video stream and a real duration. Checking the
 /// work file before the rename means a broken MP4 can never replace the raw
 /// take that the recorder actually wrote.
-fn valid_video(file: &Path) -> bool {
+pub(crate) fn valid_video(file: &Path) -> bool {
     if !file.is_file() || fs::metadata(file).map(|m| m.len()).unwrap_or(0) == 0 {
         return false;
     }
@@ -245,7 +245,7 @@ pub fn finalize_video(
     }
 }
 
-fn audio_filter(noise_cancellation: bool) -> String {
+pub(crate) fn audio_filter(noise_cancellation: bool) -> String {
     let mut filter = String::from("volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05");
     if noise_cancellation {
         // Opt-in and only requested for takes that captured the microphone.
@@ -343,15 +343,43 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut error = String::new();
     let mut saved = output.clone();
-    if finalize_video(
-        paths,
-        &file,
-        args.trim_start,
-        &output,
-        args.noise_cancellation,
-    )
-    .is_ok()
-    {
+    let pass = match args.project.as_ref() {
+        Some(project_file) => match crate::project::Project::load(project_file) {
+            Ok(project) => {
+                if let Some(telemetry) = args.telemetry.as_ref() {
+                    // The telemetry pass owns reading this file. Until it is
+                    // merged, the project camera is the only render input.
+                    paths::log(
+                        paths,
+                        &format!(
+                            "finalize: telemetry {} is not read in this build; using the project camera",
+                            telemetry.display()
+                        ),
+                    );
+                }
+                crate::render::render_take(
+                    paths,
+                    &project,
+                    &file,
+                    &output,
+                    project.trim_start,
+                    args.noise_cancellation,
+                )
+            }
+            Err(err) => Err(err),
+        },
+        None => finalize_video(
+            paths,
+            &file,
+            args.trim_start,
+            &output,
+            args.noise_cancellation,
+        ),
+    };
+    if let Err(err) = &pass {
+        paths::log(paths, &format!("finalize: save pass: {err:#}"));
+    }
+    if pass.is_ok() {
         // The trimmed take now owns the normal name. The raw countdown capture
         // must not linger as a second, shippable copy.
         if quarantined {
