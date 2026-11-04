@@ -35,9 +35,6 @@ struct Settings {
     filename_prefix: String,
     manual_zoom: bool,
     zoom_max: f64,
-    /// True when a Studio effect needs clean capture and pointer telemetry.
-    /// This is internal; there is no user-facing mode switch.
-    studio: bool,
 }
 
 impl Settings {
@@ -102,19 +99,6 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
     // gpu-screen-recorder uses the same H.264-equivalent scale for H.264 and
     // HEVC, and a 4x scale for AV1.
     Some(if codec == "av1" { qp * 4 } else { qp })
-}
-
-/// Studio is an internal capture path, not a setting: it is used only when a
-/// Studio effect needs clean input. The keys are owned by later branches;
-/// missing or stale values mean off.
-///
-/// Cursor synthesis has no switch in v1, so it cannot select Studio here yet.
-/// It joins this list when its branch adds a key the engine honors.
-fn auto_studio_effects(settings: &Value) -> bool {
-    let auto_zoom = config::cfg_in(settings, "autoZoomStyle", "off");
-    let ripples = config::cfg_in(settings, "clickRipples", "off");
-    let canvas = config::cfg_in(settings, "canvasBackground", "off");
-    auto_zoom != "off" || util::is_on(&ripples) || canvas != "off"
 }
 
 fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
@@ -196,8 +180,6 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .or_else(|| config::zoom_max_value(stored.get("zoomMax")))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
-    let studio = auto_studio_effects(&stored);
-
     Ok(Settings {
         desktop,
         mic,
@@ -215,7 +197,6 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         filename_prefix,
         manual_zoom,
         zoom_max,
-        studio,
     })
 }
 
@@ -578,10 +559,8 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // into it.
     paths::reset_log(paths);
 
-    // Resolve the pointer source before the encoder launches. That is what
-    // lets a failed listener fall back to Quick instead of silently recording
-    // a Studio take with no pointer data.
-    let capture_space = if settings.studio {
+    // Pointer telemetry follows the existing "Record the pointer" setting.
+    let capture_space = if settings.cursor {
         match telemetry::CaptureSpace::resolve(
             target,
             &choice.kind,
@@ -593,7 +572,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 paths::log(
                     paths,
                     &format!(
-                        "telemetry: cannot map {target} ({}); falling back to Quick",
+                        "telemetry: cannot map {target} ({}); the take continues without pointer data",
                         err.code()
                     ),
                 );
@@ -609,11 +588,11 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     let mut prepared = capture_space
         .as_ref()
         .map(|space| telemetry::Prepared::new(paths, space));
-    let studio = prepared
+    let telemetry_ready = prepared
         .as_ref()
         .map(telemetry::Prepared::available)
         .unwrap_or(false);
-    if settings.studio && !studio {
+    if settings.cursor && !telemetry_ready {
         let code = prepared
             .as_ref()
             .and_then(telemetry::Prepared::error)
@@ -624,7 +603,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         paths::log(
             paths,
             &format!(
-                "telemetry: unavailable ({}); this take is Quick{}",
+                "telemetry: unavailable ({}); the take continues without pointer data{}",
                 code.code(),
                 code.hint()
                     .map(|hint| format!(" — {hint}"))
@@ -647,9 +626,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         "-bm".into(),
         "qp".into(),
         "-cursor".into(),
-        if studio {
-            "no".into()
-        } else if settings.cursor {
+        if settings.cursor {
             "yes".into()
         } else {
             "no".into()
@@ -708,23 +685,16 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} path={} cursor={} telemetry={} output={}",
+            "capture: target={} fps={} cursor={} telemetry={} output={}",
             target,
             capture_fps,
-            if studio { "studio" } else { "quick" },
-            if studio {
-                "off"
-            } else if settings.cursor {
-                "on"
-            } else {
-                "off"
-            },
-            if studio { "on" } else { "off" },
+            if settings.cursor { "on" } else { "off" },
+            if telemetry_ready { "on" } else { "off" },
             capture_file
         ),
     );
 
-    let hardware_cursor = if (studio || !settings.cursor) && target != "portal" {
+    let hardware_cursor = if !settings.cursor && target != "portal" {
         HardwareCursor::force(paths)
     } else {
         None
@@ -766,12 +736,12 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     util::debug(&format!("capture: recorder pid {pid}"));
     let _ = paths::write_pid(&paths.pid_file, pid);
 
-    // The encoder is live. Start the listener, or leave the diagnostic pair
-    // behind when Studio fell back to Quick.
+    // The encoder is live. Start the listener when the pointer setting is on;
+    // otherwise leave the take exactly as it is today.
     let mut listener = None;
-    if settings.studio {
+    if settings.cursor {
         match (prepared.take(), capture_space.as_ref()) {
-            (Some(prepared), Some(space)) if studio => {
+            (Some(prepared), Some(space)) if telemetry_ready => {
                 listener = prepared.start(space.clone(), capture_fps, t0, t0_ns);
                 if listener.is_none() {
                     paths::log(
@@ -982,9 +952,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     }
     println!("{file}");
 
-    // A Studio take keeps this process alive so the listener can watch the
-    // encoder's lifetime and close the telemetry file. Quick returns now,
-    // exactly as before.
+    // When telemetry is running, keep this process alive so the listener can
+    // watch the encoder's lifetime and close the telemetry file. Otherwise
+    // return now, exactly as before.
     if let Some(listener) = listener {
         let reason = match child.wait() {
             Ok(status)
@@ -1434,7 +1404,6 @@ mod tests {
             filename_prefix: "reel-".into(),
             manual_zoom: true,
             zoom_max: 2.0,
-            studio: false,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);
@@ -1443,19 +1412,6 @@ mod tests {
         assert_eq!(value["noiseCancellation"], true);
         assert_eq!(value["manualZoom"], true);
         assert_eq!(value["zoomMax"], 2.0);
-    }
-
-    #[test]
-    fn studio_capture_is_only_used_when_an_effect_is_on() {
-        assert!(!auto_studio_effects(&json!({})));
-        assert!(!auto_studio_effects(&json!({
-            "autoZoomStyle": "off",
-            "clickRipples": "off",
-            "canvasBackground": "off"
-        })));
-        assert!(auto_studio_effects(&json!({ "autoZoomStyle": "subtle" })));
-        assert!(auto_studio_effects(&json!({ "clickRipples": "on" })));
-        assert!(auto_studio_effects(&json!({ "canvasBackground": "theme" })));
     }
 
     #[test]

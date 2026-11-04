@@ -3366,8 +3366,8 @@ Panel {
     }
   }
 
-  // A Studio take keeps `reel start` alive for the whole take, so pause uses
-  // its own process instead of waiting for controlProc to return.
+  // Pointer telemetry keeps `reel start` alive for the whole take, so pause
+  // uses its own process instead of waiting for controlProc to return.
   Process {
     id: pauseProc
     running: false

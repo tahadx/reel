@@ -1,4 +1,4 @@
-//! Pointer and click telemetry for Studio takes.
+//! Pointer and click telemetry.
 //!
 //! Every line is one JSON object in `session.telemetry.jsonl`. Events are read
 //! from evdev and converted to capture-local pixels with the same facts the
@@ -6,8 +6,8 @@
 //! exact pixel the user acted on.
 //!
 //! The listener is a thread in the process that launched the encoder. That
-//! process stays alive for a Studio take (see `recorder::run_take`) so the
-//! listener can stop on the same clock as the video.
+//! process stays alive while telemetry is active (see `recorder::run_take`) so
+//! the listener can stop on the same clock as the video.
 
 use crate::paths::{self, Paths};
 use crate::target;
@@ -173,7 +173,7 @@ impl CaptureSpace {
     }
 
     /// A placeholder for a target telemetry cannot map, used only so a failed
-    /// Studio start still writes a well-formed `start` line.
+    /// start still writes a well-formed `start` line.
     pub fn unsupported(kind: &str, target: &str, monitor: &str) -> Self {
         Self {
             kind: kind.to_string(),
@@ -309,7 +309,7 @@ impl TelemetryWriter {
 }
 
 /// Everything needed to start the listener, resolved before the encoder
-/// launches so a failure can still fall back to a Quick take.
+/// launches; if telemetry cannot start the take continues without pointer data.
 pub struct Prepared {
     file: Option<File>,
     devices: Vec<Device>,
@@ -364,7 +364,7 @@ impl Prepared {
     }
 
     /// Write `start` with `source:none` and a `stop` line, then leave the file
-    /// for debugging. Used when Studio must fall back to Quick.
+    /// for debugging. Used when pointer telemetry cannot start.
     pub fn record_failure(mut self, space: &CaptureSpace, fps: i64, error: SourceError) {
         let Some(file) = self.file.take() else {
             return;
@@ -489,13 +489,13 @@ pub fn persist(paths: &Paths, take: &Path) -> Result<PathBuf> {
 }
 
 /// A new take clears the runtime file, so a failed save cannot be mistaken for
-/// the take that follows it. Quick takes call this too.
+/// the take that follows it. Every take calls this.
 pub fn clear(paths: &Paths) {
     paths::remove_quiet(&paths.session_telemetry);
 }
 
-/// Write a diagnostic `start`/`stop` pair when Studio cannot map its source at
-/// all (for example a portal take). The take still proceeds as Quick.
+/// Write a diagnostic `start`/`stop` pair when telemetry cannot map its source
+/// at all (for example a portal take). The take continues without pointer data.
 pub fn record_unavailable(paths: &Paths, space: &CaptureSpace, fps: i64, error: SourceError) {
     let Ok(file) = OpenOptions::new()
         .create(true)
