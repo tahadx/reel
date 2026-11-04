@@ -86,8 +86,8 @@ Rules that follow from this:
 - **State & paths:** user config lives in `~/.config/omarchy/reel.json`; runtime
   state, the recorder socket, and logs live under `$XDG_RUNTIME_DIR/reel/`.
 - **Scope:** the panel is the only interface. No timeline, no editor, no separate
-  window. Studio effects belong in the save pass (`finalize.rs` / `render.rs`)
-  and must be re-runnable from a project file once that lands.
+  window. Save-pass effects belong in the save pass (`finalize.rs` /
+  `render.rs`) and must be re-runnable from a project file once that lands.
 - **Never block the shell:** QML must survive an engine error. Parse defensively,
   show `lastError`, never wait synchronously on a command.
 - **Static binary:** `bin/dist/reel-native` is built by `bin/refresh-dist` for
@@ -116,7 +116,7 @@ assets/, preview.png     marketplace assets (preview.png shows the panel only)
 1. **Theme is the brand.** Use `Commons.Color.*`, `Style.*`, and `Util.alpha()`. Never add a private palette or hardcoded UI colors.
 2. **Fixed frame, moving content.** The hero, actions, and settings tabs never scroll; only the page body scrolls.
 3. **Panel, manifest, and engine stay in sync.** Every new setting requires a `manifest.json` schema entry, a `Panel.qml` row, and `crates/reel` support in the same change. Never render a UI row the engine cannot honor.
-4. **Quick mode is sacred.** Do not alter Quick capture behavior while building Studio features. Studio is a separate mode.
+4. **Pointer behavior is sacred.** `cursor` on keeps today's baked pointer and adds pointer telemetry; `cursor` off keeps today's no-pointer take. There is no capture mode. Cursor synthesis is a render choice (`cursorStyle=baked|synthetic`), and it strips the pointer only after telemetry starts.
 5. **Zero new heavy dependencies.** Keep the engine static and self-contained. Do not add `wgpu`, a new workspace crate, or external runtime dependencies without asking first.
 6. **No symlinks anywhere.** `omarchy plugin validate .` rejects symlinks inside the plugin tree (`AGENTS.md` must remain a plain file).
 7. **Never edit installed files.** Do not touch `/usr/share/omarchy` or `~/.config/omarchy/plugins/io.github.tahadx.reel/` directly. Edit the checkout and run `./install.sh`.
