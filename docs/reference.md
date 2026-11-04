@@ -154,6 +154,7 @@ save pass, and the same project and inputs produce the same bytes.
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
+| `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
 | `~/Videos/Reel` | Default recordings folder |
 
 If `XDG_RUNTIME_DIR` is unset, the runtime files live under
@@ -280,6 +281,10 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   names the file so the overlay footage is never offered as an ordinary take.
   A countdown take started by an older Reel and stopped after an engine update
   is moved to the same `-untrimmed` name before the save pass runs.
+  If the recordings folder is read-only and that move is denied, Reel leaves the
+  raw file at its ordinary name but records it as withheld, so history and Share
+  skip it. The entry clears, and the file moves aside, on the first check after
+  the folder is writable again.
   `reel doctor` checks the tools used by the save pass.
 
 ## Uninstall

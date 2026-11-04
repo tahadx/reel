@@ -126,6 +126,10 @@ fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
         return Vec::new();
     };
 
+    // A capture whose quarantine was denied keeps its ordinary name, so the
+    // name alone cannot rule it out. The durable ledger is the other half.
+    let withheld = crate::quarantine::blocked(paths);
+
     let mut files: Vec<(i64, PathBuf)> = entries
         .flatten()
         .filter_map(|entry| {
@@ -142,6 +146,9 @@ fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
             // failure notice points at them. Half-written save passes are
             // skipped for the same reason.
             if paths::is_untrimmed(&path) || paths::is_partial(&path) {
+                return None;
+            }
+            if withheld.contains(&crate::quarantine::key(&path)) {
                 return None;
             }
             let modified = entry
@@ -612,34 +619,29 @@ pub fn zoom_pan(
 mod tests {
     use super::*;
 
-    #[test]
-    fn untrimmed_footage_stays_out_of_recent_takes() {
-        let root = std::env::temp_dir().join(format!(
-            "reel-recent-{}-{}",
+    fn test_paths(root: &Path) -> Paths {
+        let paths = Paths::for_test(root);
+        fs::create_dir_all(&paths.config_dir).unwrap();
+        paths
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "reel-{label}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
-        ));
+        ))
+    }
+
+    #[test]
+    fn untrimmed_footage_stays_out_of_recent_takes() {
+        let root = temp_root("recent");
         let videos = root.join("Videos");
         fs::create_dir_all(&videos).unwrap();
-        let paths = Paths {
-            state: root.join("state.json"),
-            last: root.join("last.json"),
-            lock: root.join("lock"),
-            log: root.join("reel.log"),
-            pid_file: root.join("reel.pid"),
-            socket: root.join("reel.sock"),
-            starting: root.join("starting.pid"),
-            cancel: root.join("cancel"),
-            webcam_pid: root.join("webcam.pid"),
-            config_dir: root.join("config"),
-            config: root.join("config.json"),
-            previews: root.join("previews"),
-            runtime: root.clone(),
-        };
-        fs::create_dir_all(&paths.config_dir).unwrap();
+        let paths = test_paths(&root);
         fs::write(
             &paths.config,
             format!("{{\"outputDir\":\"{}\"}}", videos.display()),
@@ -654,6 +656,29 @@ mod tests {
         assert!(takes[0].path.ends_with("reel-1.mp4"));
         assert!(!paths::is_partial(Path::new("reel-1.mp4")));
         assert!(paths::is_partial(Path::new("reel-1.part.42.mp4")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_withheld_capture_is_not_a_recent_take() {
+        let root = temp_root("withheld");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        fs::write(
+            &paths.config,
+            format!("{{\"outputDir\":\"{}\"}}", videos.display()),
+        )
+        .unwrap();
+        // A capture whose rename was denied keeps its ordinary name.
+        let file = videos.join("reel-9.mp4");
+        fs::write(&file, b"raw").unwrap();
+
+        crate::quarantine::record(&paths, &file, "countdown");
+        assert!(recent_takes(&paths, 10).is_empty());
+
+        crate::quarantine::clear(&paths, &file);
+        assert_eq!(recent_takes(&paths, 10).len(), 1);
         let _ = fs::remove_dir_all(root);
     }
 

@@ -7,4 +7,5 @@
 .DS_Store
 *.swp
 
+# Local-only plans (never push)
 plan/

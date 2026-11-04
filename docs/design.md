@@ -215,8 +215,8 @@ here.`
 - Fixed header: hero (24 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `8` above, `2` below) + `1` px hairline.
 - The scroll region receives the remaining height and never changes size.
-- The scrollbar is always hidden. Wheel, trackpad, keyboard cursor, and
-  edge-hover scrolling are the only scroll inputs.
+- The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
+  only scroll inputs; moving the pointer never scrolls the page.
 - Page body spacing: `10`. History list spacing: `8`.
 - Row outer padding: `6` left, `6`–`8` right.
 - Never add a horizontal margin to the fixed header that the scroll body does

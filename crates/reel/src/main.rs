@@ -4,6 +4,7 @@ mod config;
 mod finalize;
 mod paths;
 mod project;
+mod quarantine;
 mod recorder;
 mod render;
 mod state;

@@ -256,6 +256,42 @@ pub(crate) fn audio_filter(noise_cancellation: bool) -> String {
     filter
 }
 
+/// Move a countdown capture aside before the save pass. Split out so the
+/// denied-rename path is testable without running ffmpeg.
+fn quarantine_before_save(
+    paths: &Paths,
+    file: &mut PathBuf,
+    output: &mut PathBuf,
+    trim_start: f64,
+    quarantined: &mut bool,
+) -> Result<()> {
+    if *quarantined || trim_start <= 0.0 || paths::is_untrimmed(file) {
+        return Ok(());
+    }
+    match crate::quarantine::capture(paths, file) {
+        Ok(capture) => {
+            *output = file.clone();
+            *file = capture;
+            *quarantined = true;
+            Ok(())
+        }
+        Err(err) => {
+            let message = format!(
+                "The countdown capture could not be quarantined before saving: {err}. \
+                 The original file is kept at {} and withheld from history and sharing \
+                 until it can be moved aside.",
+                file.display()
+            );
+            let _ = state::write(
+                paths,
+                &state::idle_with_error_keeping_capture(paths, &message),
+            );
+            util::notify("Reel", Some(&message), "critical");
+            anyhow::bail!(message);
+        }
+    }
+}
+
 /// The hidden `__finalize` process spawned by `stop`.
 pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // Keep the take's framing with its result so the panel can show the same
@@ -286,28 +322,13 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // quarantines it first; if an older or malformed caller did not, move it
     // aside here rather than risk leaving pre-roll footage under the ordinary
     // take name after a failed trim.
-    if !quarantined && args.trim_start > 0.0 && !paths::is_untrimmed(&file) {
-        match paths::quarantine_capture(&file) {
-            Ok(capture) => {
-                output = file;
-                file = capture;
-                quarantined = true;
-            }
-            Err(err) => {
-                let message = format!(
-                    "The countdown capture could not be quarantined before saving: {err}. \
-                     The original file was left untouched at {}.",
-                    file.display()
-                );
-                let _ = state::write(
-                    paths,
-                    &state::idle_with_error_preserving_last(paths, &message),
-                );
-                util::notify("Reel", Some(&message), "critical");
-                anyhow::bail!(message);
-            }
-        }
-    }
+    quarantine_before_save(
+        paths,
+        &mut file,
+        &mut output,
+        args.trim_start,
+        &mut quarantined,
+    )?;
 
     // Publish the job pid before touching ffmpeg. The service can then tell a
     // live save from one that died and left the bar on "Saving".
@@ -464,6 +485,62 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_denied_quarantine_stops_the_save_and_keeps_the_capture() {
+        // SAFETY: geteuid has no memory effects and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "reel-finalize-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let file = videos.join("reel-legacy.mp4");
+        fs::write(&file, b"raw").unwrap();
+        state::write(
+            &paths,
+            &json!({
+                "status": "finalizing",
+                "file": file.display().to_string(),
+                "trimStart": 3.0,
+            }),
+        )
+        .unwrap();
+        fs::set_permissions(&videos, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let mut capture = file.clone();
+        let mut output = PathBuf::new();
+        let mut quarantined = false;
+        let err = quarantine_before_save(&paths, &mut capture, &mut output, 3.0, &mut quarantined)
+            .unwrap_err();
+
+        assert!(err.to_string().contains("quarantined"));
+        assert!(!quarantined);
+        assert!(file.is_file());
+        assert!(crate::quarantine::is_blocked(&paths, &file));
+        let state = state::read(&paths).unwrap();
+        assert_eq!(state::field_str(&state, "status").as_deref(), Some("idle"));
+        assert_eq!(
+            state::field_str(&state, "file").as_deref(),
+            Some(file.display().to_string().as_str())
+        );
+        assert!(state::field_str(&state, "error")
+            .unwrap()
+            .contains("withheld"));
+
+        fs::set_permissions(&videos, fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn audio_filter_only_denoises_when_requested() {
