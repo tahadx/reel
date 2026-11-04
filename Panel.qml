@@ -133,9 +133,6 @@ Panel {
 
   property string page: "home"
   property bool typingPrefix: false
-  property bool scrollTopHover: false
-  property bool scrollBottomHover: false
-  property int edgeScrollTicks: 0
   property int countdownTick: 0
   property string focusSection: "primary"
   property int selectedIndex: 0
@@ -1125,52 +1122,6 @@ Panel {
     if (flick && flick.contentY !== undefined) flick.contentY = 0
   }
 
-  function updateScrollEdge(y) {
-    var area = root.scrollArea()
-    var flick = area ? area.contentItem : null
-    if (!flick || (flick.contentHeight || 0) <= flick.height) {
-      root.clearScrollEdge()
-      return
-    }
-    var edge = Style.space(64)
-    var maxY = flick.contentHeight - flick.height
-    // The scroll area now sits below the fixed header, so compare in its space.
-    var localY = y - area.y
-    var top = localY >= 0 && localY < edge && flick.contentY > 0
-    var bottom = localY <= area.height && localY > flick.height - edge && flick.contentY < maxY
-    if (top !== root.scrollTopHover || bottom !== root.scrollBottomHover) root.edgeScrollTicks = 0
-    root.scrollTopHover = top
-    root.scrollBottomHover = bottom
-  }
-
-  function clearScrollEdge() {
-    root.scrollTopHover = false
-    root.scrollBottomHover = false
-    root.edgeScrollTicks = 0
-  }
-
-  function edgeScrollStep() {
-    var area = root.scrollArea()
-    var flick = area ? area.contentItem : null
-    if (!flick) return
-    var maxY = Math.max(0, (flick.contentHeight || 0) - flick.height)
-    if (maxY <= 0) return
-    if (root.scrollTopHover && flick.contentY <= 0) {
-      root.scrollTopHover = false
-      root.edgeScrollTicks = 0
-      return
-    }
-    if (root.scrollBottomHover && flick.contentY >= maxY) {
-      root.scrollBottomHover = false
-      root.edgeScrollTicks = 0
-      return
-    }
-    root.edgeScrollTicks += 1
-    var step = Style.space(3) + Math.min(Style.space(4), Math.floor(root.edgeScrollTicks / 10))
-    if (root.scrollTopHover) flick.contentY = Math.max(0, flick.contentY - step)
-    else if (root.scrollBottomHover) flick.contentY = Math.min(maxY, flick.contentY + step)
-  }
-
   function ensureCursorVisible(item) {    var area = root.scrollArea()
     var flick = area ? area.contentItem : null
     if (!item || !flick || flick.contentY === undefined) return
@@ -1211,8 +1162,6 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
-      root.scrollTopHover = false
-      root.scrollBottomHover = false
       root.clearHover()
       root.page = "home"
       root.focusSection = "primary"
@@ -1233,8 +1182,6 @@ Panel {
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
-      root.scrollTopHover = false
-      root.scrollBottomHover = false
       root.clearHover()
       root.carryingFile = false
       root.discardArmed = false
@@ -1924,12 +1871,6 @@ Panel {
             }
           }
         }
-      }
-
-      HoverHandler {
-        id: scrollEdgeHover
-        onPointChanged: root.updateScrollEdge(point.position.y)
-        onHoveredChanged: if (!hovered) root.clearScrollEdge()
       }
 
       Item {
@@ -3293,14 +3234,6 @@ Panel {
   }
 
   // ---------- processes ---------------------------------------------------
-
-  Timer {
-    id: edgeScrollTimer
-    interval: 16
-    repeat: true
-    running: root.opened && (root.scrollTopHover || root.scrollBottomHover)
-    onTriggered: root.edgeScrollStep()
-  }
 
   Timer {
     id: trashTimer

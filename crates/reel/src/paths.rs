@@ -22,9 +22,34 @@ pub struct Paths {
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
+    /// Durable list of captures that must stay out of history.
+    pub pending: PathBuf,
 }
 
 impl Paths {
+    /// A `Paths` rooted in a temporary directory, for unit tests.
+    #[cfg(test)]
+    pub fn for_test(root: &Path) -> Paths {
+        let root = root.to_path_buf();
+        Paths {
+            state: root.join("state.json"),
+            last: root.join("last.json"),
+            lock: root.join("lock"),
+            log: root.join("reel.log"),
+            pid_file: root.join("reel.pid"),
+            socket: root.join("reel.sock"),
+            starting: root.join("starting.pid"),
+            cancel: root.join("cancel"),
+            webcam_pid: root.join("webcam.pid"),
+            session_telemetry: root.join("session.telemetry.jsonl"),
+            config_dir: root.join("config"),
+            config: root.join("config.json"),
+            previews: root.join("previews"),
+            pending: root.join("pending-quarantine.json"),
+            runtime: root,
+        }
+    }
+
     pub fn discover() -> Paths {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -39,6 +64,15 @@ impl Paths {
                 state_home.join("omarchy/reel/run")
             }
         };
+
+        // Runtime state can live on a tmpfs that disappears at logout, so the
+        // ledger of captures that still need trimming is kept in the durable
+        // state directory instead.
+        let state_home = std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| home.join(".local/state"));
+        let state_dir = state_home.join("omarchy/reel");
+        let pending = state_dir.join("pending-quarantine.json");
 
         let config_home = std::env::var_os("XDG_CONFIG_HOME")
             .map(PathBuf::from)
@@ -65,6 +99,7 @@ impl Paths {
             config: config_dir.join("reel.json"),
             config_dir,
             previews,
+            pending,
             runtime,
         };
 
@@ -72,6 +107,10 @@ impl Paths {
         let _ = fs::set_permissions(&paths.runtime, fs::Permissions::from_mode(0o700));
         let _ = fs::create_dir_all(&paths.previews);
         let _ = fs::set_permissions(&paths.previews, fs::Permissions::from_mode(0o700));
+        if let Some(dir) = paths.pending.parent() {
+            let _ = fs::create_dir_all(dir);
+            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+        }
         paths
     }
 

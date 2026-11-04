@@ -1144,6 +1144,7 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
 /// version recorded straight into the ordinary name, so quarantine it before
 /// any fallible finalization.
 fn resolve_capture_paths(
+    paths: &Paths,
     file: String,
     output: String,
     trim_start: f64,
@@ -1153,7 +1154,7 @@ fn resolve_capture_paths(
     let capture = Path::new(&file);
 
     if trim_start > 0.0 && in_place && !file.is_empty() && !paths::is_untrimmed(capture) {
-        let quarantined = paths::quarantine_capture(capture).with_context(|| {
+        let quarantined = crate::quarantine::capture(paths, capture).with_context(|| {
             format!(
                 "cannot move {} out of the ordinary take list",
                 capture.display()
@@ -1292,16 +1293,17 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
     // upgrade landing mid-take must move the raw capture aside before any
     // fallible save pass. Otherwise a failed trim would leave the pre-roll
     // visible in history and available to share.
-    let (file, output) = match resolve_capture_paths(file, output, trim_start) {
+    let (file, output) = match resolve_capture_paths(paths, file, output, trim_start) {
         Ok(paths) => paths,
         Err(err) => {
             let message = format!(
                 "The countdown capture could not be quarantined before saving: {err}. \
-                 The original file was left untouched at the recorded path."
+                 The original file is kept at the recorded path and withheld from history \
+                 and sharing until it can be moved aside."
             );
             let _ = state::write(
                 paths,
-                &state::idle_with_error_preserving_last(paths, &message),
+                &state::idle_with_error_keeping_capture(paths, &message),
             );
             paths::remove_quiet(&paths.starting);
             paths::remove_quiet(&paths.cancel);
@@ -1384,6 +1386,60 @@ pub fn toggle(paths: &Paths, options: StartArgs) -> Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    fn temp_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "reel-recorder-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn a_denied_quarantine_keeps_the_ordinary_name() {
+        // SAFETY: geteuid has no memory effects and cannot fail.
+        if unsafe { libc::geteuid() } == 0 {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = temp_root("denied");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let file = videos.join("reel-legacy.mp4");
+        fs::write(&file, b"raw").unwrap();
+        fs::set_permissions(&videos, fs::Permissions::from_mode(0o555)).unwrap();
+
+        let result = resolve_capture_paths(&paths, file.display().to_string(), String::new(), 3.0);
+        assert!(result.is_err());
+        assert!(file.is_file());
+        assert!(crate::quarantine::is_blocked(&paths, &file));
+
+        fs::set_permissions(&videos, fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_writable_folder_quarantines_the_capture() {
+        let root = temp_root("writable");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let file = videos.join("reel-legacy.mp4");
+        fs::write(&file, b"raw").unwrap();
+
+        let (capture, output) =
+            resolve_capture_paths(&paths, file.display().to_string(), String::new(), 3.0).unwrap();
+        assert!(capture.ends_with("-untrimmed.mp4"));
+        assert_eq!(output, file.display().to_string());
+        assert!(Path::new(&capture).is_file());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn settings_serialize_for_the_state_file() {
@@ -1446,11 +1502,12 @@ mod tests {
                 .unwrap_or(0)
         ));
         fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
         let file = root.join("reel-1.mp4");
         fs::write(&file, b"raw").unwrap();
 
         let (capture, output) =
-            resolve_capture_paths(file.display().to_string(), String::new(), 3.0).unwrap();
+            resolve_capture_paths(&paths, file.display().to_string(), String::new(), 3.0).unwrap();
 
         assert_eq!(output, file.display().to_string());
         assert_eq!(capture, paths::untrimmed_path(&file).display().to_string());
@@ -1471,11 +1528,12 @@ mod tests {
                 .unwrap_or(0)
         ));
         fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
         let file = root.join("reel-1.mp4");
         fs::write(&file, b"raw").unwrap();
 
         let (capture, output) =
-            resolve_capture_paths(file.display().to_string(), String::new(), 0.0).unwrap();
+            resolve_capture_paths(&paths, file.display().to_string(), String::new(), 0.0).unwrap();
 
         assert_eq!(capture, file.display().to_string());
         assert_eq!(output, file.display().to_string());
@@ -1486,8 +1544,10 @@ mod tests {
 
     #[test]
     fn an_existing_output_is_left_alone() {
+        let paths = Paths::for_test(Path::new("/tmp/reel-unused"));
         assert_eq!(
             resolve_capture_paths(
+                &paths,
                 "/videos/take-untrimmed.mp4".into(),
                 "/videos/take.mp4".into(),
                 3.0,
