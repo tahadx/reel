@@ -544,14 +544,13 @@ Panel {
 
   function togglePause() {
     if (!root.active) return
-    if (controlProc.running) {
+    if (pauseProc.running) {
       root.setNotice("Reel is still finishing the last command.")
       return
     }
     root.cancelling = false
-    root.controlAction = "pause"
-    controlProc.command = ["reel", "toggle-pause"]
-    controlProc.running = true
+    pauseProc.command = ["reel", "toggle-pause"]
+    pauseProc.running = true
   }
 
   function toggleRecording() {
@@ -3297,6 +3296,23 @@ Panel {
       root.cancelling = false
       if (root.service) root.service.refresh()
       if (action === "start" && code !== 0) openAfterAction.restart()
+    }
+  }
+
+  // Pointer telemetry keeps `reel start` alive for the whole take, so pause
+  // uses its own process instead of waiting for controlProc to return.
+  Process {
+    id: pauseProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: pauseErr; waitForEnd: true }
+    onExited: function(code) {
+      var message = String(pauseErr.text || "").trim()
+      if (code !== 0 && !root.cancelling) {
+        root.setNotice(message.replace(/^reel:\s*/, "") || "That action failed.", true)
+      }
+      root.cancelling = false
+      if (root.service) root.service.refresh()
     }
   }
 

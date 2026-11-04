@@ -9,6 +9,7 @@ mod recorder;
 mod render;
 mod state;
 mod target;
+mod telemetry;
 mod util;
 mod webcam;
 mod zoom;
