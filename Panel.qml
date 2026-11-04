@@ -1430,135 +1430,62 @@ Panel {
         PanelHero {
           Layout.fillWidth: true
           iconComponent: Component {
-            // The same drawn mark the bar uses, at display size. Recording
-            // pulses the dot, pause splits it into two bars, and the save
-            // pass dims it, so the header matches the bar state.
+            // The old recording pill, now always present on the left: it reads
+            // 0:00 at rest and the live elapsed time while a take is running.
             Item {
-              id: heroMark
-              width: Style.font.display
-              height: Style.font.display
-              readonly property real unit: width / 24
-              readonly property color markColor: root.finalizing
-                ? root.dim : root.foreground
+              width: Style.space(60)
+              height: Style.space(22)
 
               Rectangle {
-                id: heroScreen
-                x: 2.5 * heroMark.unit
-                y: 4 * heroMark.unit
-                width: 19 * heroMark.unit
-                height: 15 * heroMark.unit
-                radius: 4.5 * heroMark.unit
-                color: "transparent"
-                border.width: Math.max(1, Math.round(1.5 * heroMark.unit))
-                border.color: root.foreground
-                opacity: 0.9
-              }
+                anchors.fill: parent
+                radius: height / 2
+                color: root.restFill
+                border.width: 1
+                border.color: root.hairline
 
-              // centerIn rounds against the fractional screen geometry and
-              // leaves the mark a pixel off, so center from the dimensions.
-              Row {
-                visible: root.paused
-                x: heroScreen.x + (heroScreen.width - width) / 2
-                y: heroScreen.y + (heroScreen.height - height) / 2
-                spacing: 2.2 * heroMark.unit
+                Row {
+                  anchors.centerIn: parent
+                  spacing: Style.space(5)
 
-                Rectangle {
-                  width: 2.6 * heroMark.unit
-                  height: 7 * heroMark.unit
-                  radius: 1 * heroMark.unit
-                  color: root.foreground
+                  Rectangle {
+                    width: Style.space(6)
+                    height: width
+                    radius: width / 2
+                    color: root.active
+                      ? root.paused ? root.secondary : root.accent
+                      : root.dim
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    SequentialAnimation on opacity {
+                      running: (root.status === "recording" || root.capturing)
+                        && !root.paused && !Style.reduceMotion
+                      loops: Animation.Infinite
+                      NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                      NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                    }
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "0:00"
+                    color: root.active
+                      ? root.paused ? root.secondary : root.foreground
+                      : root.secondary
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
                 }
-
-                Rectangle {
-                  width: 2.6 * heroMark.unit
-                  height: 7 * heroMark.unit
-                  radius: 1 * heroMark.unit
-                  color: root.foreground
-                }
-              }
-
-              Rectangle {
-                visible: !root.paused
-                x: heroScreen.x + (heroScreen.width - width) / 2
-                y: heroScreen.y + (heroScreen.height - height) / 2
-                width: 6.4 * heroMark.unit
-                height: width
-                radius: width / 2
-                color: heroMark.markColor
-
-                SequentialAnimation on opacity {
-                  running: root.status === "recording" && !Style.reduceMotion
-                  loops: Animation.Infinite
-                  NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                  NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                }
-              }
-
-              Rectangle {
-                x: 9.5 * heroMark.unit
-                y: 21 * heroMark.unit
-                width: 5 * heroMark.unit
-                height: Math.max(1, 1.6 * heroMark.unit)
-                radius: Math.max(0.5, 0.8 * heroMark.unit)
-                color: root.foreground
-                opacity: 0.55
               }
             }
           }
-          title: root.page === "history" ? "Reel history" : "Reel"
+          title: ""
           foreground: root.foreground
           fontFamily: root.fontFamily
           trailingControl: Component {
             Row {
               spacing: Style.space(2)
-
-              Item {
-                width: Style.space(60)
-                height: Style.space(22)
-                anchors.verticalCenter: parent.verticalCenter
-
-                Rectangle {
-                  anchors.fill: parent
-                  radius: height / 2
-                  color: root.restFill
-                  border.width: 1
-                  border.color: root.hairline
-                  opacity: root.active ? 1 : 0
-                  Behavior on opacity {
-                    NumberAnimation { duration: Style.duration(120) }
-                  }
-
-                  Row {
-                    anchors.centerIn: parent
-                    spacing: Style.space(5)
-
-                    Rectangle {
-                      width: Style.space(6)
-                      height: width
-                      radius: width / 2
-                      color: root.paused ? root.secondary : root.accent
-                      anchors.verticalCenter: parent.verticalCenter
-
-                      SequentialAnimation on opacity {
-                        running: root.active && !root.paused && !Style.reduceMotion
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                        NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                      }
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      text: Model.clock(root.elapsed)
-                      color: root.paused ? root.secondary : root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-                  }
-                }
-              }
 
               PanelActionButton {
                 id: updateButton

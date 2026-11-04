@@ -157,7 +157,7 @@ The theme font is monospace by default, which suits clocks, values, and keys.
 | `subtitle`  | 13   | Reserved for emphasized rows                  |
 | `title`     | 14   | Panel title, tooltip icon size                |
 | `heading`   | 16   | Empty-state headline                          |
-| `display`   | 24   | Hero mark and countdown base size             |
+| `display`   | 24   | Countdown base size                           |
 
 Rules:
 
@@ -204,7 +204,7 @@ here.`
 | MD       | 8     | Control gap, action gap          |
 | LG       | 10    | Panel content gap, toast inset   |
 | XL       | 12    | Section gap                      |
-| XXL      | 14    | Hero icon-to-title gap           |
+| XXL      | 14    | Large gaps                       |
 | XXL+     | 16    | Tab underline inset              |
 | XXXL     | 18    | Empty-state and large gaps       |
 
@@ -212,7 +212,7 @@ here.`
 
 - Content: **440 × 410** logical pixels (`fittedContentWidth(Style.space(440))`,
   `Style.space(410)`).
-- Fixed header: hero (24 high) + `10` gap + actions (38 high) + `10` gap +
+- Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `8` above, `2` below) + `1` px hairline.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
@@ -231,7 +231,7 @@ ColumnLayout {
   anchors.fill: parent
   spacing: Style.space(10)
 
-  PanelHero { Layout.fillWidth: true /* status pill + history */ }
+  PanelHero { Layout.fillWidth: true /* timer pill + update/history */ }
 
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
@@ -325,30 +325,27 @@ Rules:
 
 ### 6.2 Hero (fixed)
 
-The hero is identity, live status, and history access. It is not a place for
-settings, target labels, or metadata.
+The hero is the recording clock, the update cue, and history access. It is not
+a place for identity text or metadata.
 
-- Height: content-driven, normally `24`; never taller than one line.
-- Mark: drawn screen glyph at `Style.font.display` (24).
-- Title: `Reel` or `Reel history`, `title` size, bold, foreground.
-- Gap between mark and title: `Style.space(14)`.
+- Height: `22`, the pill height.
+- Leading control: **recording status pill** — `60 × 22` slot, pill radius,
+  always visible.
+  - Idle: dim dot + `0:00` in secondary.
+  - Recording: accent dot + live clock, foreground.
+  - Paused: secondary dot + frozen clock, no pulse.
+  - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
+  - Fill `restFill`, hairline border.
 - Trailing control contains, in order:
-  1. **Recording status pill** — `60 × 22` slot, pill radius.
-     - Recording: accent dot + clock, foreground.
-     - Paused: secondary dot + secondary clock, no pulse.
-     - Idle: opacity `0`; the slot stays reserved.
-     - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
-     - Pill fade: `120` ms.
-  2. **Update button** — `PanelActionButton` with a single dot, always
+  1. **Update button** — `PanelActionButton` with a single dot, always
      reserved. `dim` when current, `accent` when an update is waiting; the dot
      brightens on hover or keyboard focus. Tooltip `Check for updates` or
      `Update available: vX.Y.Z (Shift+U)`. Activating updates when one is
      waiting, otherwise checks again.
-  3. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
+  2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
      history page is active, tooltip `History (Shift+H)` / `Back from history`.
-- Do not add a meta line under the title. It changes hero height and moves the
-  title off the icon's optical center.
-- Do not let the clock label change the hero width. Reserve the slot.
+- There is no Reel mark or title in the hero. The bar keeps the drawn mark.
+- Do not let the clock label change the pill width. The `60` slot is reserved.
 
 ### 6.3 Primary actions (fixed)
 
@@ -696,7 +693,8 @@ If a fourth signature animation is proposed, remove one of these instead.
 ## 9. Iconography
 
 - Nerd Font glyphs only. No emoji, no mixed icon sets.
-- The bar mark and hero mark are drawn geometry, not font glyphs.
+- The bar mark is drawn geometry, not a font glyph. The hero leads with the
+  recording pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Glyph tiles are `24 × 24`, square, `restFill`, `hairline`.
 - A glyph never replaces a text label for a primary action.
