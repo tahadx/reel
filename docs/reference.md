@@ -96,6 +96,17 @@ FFT-based noise reduction before normalizing the audio. It is a save-pass
 filter, so it does not add latency while recording and cannot clean an already
 finished take.
 
+## Save pass
+
+A take is written by the encoder, then finished in place: the first frame is
+dropped (or the countdown is trimmed), the PipeWire pop is muted, the audio is
+normalized, and noise reduction runs when it was on.
+
+When the capture's first GOP is flagged for discard, only the head of the video
+is re-encoded, up to the next keyframe. Everything after that is stream-copied
+and joined with the processed audio, so a long take does not re-encode the
+whole file just to trim its head.
+
 ## Runtime files
 
 | Path | Contents |
