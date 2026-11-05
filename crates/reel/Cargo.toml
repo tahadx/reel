@@ -1,6 +1,6 @@
 [package]
 name = "reel"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Taha Sadough <tahasdx@gmail.com>"]
 edition = "2021"
 description = "Reel — the screen recorder backend for the Omarchy plugin"
