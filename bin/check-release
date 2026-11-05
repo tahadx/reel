@@ -89,6 +89,8 @@ if not problems and version:
             "XDG_CONFIG_HOME": os.path.join(tmp, ".config"),
             "XDG_STATE_HOME": os.path.join(tmp, ".state"),
             "XDG_RUNTIME_DIR": os.path.join(tmp, ".run"),
+            # The check runs on the developer's live desktop; never notify.
+            "REEL_NO_NOTIFY": "1",
         }
     )
     try:

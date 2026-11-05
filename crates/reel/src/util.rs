@@ -117,6 +117,12 @@ pub fn run_ok(program: &str, args: &[&str]) -> bool {
 }
 
 pub fn notify(title: &str, body: Option<&str>, urgency: &str) {
+    // Tests run on the developer's live desktop, so a failure path must not
+    // surface a notification. Test builds are silenced by cfg(test); test
+    // scripts set REEL_NO_NOTIFY for the shipped engine they invoke.
+    if cfg!(test) || std::env::var_os("REEL_NO_NOTIFY").is_some() {
+        return;
+    }
     if !have("omarchy-notification-send") {
         return;
     }

@@ -160,6 +160,11 @@ bin/check-release
 omarchy plugin validate .
 ```
 
+Tests must stay off the live desktop. `bin/test-qml` forces the offscreen Qt
+platform, and the test scripts set `REEL_NO_NOTIFY=1` so a failure path cannot
+pop a notification. Keep both in any new test path; never let a test open a real
+panel or window or call `omarchy-notification-send`.
+
 ### Live desktop testing (when UI or shell integration changes)
 
 ```sh
