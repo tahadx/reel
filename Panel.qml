@@ -1089,13 +1089,22 @@ Panel {
     else root.openHistory()
   }
 
+  // The Webcam device row can only offer the cameras in root.cameras, so read
+  // them before the row is shown: on panel open (the row is reachable straight
+  // from the settings section) and again whenever settings open, which is the
+  // point where a camera may have been plugged in since. A finished probe has
+  // running === false again, so this also retries after a failure.
+  function refreshCameras() {
+    if (!cameraProbe.running) cameraProbe.running = true
+  }
+
   function openSettings() {
     if (root.page === "history") root.page = "home"
     root.clearHover()
     root.beginKeyboardScroll()
     root.focusSection = "settings"
     root.settingsIndex = 0
-    if (!cameraProbe.running) cameraProbe.running = true
+    root.refreshCameras()
     root.typingPrefix = false
     root.cursorActive = true
     root.historyAnchorPath = ""
@@ -1239,6 +1248,7 @@ Panel {
       root.takeMenuRow = null
       root.takeMenuIndex = 0
       root.syncConfig()
+      root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
@@ -3342,8 +3352,8 @@ Panel {
     onExited: function(code) { root.hasOmacut = code === 0 }
   }
 
-  // Cameras can be plugged in while the shell runs, so this is re-read every
-  // time settings open rather than only at startup.
+  // Cameras can be plugged in while the shell runs, so this is re-read on
+  // panel open and every time settings open rather than only at startup.
   Process {
     id: cameraProbe
     running: false

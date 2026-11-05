@@ -104,8 +104,9 @@ If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
 Settings -> **Webcam device** cycles Auto plus the cameras from `reel webcams`
 and stores the camera's `/dev/v4l/by-id` link, which stays the same when cameras
 are unplugged or plugged in a different order (a `/dev/videoN` node is stored
-only when udev made no link). The list is read each time settings open, so a
-camera plugged in while the shell runs appears without a reload. A chosen camera
+only when udev made no link). The list is read when the panel opens and again
+each time settings open, so a camera plugged in while the shell runs appears
+without a reload. A chosen camera
 that is unplugged stays selected and shows as unplugged; a take started while it
 is missing uses the first camera found and says so in a notification. The device
 only matters while **Webcam corner** is on.
