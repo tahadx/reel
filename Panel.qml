@@ -662,7 +662,7 @@ Panel {
 
   function openTakeMenu(row, rowIndex, anchor) {
     if (!row || !anchor) return
-    var surface = keyboardPanel.loadedContent
+    var surface = keyCatcher
     if (!surface) return
     root.cursorActive = true
     root.focusSection = "recents"
@@ -1021,9 +1021,9 @@ Panel {
     else if (key === "t") root.cutSelected()
     else if (key === "u") root.shareSelected()
     else if (key === "a") {
-      if (keyboardPanel.loadedContent
-          && typeof keyboardPanel.loadedContent.openTakeMenuForSelected === "function")
-        keyboardPanel.loadedContent.openTakeMenuForSelected()
+      if (keyCatcher
+          && typeof keyCatcher.openTakeMenuForSelected === "function")
+        keyCatcher.openTakeMenuForSelected()
     }
     else if (key === "c") {
       var row = root.selectedTake()
@@ -1106,7 +1106,7 @@ Panel {
   }
 
   function focusPanelKeys() {
-    if (keyboardPanel.loadedContent) keyboardPanel.loadedContent.forceActiveFocus()
+    if (keyCatcher) keyCatcher.forceActiveFocus()
   }
 
   function toggleSettings() {
@@ -1165,8 +1165,8 @@ Panel {
   // ---------- scroll ------------------------------------------------------
 
   function scrollArea() {
-    if (!keyboardPanel.loadedContent) return null
-    return keyboardPanel.loadedContent.scrollArea || null
+    if (!keyCatcher) return null
+    return keyCatcher.scrollArea || null
   }
 
   function resetScroll() {
@@ -1366,8 +1366,8 @@ Panel {
         SequentialAnimation on opacity {
           running: (root.status === "recording" || root.capturing) && !Style.reduceMotion
           loops: Animation.Infinite
-          NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-          NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 0.4; duration: 1000; easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
         }
       }
 
@@ -1391,7 +1391,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: keyboardPanel.loadedContent
+    focusTarget: keyCatcher
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
     contentHeight: Style.space(410)
 
@@ -1403,7 +1403,7 @@ Panel {
       height: root.carryingFile ? 0 : keyboardPanel.screenH
     }
 
-    content: ReelKeyCatcher {
+    ReelKeyCatcher {
       id: keyCatcher
       property alias scrollArea: scrollArea
       anchors.fill: parent
@@ -1472,8 +1472,8 @@ Panel {
                       running: (root.status === "recording" || root.capturing)
                         && !root.paused && !Style.reduceMotion
                       loops: Animation.Infinite
-                      NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                      NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
+                      NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutQuad }
+                      NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
                     }
                   }
 
@@ -1522,10 +1522,10 @@ Panel {
                     && root.hoverSection === "")
 
                 Behavior on color {
-                  ColorAnimation { duration: Style.duration(120) }
+                  ColorAnimation { duration: 120 }
                 }
                 Behavior on border.color {
-                  ColorAnimation { duration: Style.duration(120) }
+                  ColorAnimation { duration: 120 }
                 }
 
                 Text {
@@ -1666,7 +1666,7 @@ Panel {
                     font.bold: settingsTabItem.active
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on color {
-                      ColorAnimation { duration: Style.duration(150) }
+                      ColorAnimation { duration: 150 }
                     }
                   }
 
@@ -1686,7 +1686,7 @@ Panel {
                   color: Util.alpha(root.foreground, 0.35)
                   opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
                   Behavior on opacity {
-                    NumberAnimation { duration: Style.duration(120) }
+                    NumberAnimation { duration: 120 }
                   }
                 }
 
@@ -1701,7 +1701,7 @@ Panel {
                   color: root.accent
                   Behavior on width {
                     NumberAnimation {
-                      duration: Style.duration(150)
+                      duration: 150
                       easing.type: Easing.OutCubic
                     }
                   }
@@ -1821,7 +1821,7 @@ Panel {
                   border.width: 1
                   border.color: prefixInput.activeFocus ? root.accent : root.hairline
                   Behavior on border.color {
-                    ColorAnimation { duration: Style.duration(120) }
+                    ColorAnimation { duration: 120 }
                   }
 
                   TextInput {
@@ -2024,14 +2024,14 @@ Panel {
             target: noticeToast
             property: "opacity"
             to: 1
-            duration: Style.duration(160)
+            duration: 160
             easing.type: Easing.OutCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "y"
             to: 0
-            duration: Style.duration(200)
+            duration: 200
             easing.type: Easing.OutBack
             easing.overshoot: 1.12
           }
@@ -2039,7 +2039,7 @@ Panel {
             target: noticeToast
             property: "scale"
             to: 1
-            duration: Style.duration(200)
+            duration: 200
             easing.type: Easing.OutBack
             easing.overshoot: 1.06
           }
@@ -2051,21 +2051,21 @@ Panel {
             target: noticeToast
             property: "opacity"
             to: 0
-            duration: Style.duration(120)
+            duration: 120
             easing.type: Easing.InCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "y"
             to: Style.space(12)
-            duration: Style.duration(150)
+            duration: 150
             easing.type: Easing.InCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "scale"
             to: 0.96
-            duration: Style.duration(150)
+            duration: 150
             easing.type: Easing.InCubic
           }
         }
@@ -2130,7 +2130,7 @@ Panel {
             anchors.left: parent.left
             color: root.noticeUrgent ? root.urgent : root.accent
             Behavior on width {
-              NumberAnimation { duration: Style.duration(180); easing.type: Easing.OutCubic }
+              NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
             }
           }
 
@@ -2470,7 +2470,7 @@ Panel {
     opacity: enabled ? 1.0 : 0.35
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
-      NumberAnimation { duration: Style.duration(90); easing.type: Easing.OutCubic }
+      NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
     }
 
     Rectangle {
@@ -2512,7 +2512,7 @@ Panel {
         : action.pointerHovered ? Util.alpha(root.foreground, 0.12)
         : "transparent"
       Behavior on color {
-        ColorAnimation { duration: Style.duration(120) }
+        ColorAnimation { duration: 120 }
       }
     }
 
@@ -2602,7 +2602,7 @@ Panel {
       ? (menuItem.urgent ? root.urgentSoft : root.selectedFill)
       : "transparent"
     Behavior on color {
-      ColorAnimation { duration: Style.duration(120) }
+      ColorAnimation { duration: 120 }
     }
 
     Rectangle {
@@ -2751,10 +2751,10 @@ Panel {
     clip: true
     opacity: removing ? 0 : 1
     Behavior on opacity {
-      NumberAnimation { duration: Style.duration(120) }
+      NumberAnimation { duration: 120 }
     }
     Behavior on implicitHeight {
-      NumberAnimation { duration: Style.duration(160); easing.type: Easing.OutCubic }
+      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
     }
 
     Row {
@@ -3230,10 +3230,10 @@ Panel {
         }
 
         Behavior on color {
-          ColorAnimation { duration: Style.duration(120) }
+          ColorAnimation { duration: 120 }
         }
         Behavior on border.color {
-          ColorAnimation { duration: Style.duration(120) }
+          ColorAnimation { duration: 120 }
         }
       }
 
@@ -3256,7 +3256,7 @@ Panel {
           color: setting.switchOn ? root.inkOn(root.accent) : root.secondary
 
           Behavior on x {
-            NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
           }
         }
       }
