@@ -1172,6 +1172,69 @@ mod tests {
     }
 
     #[test]
+    fn window_and_region_telemetry_build_projects() {
+        let root = temp_root("project-targets");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-6.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        // A window and a region capture report the same three fields; the
+        // click is in encoded-frame pixels, so the camera only needs the frame.
+        for (kind, target, width, height) in [
+            ("window", "window:0x55", 1920, 1080),
+            ("region", "region:800x600+120+80", 800, 600),
+        ] {
+            let telemetry = root.join(format!("{kind}.telemetry.jsonl"));
+            let start = format!(
+                "{{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":\
+                 {{\"kind\":\"{kind}\",\"target\":\"{target}\",\"monitor\":\"DP-1\",\
+                 \"width\":{width},\"height\":{height}}},\"fps\":60}}\n"
+            );
+            let click = format!(
+                "{{\"v\":1,\"type\":\"button\",\"t\":1.0,\"state\":\"down\",\
+                 \"x\":{},\"y\":{}}}\n",
+                width - 5,
+                height - 5,
+            );
+            fs::write(&telemetry, start + &click).unwrap();
+
+            let project = project_from_telemetry(
+                &telemetry,
+                &take,
+                &take,
+                0.0,
+                &TakeOptions {
+                    style: "cinematic",
+                    depth: 2.0,
+                },
+                target,
+                kind,
+            )
+            .unwrap();
+
+            assert_eq!(project.capture.kind, kind);
+            assert_eq!(project.capture.target, target);
+            assert_eq!(project.source.width, width);
+            assert_eq!(project.source.height, height);
+            // A click in the far corner still yields a viewport that sits
+            // inside the frame.
+            let peak = project
+                .camera
+                .keyframes
+                .iter()
+                .find(|frame| frame.zoom > 1.9)
+                .expect("a zoomed keyframe");
+            assert!(peak.x >= width as f64 / 4.0);
+            assert!(peak.y >= height as f64 / 4.0);
+            assert!(peak.x <= width as f64 * 3.0 / 4.0);
+            assert!(peak.y <= height as f64 * 3.0 / 4.0);
+        }
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn telemetry_is_copied_for_a_successful_save() {
         let root = temp_root("telemetry-copy");
         let videos = root.join("Videos");

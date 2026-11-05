@@ -199,6 +199,7 @@ take and does not trim it again.
 When the project is missing or has no camera keyframes, `reel render` encodes
 the take without a zoom. It uses the same audio filter and validation as the
 save pass, and the same project and inputs produce the same bytes.
+
 ## Save pass
 
 A take is written by the encoder, then finished in place: the first frame is
