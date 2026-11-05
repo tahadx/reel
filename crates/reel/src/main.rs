@@ -40,6 +40,7 @@ fn run() -> anyhow::Result<u8> {
         Command::Trash { file } => commands::trash(&paths, file)?,
         Command::Config(args) => config::run(&paths, args)?,
         Command::Preview { json, note_only } => commands::preview(&paths, json, note_only)?,
+        Command::Webcams { json } => commands::webcams(json)?,
         Command::Output => commands::output(&paths),
         Command::Doctor => commands::doctor(&paths),
         Command::Update {

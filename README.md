@@ -16,7 +16,7 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   `Ctrl+Alt+Scroll`, capped by a configurable zoom depth.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
-  and a webcam corner overlay.
+  and a webcam corner overlay with a camera picker.
 - A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
   menu with share and trash, path copy, and drag-out to drop the video into
