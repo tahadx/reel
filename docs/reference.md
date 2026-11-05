@@ -118,6 +118,12 @@ FFT-based noise reduction before normalizing the audio. It is a save-pass
 filter, so it does not add latency while recording and cannot clean an already
 finished take.
 
+**Record the pointer** (`cursor`) controls pointer capture. When it is on, Reel
+also records local pointer movement and clicks for later save-pass work. This
+needs read access to `/dev/input`; add your user to the `input` group
+(`sudo usermod -aG input "$USER"`) and log in again. If the devices cannot be
+read, the take still records and simply has no pointer telemetry.
+
 ## Save pass
 
 A take is written by the encoder, then finished in place: the first frame is
@@ -139,6 +145,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log |
 | `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
+| `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
 | `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
@@ -149,7 +156,9 @@ If `XDG_RUNTIME_DIR` is unset, the runtime files live under
 the XDG Videos directory, so it may not be `~/Videos`.
 
 Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
-uses `reel-`; repeated names get `-2`, `-3`, and so on. JPEG previews are kept
+uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
+is on, Reel records it in the runtime folder and copies it next to the saved
+video as `<take-stem>.telemetry.jsonl`. JPEG previews are kept
 in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
 by older Reel versions are moved into the cache when history is first read.
 
@@ -248,6 +257,9 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **`reel start` refuses to start** — it validates the output folder and audio
   devices before opening the picker. Check `reel output` and the error shown in
   the panel.
+- **A save-pass effect has no pointer data** — pointer telemetry could not read
+  `/dev/input`. Add your user to the `input` group and log in again. The reason
+  is written to the log and the take stays usable.
 - **A take has no audio** — takes shorter than 0.8 seconds are saved silent
   rather than failing the loudness pass. For longer takes, check that the
   selected desktop-output or microphone source exists.

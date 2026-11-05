@@ -1,6 +1,7 @@
 use crate::cli::FinalizeArgs;
 use crate::paths::{self, Paths};
 use crate::state;
+use crate::telemetry;
 use crate::util;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -509,6 +510,43 @@ fn quarantine_before_save(
     }
 }
 
+/// Copy pointer telemetry beside a successfully saved take. A copy failure is
+/// logged and never fails the save; the runtime file stays for debugging.
+fn persist_telemetry(paths: &Paths, take: &Path, telemetry_ran: bool) -> bool {
+    if !telemetry_ran {
+        return false;
+    }
+    if !take.is_file() {
+        paths::log(
+            paths,
+            &format!(
+                "finalize: telemetry not copied because {} is missing",
+                take.display()
+            ),
+        );
+        return false;
+    }
+    match telemetry::persist(paths, take) {
+        Ok(path) => {
+            paths::log(
+                paths,
+                &format!("finalize: telemetry copied to {}", path.display()),
+            );
+            true
+        }
+        Err(err) => {
+            paths::log(
+                paths,
+                &format!(
+                    "finalize: telemetry copy failed for {}: {err}",
+                    take.display()
+                ),
+            );
+            false
+        }
+    }
+}
+
 /// The hidden `__finalize` process spawned by `stop`.
 pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // Keep the take's framing with its result so the panel can show the same
@@ -528,6 +566,12 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     } else {
         Value::String(args.target_label)
     };
+
+    // Read the listener flag before touching state. The recording state is
+    // still `finalizing` here and carries whether telemetry actually ran.
+    let telemetry_ran = state::read(paths)
+        .and_then(|state| state.get("telemetry").and_then(Value::as_bool))
+        .unwrap_or(false);
 
     let mut file = args.file;
     let mut output = args.output.unwrap_or_else(|| file.clone());
@@ -581,6 +625,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut error = String::new();
     let mut saved = output.clone();
+    let mut telemetry_saved = false;
     if finalize_video(
         paths,
         &file,
@@ -595,6 +640,8 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         if quarantined {
             paths::remove_quiet(&file);
         }
+        // The work file has been validated and renamed into place.
+        telemetry_saved = persist_telemetry(paths, &output, telemetry_ran);
     } else if quarantined {
         // The raw capture is already named `-untrimmed`, and the recent list
         // skips that suffix. Point the user at it instead of offering it as a
@@ -619,6 +666,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         "targetLabel": target_label,
         "duration": duration,
         "size": size,
+        "telemetry": telemetry_saved,
         "untrimmed": quarantined && !error.is_empty(),
         "startedAt": args.started_at,
         "finishedAt": paths::now_secs(),
@@ -728,6 +776,66 @@ mod tests {
             .contains("withheld"));
 
         fs::set_permissions(&videos, fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "reel-finalize-{label}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    #[test]
+    fn telemetry_is_copied_for_a_successful_save() {
+        let root = temp_root("telemetry-copy");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-1.mp4");
+        fs::write(&take, b"video").unwrap();
+        fs::write(&paths.session_telemetry, b"{}\n").unwrap();
+
+        assert!(persist_telemetry(&paths, &take, true));
+        assert!(paths::telemetry_path(&take).is_file());
+        assert!(
+            paths.session_telemetry.is_file(),
+            "the runtime copy stays for debugging"
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn telemetry_is_not_copied_when_it_did_not_run() {
+        let root = temp_root("telemetry-off");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-1.mp4");
+        fs::write(&take, b"video").unwrap();
+        fs::write(&paths.session_telemetry, b"{}\n").unwrap();
+
+        assert!(!persist_telemetry(&paths, &take, false));
+        assert!(!paths::telemetry_path(&take).exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_missing_runtime_file_never_fails_the_save() {
+        let root = temp_root("telemetry-missing");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-1.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        assert!(!persist_telemetry(&paths, &take, true));
+        assert!(!paths::telemetry_path(&take).exists());
+        assert!(take.is_file(), "the take itself is untouched");
         let _ = fs::remove_dir_all(root);
     }
 
