@@ -157,7 +157,7 @@ The theme font is monospace by default, which suits clocks, values, and keys.
 | `subtitle`  | 13   | Reserved for emphasized rows                  |
 | `title`     | 14   | Panel title, tooltip icon size                |
 | `heading`   | 16   | Empty-state headline                          |
-| `display`   | 24   | Hero mark and countdown base size             |
+| `display`   | 24   | Countdown base size                           |
 
 Rules:
 
@@ -204,7 +204,7 @@ here.`
 | MD       | 8     | Control gap, action gap          |
 | LG       | 10    | Panel content gap, toast inset   |
 | XL       | 12    | Section gap                      |
-| XXL      | 14    | Hero icon-to-title gap           |
+| XXL      | 14    | Large gaps                       |
 | XXL+     | 16    | Tab underline inset              |
 | XXXL     | 18    | Empty-state and large gaps       |
 
@@ -212,7 +212,7 @@ here.`
 
 - Content: **440 × 410** logical pixels (`fittedContentWidth(Style.space(440))`,
   `Style.space(410)`).
-- Fixed header: hero (24 high) + `10` gap + actions (38 high) + `10` gap +
+- Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `8` above, `2` below) + `1` px hairline.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
@@ -231,7 +231,7 @@ ColumnLayout {
   anchors.fill: parent
   spacing: Style.space(10)
 
-  PanelHero { Layout.fillWidth: true /* status pill + history */ }
+  PanelHero { Layout.fillWidth: true /* timer pill + update/history */ }
 
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
@@ -303,6 +303,7 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 | State            | Bar                                                   |
 | :--------------- | :---------------------------------------------------- |
 | Idle             | Drawn screen mark in `Style.bar.iconCanvas`, no label |
+| Update available | Idle mark plus a `4.5`-unit accent dot, top-right     |
 | Selecting target | Target glyph `󰒉`, no label                            |
 | Countdown        | Countdown number as the glyph                         |
 | Recording        | Dot + clock label; clock uses `urgent`                |
@@ -313,6 +314,9 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 Rules:
 
 - The mark is drawn, not a Nerd Font glyph: screen outline, center dot, stand.
+- The update dot is a badge, not a state: it shares the accent, sits inside the
+  idle mark, and disappears while a take owns the bar. The tooltip appends
+  `update available`.
 - Recording width is the measured clock width + `Style.space(30)`.
 - The dot pulses only while recording or capturing. Pause stops the pulse.
 - Hover uses one shared bar hover fill. No per-state hover color.
@@ -321,25 +325,27 @@ Rules:
 
 ### 6.2 Hero (fixed)
 
-The hero is identity, live status, and history access. It is not a place for
-settings, target labels, or metadata.
+The hero is the recording clock, the update cue, and history access. It is not
+a place for identity text or metadata.
 
-- Height: content-driven, normally `24`; never taller than one line.
-- Mark: drawn screen glyph at `Style.font.display` (24).
-- Title: `Reel` or `Reel history`, `title` size, bold, foreground.
-- Gap between mark and title: `Style.space(14)`.
+- Height: `22`, the pill height.
+- Leading control: **recording status pill** — `60 × 22` slot, pill radius,
+  always visible.
+  - Idle: dim dot + `Ready` in secondary.
+  - Recording: accent dot + live clock, foreground.
+  - Paused: secondary dot + frozen clock, no pulse.
+  - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
+  - Fill `restFill`, hairline border.
 - Trailing control contains, in order:
-  1. **Recording status pill** — `60 × 22` slot, pill radius.
-     - Recording: accent dot + clock, foreground.
-     - Paused: secondary dot + secondary clock, no pulse.
-     - Idle: opacity `0`; the slot stays reserved.
-     - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
-     - Pill fade: `120` ms.
+  1. **Version pill** — `bodySmall` bold in a `22`-high pill next to history.
+     Rest: `vX.Y.Z`, `restFill` + `hairline`, secondary ink. Checking:
+     `Checking...`. Update waiting: `↑ vX.Y.Z` (or `↑ Update`), accent ink,
+     `0.16` accent fill, accent border. Clicking checks when current and
+     updates when one is waiting.
   2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
      history page is active, tooltip `History (Shift+H)` / `Back from history`.
-- Do not add a meta line under the title. It changes hero height and moves the
-  title off the icon's optical center.
-- Do not let the clock label change the hero width. Reserve the slot.
+- There is no Reel mark or title in the hero. The bar keeps the drawn mark.
+- Do not let the clock label change the pill width. The `60` slot is reserved.
 
 ### 6.3 Primary actions (fixed)
 
@@ -394,7 +400,7 @@ The four tabs are fixed. New settings must fit one of them.
 
 | Tab    | Belongs here                                                              | Does not belong                  |
 | :----- | :------------------------------------------------------------------------ | :------------------------------- |
-| Media  | Capture section: countdown, webcam corner, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
+| Media  | Capture section: countdown, webcam corner, webcam device, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
 | Zoom   | Manual zoom, zoom depth, pan step, auto zoom, auto zoom depth             | Anything unrelated to zoom       |
 | Output | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
 | Keys   | Read-only shortcut reference                                              | Editable key bindings            |
@@ -687,7 +693,8 @@ If a fourth signature animation is proposed, remove one of these instead.
 ## 9. Iconography
 
 - Nerd Font glyphs only. No emoji, no mixed icon sets.
-- The bar mark and hero mark are drawn geometry, not font glyphs.
+- The bar mark is drawn geometry, not a font glyph. The hero leads with the
+  recording pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Glyph tiles are `24 × 24`, square, `restFill`, `hairline`.
 - A glyph never replaces a text label for a primary action.

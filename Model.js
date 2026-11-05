@@ -11,6 +11,46 @@ function emptyRecent() {
   return { recordings: [] }
 }
 
+function emptyUpdate() {
+  return { current: "", latest: "", available: false, behind: 0, checkedAt: 0, error: "" }
+}
+
+function parseUpdate(text) {
+  try {
+    var raw = object(JSON.parse(String(text || "{}") || "{}"))
+    return {
+      current: String(raw.current || ""),
+      latest: String(raw.latest || ""),
+      available: raw.available === true,
+      behind: number(raw.behind, 0),
+      checkedAt: number(raw.checkedAt, 0),
+      error: String(raw.error || "")
+    }
+  } catch (e) {
+    return emptyUpdate()
+  }
+}
+
+// `reel --version` prints "reel 0.3.0". Keep only the semver so the pill can
+// show the running engine version without depending on the update check.
+function parseVersion(text) {
+  var value = String(text || "").trim()
+  if (value === "") return ""
+  var match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\s*$/.exec(value)
+  return match ? match[1] : ""
+}
+
+function updatePillLabel(info, version, checking) {
+  if (checking) return "Checking..."
+  var update = object(info)
+  var current = String(version || update.current || "")
+  if (update.available === true) {
+    var latest = String(update.latest || "")
+    return latest !== "" && latest !== current ? "↑ v" + latest : "↑ Update"
+  }
+  return current !== "" ? "v" + current : "v…"
+}
+
 function object(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {}
 }
@@ -513,4 +553,78 @@ function cutCommand(path, hasOmacut) {
   var value = String(path || "")
   if (value === "" || !hasOmacut) return []
   return ["omacut", value]
+}
+
+// `reel webcams --json` answers { "cameras": [ { id, path, label } ] }. `id`
+// is the stable /dev/v4l/by-id link, `path` the /dev/videoN node it points at
+// today. A camera without a label falls back to its id so a row never renders
+// empty.
+function parseCameras(text) {
+    var raw = String(text || "").trim()
+    if (raw === "") return []
+    var parsed
+    try {
+        parsed = JSON.parse(raw)
+    } catch (e) {
+        return []
+    }
+    var list = parsed && parsed.cameras
+    if (!list || list.length === undefined) return []
+    var cameras = []
+    for (var i = 0; i < list.length; i++) {
+        var id = String((list[i] && list[i].id) || "")
+        if (id === "") continue
+        cameras.push({
+            id: id,
+            path: String((list[i] && list[i].path) || ""),
+            label: String((list[i] && list[i].label) || "") || id
+        })
+    }
+    return cameras
+}
+
+function findCamera(cameras, value) {
+    for (var i = 0; i < cameras.length; i++)
+        if (cameras[i].id === value || (cameras[i].path !== "" && cameras[i].path === value))
+            return cameras[i]
+    return null
+}
+
+// What the Webcam device row cycles: Auto, then every connected camera. The
+// stored value always stays on the list, so an unplugged camera is still
+// selected (and comes back when plugged in) instead of being overwritten, and
+// a node stored by an older config stands in for the camera it points at.
+function cameraChoices(cameras, current) {
+    var value = String(current || "")
+    var choices = [""]
+    var matched = false
+    for (var i = 0; i < cameras.length; i++) {
+        var camera = cameras[i]
+        if (value !== "" && (camera.id === value || camera.path === value)) {
+            choices.push(value)
+            matched = true
+        } else {
+            choices.push(camera.id)
+        }
+    }
+    if (value !== "" && !matched) choices.push(value)
+    return choices
+}
+
+// "usb-Insta360_Insta360_Link_2C_Pro-video-index0" reads as
+// "Insta360 Insta360 Link 2C Pro" once the udev decoration is gone.
+function cameraNameFromId(value) {
+    var text = String(value || "")
+    var name = text.slice(text.lastIndexOf("/") + 1)
+    if (text.indexOf("/by-id/") < 0) return text
+    name = name.replace(/^usb-/, "").replace(/-video-index\d+$/, "").replace(/_+/g, " ").trim()
+    return name || text
+}
+
+function cameraLabel(cameras, value) {
+    var text = String(value || "")
+    if (text === "") return "Auto"
+    var camera = findCamera(cameras, text)
+    if (camera) return camera.label
+    return cameraNameFromId(text) + " (unplugged)"
 }

@@ -2,12 +2,176 @@ use crate::config;
 use crate::paths::{self, Paths};
 use crate::state;
 use crate::util;
+use crate::webcam;
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
+
+const PLUGIN_ID: &str = "io.github.tahadx.reel";
+
+/// How long a checked result is trusted. The shell asks once an hour; a restart
+/// inside that window reads the cache instead of fetching again.
+const UPDATE_CHECK_TTL: i64 = 3600;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateReport {
+    current: String,
+    latest: String,
+    available: bool,
+    behind: u64,
+    checked_at: i64,
+    error: String,
+}
+
+fn installed_plugin_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    config_home.join("omarchy/plugins").join(PLUGIN_ID)
+}
+
+fn update_cache_is_fresh(report: &UpdateReport, current: &str, now: i64) -> bool {
+    report.current == current && now.saturating_sub(report.checked_at) < UPDATE_CHECK_TTL
+}
+
+fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
+    let text = fs::read_to_string(&paths.update).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Read the version out of the fetched manifest, so the panel can name the
+/// release the user would get rather than only saying "an update".
+fn remote_version(dir: &Path) -> String {
+    let dir_text = dir.display().to_string();
+    let Some(text) = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "show", "FETCH_HEAD:manifest.json"],
+        Duration::from_secs(10),
+    ) else {
+        return String::new();
+    };
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// Fetch the remote revision and compare it with the installed checkout. The
+/// comparison is the one `omarchy plugin update` uses: how many commits HEAD is
+/// behind the fetched remote head. Failures become a report, not an error, so a
+/// background check never interrupts the panel or the log.
+fn fetch_update_report(current: &str, checked_at: i64) -> UpdateReport {
+    let mut report = UpdateReport {
+        current: current.to_string(),
+        latest: String::new(),
+        available: false,
+        behind: 0,
+        checked_at,
+        error: String::new(),
+    };
+
+    let dir = installed_plugin_dir();
+    if !dir.is_dir() {
+        report.error = "Reel is not installed as an Omarchy plugin.".into();
+        return report;
+    }
+    if !dir.join(".git").exists() {
+        report.error = "This install is not a git checkout.".into();
+        return report;
+    }
+
+    let dir_text = dir.display().to_string();
+    let fetched = util::run_stdout_within_env(
+        "git",
+        &["-C", &dir_text, "fetch", "--quiet", "origin", "HEAD"],
+        &[
+            ("GIT_TERMINAL_PROMPT", "0"),
+            ("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"),
+        ],
+        Duration::from_secs(20),
+    );
+    if fetched.is_none() {
+        report.error = "The remote could not be reached.".into();
+        return report;
+    }
+
+    let behind = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-list", "--count", "HEAD..FETCH_HEAD"],
+        Duration::from_secs(10),
+    )
+    .and_then(|out| out.trim().parse::<u64>().ok());
+    let Some(behind) = behind else {
+        report.error = "The remote revision could not be read.".into();
+        return report;
+    };
+
+    report.behind = behind;
+    report.available = behind > 0;
+    if report.available {
+        report.latest = remote_version(&dir);
+    }
+    report
+}
+
+/// Check whether a newer Reel is available. The hourly service call uses the
+/// cached result inside the hour; `force` (the panel's manual check) always
+/// contacts the remote. Prints JSON for the panel or one line for a terminal.
+pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let now = paths::now_secs();
+
+    let cached = read_update_cache(paths);
+    let fresh = if force {
+        None
+    } else {
+        cached.filter(|report| update_cache_is_fresh(report, &current, now))
+    };
+
+    let report = match fresh {
+        Some(report) => report,
+        None => {
+            let report = fetch_update_report(&current, now);
+            if let Ok(body) = serde_json::to_string(&report) {
+                let _ = paths::write_atomic(&paths.update, &body);
+            }
+            report
+        }
+    };
+
+    if as_json {
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
+
+    if !report.error.is_empty() {
+        println!("Could not check for updates: {}", report.error);
+    } else if report.available {
+        if report.latest.is_empty() || report.latest == report.current {
+            println!(
+                "An update is available (current {}). Run `reel update`.",
+                report.current
+            );
+        } else {
+            println!(
+                "Reel {} is available (current {}). Run `reel update`.",
+                report.latest, report.current
+            );
+        }
+    } else {
+        println!("Reel {} is up to date.", report.current);
+    }
+    Ok(())
+}
 
 /// Update the installed Omarchy plugin, then run the installer from the
 /// updated checkout. The installer is version-matched to the engine it just
@@ -20,14 +184,8 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
         _ => anyhow::bail!("Stop the current take before updating Reel."),
     }
 
-    const ID: &str = "io.github.tahadx.reel";
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
-    let config_home = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
-    let plugin_dir = config_home.join("omarchy/plugins").join(ID);
+    const ID: &str = PLUGIN_ID;
+    let plugin_dir = installed_plugin_dir();
     if !plugin_dir.is_dir() {
         anyhow::bail!(
             "Reel is not installed as an Omarchy plugin at {}",
@@ -68,6 +226,9 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     if !status.success() {
         anyhow::bail!("the updated Reel installer failed");
     }
+    // The cached check described the old checkout. Drop it so the next panel
+    // look can confirm the new version without waiting for the hour.
+    paths::remove_quiet(&paths.update);
     println!("Reel updated.");
     Ok(())
 }
@@ -332,6 +493,24 @@ pub fn preview(paths: &Paths, as_json: bool, note_only: bool) -> Result<()> {
         );
     } else {
         println!("{}", destination.display());
+    }
+    Ok(())
+}
+
+pub fn webcams(as_json: bool) -> Result<()> {
+    let found = webcam::devices();
+    if as_json {
+        let cameras: Vec<_> = found
+            .iter()
+            .map(|camera| json!({ "id": camera.id, "path": camera.path, "label": camera.label }))
+            .collect();
+        println!("{}", serde_json::to_string(&json!({ "cameras": cameras }))?);
+    } else if found.is_empty() {
+        println!("No cameras found.");
+    } else {
+        for camera in &found {
+            println!("{}\t{}", camera.id, camera.label);
+        }
     }
     Ok(())
 }
@@ -634,6 +813,39 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ))
+    }
+
+    #[test]
+    fn an_update_cache_only_lasts_an_hour_for_the_same_release() {
+        let report = UpdateReport {
+            current: "0.3.0".into(),
+            latest: "0.3.1".into(),
+            available: true,
+            behind: 2,
+            checked_at: 1000,
+            error: String::new(),
+        };
+        assert!(update_cache_is_fresh(&report, "0.3.0", 1000 + 3599));
+        assert!(!update_cache_is_fresh(&report, "0.3.0", 1000 + 3600));
+        // A new engine version means the cached answer describes the old
+        // checkout, so it must not be reused.
+        assert!(!update_cache_is_fresh(&report, "0.3.1", 1000 + 10));
+    }
+
+    #[test]
+    fn update_reports_round_trip_through_the_cache_format() {
+        let report = UpdateReport {
+            current: "0.3.0".into(),
+            latest: "0.3.1".into(),
+            available: true,
+            behind: 2,
+            checked_at: 1000,
+            error: String::new(),
+        };
+        let body = serde_json::to_string(&report).unwrap();
+        assert!(body.contains("\"checkedAt\":1000"), "{body}");
+        let parsed: UpdateReport = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed, report);
     }
 
     #[test]

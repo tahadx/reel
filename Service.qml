@@ -25,10 +25,16 @@ Item {
   property var state: Model.emptyState()
   property var recents: []
   property string outputDir: ""
+  property string version: ""
   property string lastError: ""
   property int tick: 0
   property bool recentPending: false
   property string stateSignature: ""
+  // The update check is background work: a cached or remote answer the panel
+  // and bar read without ever waiting on it.
+  property var updateInfo: Model.emptyUpdate()
+  property bool updateChecking: false
+  property bool updatePending: false
   // True once the first-run configure step (the ~/.local/bin link) has
   // finished. Commands must not run before that, or a fresh install flashes a
   // "not on PATH" error while bin/configure is still linking the wrapper.
@@ -51,6 +57,7 @@ Item {
     if (!root.configured) return
     root.refreshRecent()
     root.refreshOutputDir()
+    if (root.version === "" && !versionProc.running) versionProc.running = true
     if (!statusProc.running) statusProc.running = true
   }
 
@@ -68,6 +75,34 @@ Item {
     if (!root.configured) return
     if (outputProc.running) return
     outputProc.running = true
+  }
+
+  // The engine caches a successful check for an hour, so an ordinary poll is
+  // cheap. `force` is the user asking again; it always contacts the remote.
+  function checkForUpdates(force) {
+    if (!root.configured) return
+    if (updateProc.running) {
+      root.updatePending = root.updatePending || !!force
+      return
+    }
+    var command = ["reel", "update", "--check", "--json"]
+    if (force) command.push("--force")
+    root.updateChecking = true
+    updateProc.command = command
+    updateProc.running = true
+  }
+
+  function applyUpdate(text) {
+    root.updateInfo = Model.parseUpdate(String(text || ""))
+    // The check reports the running engine version even when the remote is
+    // unreachable, so it is a second source for the pill until --version
+    // answers.
+    if (root.updateInfo.current !== "") root.version = root.updateInfo.current
+  }
+
+  function applyVersion(text) {
+    var value = Model.parseVersion(String(text || ""))
+    if (value !== "") root.version = value
   }
 
   function applyState(text) {
@@ -192,6 +227,52 @@ Item {
         if (value !== "") root.outputDir = value
       }
     }
+  }
+
+  Process {
+    id: versionProc
+    running: false
+    command: ["reel", "--version"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyVersion(String(text || ""))
+    }
+  }
+
+  Process {
+    id: updateProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyUpdate(String(text || ""))
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var message = String(text || "").trim()
+        if (message !== "" && !root.configureFailed) root.lastError = message
+      }
+    }
+    onExited: function(code) {
+      root.updateChecking = false
+      // A check that was asked for while this one ran runs once more, so a
+      // manual refresh always ends with a fresh answer.
+      if (root.updatePending) {
+        root.updatePending = false
+        root.checkForUpdates(true)
+      }
+    }
+  }
+
+  // Check once when the service is ready and then once an hour. The engine
+  // turns repeated calls inside the hour into a cached read.
+  Timer {
+    id: updateTimer
+    interval: 3600000
+    repeat: true
+    triggeredOnStart: true
+    running: root.configured
+    onTriggered: root.checkForUpdates(false)
   }
 
   // One tick a second is enough for the bar clock and costs almost nothing.

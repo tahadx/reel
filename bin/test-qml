@@ -14,5 +14,11 @@ if [ -z "$runner" ]; then
   exit 0
 fi
 
-export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+# Tests must never touch the live desktop. Without this, qmltestrunner inherits
+# the session's QT_QPA_PLATFORM (often "wayland;xcb") and opens a visible window
+# for every test file. Force the offscreen platform, and silence any engine
+# notice a future test might reach.
+export QT_QPA_PLATFORM=offscreen
+export QT_QUICK_BACKEND=software
+export REEL_NO_NOTIFY=1
 "$runner" -input tests -txt

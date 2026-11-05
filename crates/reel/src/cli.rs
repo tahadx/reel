@@ -57,6 +57,11 @@ pub enum Command {
     },
     /// Render a take again from its project file.
     Render(RenderArgs),
+    /// List the cameras available for the webcam corner.
+    Webcams {
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the recordings folder.
     Output,
     /// Check the tools Reel needs.
@@ -66,6 +71,15 @@ pub enum Command {
         /// Add or refresh the optional Hyprland bindings without prompting.
         #[arg(long)]
         binds: bool,
+        /// Check whether an update is available without installing it.
+        #[arg(long)]
+        check: bool,
+        /// Print the check as JSON.
+        #[arg(long, requires = "check")]
+        json: bool,
+        /// Ignore the cached result and contact the remote now.
+        #[arg(long, requires = "check")]
+        force: bool,
     },
     /// Zoom in on the pointer during recording.
     #[command(name = "zoom-in")]

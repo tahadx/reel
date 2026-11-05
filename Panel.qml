@@ -45,6 +45,11 @@ Panel {
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
     : root.home + "/Videos/Reel"
+  readonly property var updateInfo: root.service && root.service.updateInfo
+    ? root.service.updateInfo : Model.emptyUpdate()
+  readonly property bool updateAvailable: root.updateInfo.available === true
+  readonly property bool updateChecking: root.service
+    ? root.service.updateChecking === true : false
 
   readonly property color foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
   readonly property color accent: Commons.Color.accent
@@ -87,6 +92,7 @@ Panel {
   readonly property var mediaSettingRows: [
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
+    { key: "webcamDevice", label: "Webcam device", glyph: "󰄀" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
@@ -149,6 +155,8 @@ Panel {
   property string settingsTab: "media"
   onSettingsTabChanged: Qt.callLater(root.resetScroll)
   property bool hasOmacut: false
+  // Cameras for the Webcam device row, from `reel webcams --json`.
+  property var cameras: []
 
   property string notice: ""
   property bool noticeUrgent: false
@@ -168,6 +176,7 @@ Panel {
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
+  property bool updateNoticePending: false
 
   // The take actions menu lives at panel level rather than inside each row so
   // the keyboard cursor keeps working while it is open. It anchors to the
@@ -266,6 +275,7 @@ Panel {
     case "noiseCancellation": return ["off", "on"]
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
+    case "webcamDevice": return Model.cameraChoices(root.cameras, root.valueString("webcamDevice", ""))
     case "countdown": return ["0", "3", "5", "10"]
     case "fps": return ["30", "60", "120"]
     case "quality": return ["very_low", "low", "medium", "high", "very_high", "ultra"]
@@ -332,6 +342,8 @@ Panel {
       return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
+    case "webcamDevice":
+      return Model.cameraLabel(root.cameras, value)
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -461,12 +473,57 @@ Panel {
   }
 
   function barTooltip() {
-    if (root.finalizing) return "Reel · saving the take"
-    if (root.paused) return "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
-    if (root.capturing) return "Reel · recording " + Model.clock(root.elapsed)
-    if (root.starting) return "Reel · waiting for a selection"
-    if (root.active) return "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
-    return "Reel · click to open, right-click to record"
+    var text = "Reel · click to open, right-click to record"
+    if (root.finalizing) text = "Reel · saving the take"
+    else if (root.paused) text = "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
+    else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
+    else if (root.starting) text = "Reel · waiting for a selection"
+    else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
+    if (root.updateAvailable) text += " · update available"
+    return text
+  }
+
+  // The header button is both the manual refresh and the update cue: a quiet
+  // dot when the install is current, the same dot in accent when a newer
+  // commit is waiting.
+  function currentVersion() {
+    var value = root.service && root.service.version ? String(root.service.version) : ""
+    if (value === "") value = String(root.updateInfo.current || "")
+    return value
+  }
+
+  function updatePillLabel() {
+    return Model.updatePillLabel(root.updateInfo, root.currentVersion(), root.updateChecking)
+  }
+
+  function updateVersionLabel() {
+    var latest = String(root.updateInfo.latest || "")
+    var current = root.currentVersion()
+    return latest !== "" && latest !== current ? "v" + latest : ""
+  }
+
+  function updateTooltip() {
+    if (root.updateChecking) return "Checking for updates"
+    if (String(root.updateInfo.error || "") !== "")
+      return "Could not check for updates. Click to retry."
+    if (root.updateAvailable) {
+      var version = root.updateVersionLabel()
+      return version !== ""
+        ? "Update available: " + version + " (Shift+U)"
+        : "Update available (Shift+U)"
+    }
+    return "Check for updates"
+  }
+
+  function handleUpdate() {
+    if (root.updateChecking) return
+    if (root.updateAvailable) {
+      root.updateReel()
+      return
+    }
+    if (!root.service) return
+    root.updateNoticePending = true
+    root.service.checkForUpdates(true)
   }
 
   function primaryLabel() {
@@ -620,7 +677,7 @@ Panel {
 
   function openTakeMenu(row, rowIndex, anchor) {
     if (!row || !anchor) return
-    var surface = keyboardPanel.loadedContent
+    var surface = keyCatcher
     if (!surface) return
     root.cursorActive = true
     root.focusSection = "recents"
@@ -825,7 +882,7 @@ Panel {
 
   function sectionCount(section) {
     switch (section) {
-    case "header": return 1
+    case "header": return 2
     case "primary": return 3
     case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
@@ -919,7 +976,8 @@ Panel {
     root.clearHover()
     switch (root.focusSection) {
     case "header":
-      root.toggleHistory()
+      if (root.selectedIndex === 0) root.handleUpdate()
+      else root.toggleHistory()
       break
     case "primary":
       root.primaryAction(root.selectedIndex)
@@ -978,9 +1036,9 @@ Panel {
     else if (key === "t") root.cutSelected()
     else if (key === "u") root.shareSelected()
     else if (key === "a") {
-      if (keyboardPanel.loadedContent
-          && typeof keyboardPanel.loadedContent.openTakeMenuForSelected === "function")
-        keyboardPanel.loadedContent.openTakeMenuForSelected()
+      if (keyCatcher
+          && typeof keyCatcher.openTakeMenuForSelected === "function")
+        keyCatcher.openTakeMenuForSelected()
     }
     else if (key === "c") {
       var row = root.selectedTake()
@@ -1040,12 +1098,22 @@ Panel {
     else root.openHistory()
   }
 
+  // The Webcam device row can only offer the cameras in root.cameras, so read
+  // them before the row is shown: on panel open (the row is reachable straight
+  // from the settings section) and again whenever settings open, which is the
+  // point where a camera may have been plugged in since. A finished probe has
+  // running === false again, so this also retries after a failure.
+  function refreshCameras() {
+    if (!cameraProbe.running) cameraProbe.running = true
+  }
+
   function openSettings() {
     if (root.page === "history") root.page = "home"
     root.clearHover()
     root.beginKeyboardScroll()
     root.focusSection = "settings"
     root.settingsIndex = 0
+    root.refreshCameras()
     root.typingPrefix = false
     root.cursorActive = true
     root.historyAnchorPath = ""
@@ -1063,7 +1131,7 @@ Panel {
   }
 
   function focusPanelKeys() {
-    if (keyboardPanel.loadedContent) keyboardPanel.loadedContent.forceActiveFocus()
+    if (keyCatcher) keyCatcher.forceActiveFocus()
   }
 
   function toggleSettings() {
@@ -1122,8 +1190,8 @@ Panel {
   // ---------- scroll ------------------------------------------------------
 
   function scrollArea() {
-    if (!keyboardPanel.loadedContent) return null
-    return keyboardPanel.loadedContent.scrollArea || null
+    if (!keyCatcher) return null
+    return keyCatcher.scrollArea || null
   }
 
   function resetScroll() {
@@ -1189,6 +1257,7 @@ Panel {
       root.takeMenuRow = null
       root.takeMenuIndex = 0
       root.syncConfig()
+      root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
@@ -1278,6 +1347,19 @@ Panel {
         color: root.foreground
         opacity: 0.55
       }
+
+      // An update waiting is actionable, so it earns a mark on the idle
+      // widget. A take keeps the bar for its clock; the badge comes back
+      // when the take is done.
+      Rectangle {
+        visible: root.updateAvailable
+        x: 18.5 * parent.unit
+        y: 0.5 * parent.unit
+        width: 4.5 * parent.unit
+        height: width
+        radius: width / 2
+        color: root.accent
+      }
     }
 
     Row {
@@ -1310,8 +1392,8 @@ Panel {
         SequentialAnimation on opacity {
           running: (root.status === "recording" || root.capturing) && !Style.reduceMotion
           loops: Animation.Infinite
-          NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-          NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 0.4; duration: 1000; easing.type: Easing.InOutQuad }
+          NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
         }
       }
 
@@ -1335,7 +1417,7 @@ Panel {
     owner: root
     bar: root.bar
     open: root.opened
-    focusTarget: keyboardPanel.loadedContent
+    focusTarget: keyCatcher
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
     contentHeight: Style.space(410)
 
@@ -1347,7 +1429,7 @@ Panel {
       height: root.carryingFile ? 0 : keyboardPanel.screenH
     }
 
-    content: ReelKeyCatcher {
+    ReelKeyCatcher {
       id: keyCatcher
       property alias scrollArea: scrollArea
       anchors.fill: parent
@@ -1386,133 +1468,123 @@ Panel {
         PanelHero {
           Layout.fillWidth: true
           iconComponent: Component {
-            // The same drawn mark the bar uses, at display size. Recording
-            // pulses the dot, pause splits it into two bars, and the save
-            // pass dims it, so the header matches the bar state.
+            // The old recording pill, now always present on the left: it reads
+            // 0:00 at rest and the live elapsed time while a take is running.
             Item {
-              id: heroMark
-              width: Style.font.display
-              height: Style.font.display
-              readonly property real unit: width / 24
-              readonly property color markColor: root.finalizing
-                ? root.dim : root.foreground
+              width: Style.space(60)
+              height: Style.space(22)
 
               Rectangle {
-                id: heroScreen
-                x: 2.5 * heroMark.unit
-                y: 4 * heroMark.unit
-                width: 19 * heroMark.unit
-                height: 15 * heroMark.unit
-                radius: 4.5 * heroMark.unit
-                color: "transparent"
-                border.width: Math.max(1, Math.round(1.5 * heroMark.unit))
-                border.color: root.foreground
-                opacity: 0.9
-              }
+                anchors.fill: parent
+                radius: height / 2
+                color: root.restFill
+                border.width: 1
+                border.color: root.hairline
 
-              // centerIn rounds against the fractional screen geometry and
-              // leaves the mark a pixel off, so center from the dimensions.
-              Row {
-                visible: root.paused
-                x: heroScreen.x + (heroScreen.width - width) / 2
-                y: heroScreen.y + (heroScreen.height - height) / 2
-                spacing: 2.2 * heroMark.unit
+                Row {
+                  anchors.centerIn: parent
+                  spacing: Style.space(5)
 
-                Rectangle {
-                  width: 2.6 * heroMark.unit
-                  height: 7 * heroMark.unit
-                  radius: 1 * heroMark.unit
-                  color: root.foreground
+                  Rectangle {
+                    width: Style.space(6)
+                    height: width
+                    radius: width / 2
+                    color: root.active
+                      ? root.paused ? root.secondary : root.accent
+                      : root.dim
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    SequentialAnimation on opacity {
+                      running: (root.status === "recording" || root.capturing)
+                        && !root.paused && !Style.reduceMotion
+                      loops: Animation.Infinite
+                      NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutQuad }
+                      NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
+                    }
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "Ready"
+                    color: root.active
+                      ? root.paused ? root.secondary : root.foreground
+                      : root.secondary
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    anchors.verticalCenter: parent.verticalCenter
+                  }
                 }
-
-                Rectangle {
-                  width: 2.6 * heroMark.unit
-                  height: 7 * heroMark.unit
-                  radius: 1 * heroMark.unit
-                  color: root.foreground
-                }
-              }
-
-              Rectangle {
-                visible: !root.paused
-                x: heroScreen.x + (heroScreen.width - width) / 2
-                y: heroScreen.y + (heroScreen.height - height) / 2
-                width: 6.4 * heroMark.unit
-                height: width
-                radius: width / 2
-                color: heroMark.markColor
-
-                SequentialAnimation on opacity {
-                  running: root.status === "recording" && !Style.reduceMotion
-                  loops: Animation.Infinite
-                  NumberAnimation { to: 0.4; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                  NumberAnimation { to: 1.0; duration: Style.duration(1000); easing.type: Easing.InOutQuad }
-                }
-              }
-
-              Rectangle {
-                x: 9.5 * heroMark.unit
-                y: 21 * heroMark.unit
-                width: 5 * heroMark.unit
-                height: Math.max(1, 1.6 * heroMark.unit)
-                radius: Math.max(0.5, 0.8 * heroMark.unit)
-                color: root.foreground
-                opacity: 0.55
               }
             }
           }
-          title: root.page === "history" ? "Reel history" : "Reel"
+          title: ""
           foreground: root.foreground
           fontFamily: root.fontFamily
           trailingControl: Component {
             Row {
               spacing: Style.space(2)
 
-              Item {
-                width: Style.space(60)
-                height: Style.space(22)
+              // The version pill is the update control: low-contrast at rest,
+              // accent when an update is waiting, and "Checking..." on a
+              // manual check.
+              Rectangle {
+                id: versionPill
                 anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: Math.max(Style.space(52),
+                  versionLabel.implicitWidth + Style.space(16))
+                width: implicitWidth
+                height: Style.space(22)
+                radius: height / 2
+                color: root.updateAvailable
+                  ? Util.alpha(root.accent, 0.16)
+                  : versionPill.hot ? root.hoverFill : root.restFill
+                border.width: 1
+                border.color: root.updateAvailable ? root.accent
+                  : versionPill.hot ? root.accent : root.hairline
 
-                Rectangle {
+                readonly property bool hot: (root.hoverSection === "header" && root.hoverIndex === 0)
+                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
+                    && root.hoverSection === "")
+
+                Behavior on color {
+                  ColorAnimation { duration: 120 }
+                }
+                Behavior on border.color {
+                  ColorAnimation { duration: 120 }
+                }
+
+                Text {
+                  id: versionLabel
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: root.updatePillLabel()
+                  color: root.updateAvailable ? root.accent
+                    : versionPill.hot ? root.foreground : root.secondary
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: versionMouse
                   anchors.fill: parent
-                  radius: height / 2
-                  color: root.restFill
-                  border.width: 1
-                  border.color: root.hairline
-                  opacity: root.active ? 1 : 0
-                  Behavior on opacity {
-                    NumberAnimation { duration: Style.duration(120) }
+                  hoverEnabled: true
+                  cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
+                  enabled: !root.updateChecking
+                  onContainsMouseChanged: root.setRowHover("header", 0, containsMouse)
+                  onClicked: {
+                    root.cursorActive = true
+                    root.focusSection = "header"
+                    root.selectedIndex = 0
+                    root.handleUpdate()
                   }
+                }
 
-                  Row {
-                    anchors.centerIn: parent
-                    spacing: Style.space(5)
-
-                    Rectangle {
-                      width: Style.space(6)
-                      height: width
-                      radius: width / 2
-                      color: root.paused ? root.secondary : root.accent
-                      anchors.verticalCenter: parent.verticalCenter
-
-                      SequentialAnimation on opacity {
-                        running: root.active && !root.paused && !Style.reduceMotion
-                        loops: Animation.Infinite
-                        NumberAnimation { to: 0.35; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                        NumberAnimation { to: 1.0; duration: Style.duration(900); easing.type: Easing.InOutQuad }
-                      }
-                    }
-
-                    Text {
-                      textFormat: Text.PlainText
-                      text: Model.clock(root.elapsed)
-                      color: root.paused ? root.secondary : root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.bodySmall
-                      font.bold: true
-                      anchors.verticalCenter: parent.verticalCenter
-                    }
-                  }
+                PanelToolTip {
+                  visible: versionMouse.containsMouse
+                  text: root.updateTooltip()
+                  fontFamily: root.fontFamily
                 }
               }
 
@@ -1521,16 +1593,16 @@ Panel {
                 tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
                 foreground: root.page === "history" ? root.accent : root.foreground
                 fontFamily: root.fontFamily
-                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 0)
-                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
+                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 1)
+                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 1
                     && root.hoverSection === "")
                 onHovered: function(on) {
-                  root.setRowHover("header", 0, on)
+                  root.setRowHover("header", 1, on)
                 }
                 onClicked: {
                   root.cursorActive = true
                   root.focusSection = "header"
-                  root.selectedIndex = 0
+                  root.selectedIndex = 1
                   root.toggleHistory()
                 }
               }
@@ -1620,7 +1692,7 @@ Panel {
                     font.bold: settingsTabItem.active
                     anchors.verticalCenter: parent.verticalCenter
                     Behavior on color {
-                      ColorAnimation { duration: Style.duration(150) }
+                      ColorAnimation { duration: 150 }
                     }
                   }
 
@@ -1640,7 +1712,7 @@ Panel {
                   color: Util.alpha(root.foreground, 0.35)
                   opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
                   Behavior on opacity {
-                    NumberAnimation { duration: Style.duration(120) }
+                    NumberAnimation { duration: 120 }
                   }
                 }
 
@@ -1655,7 +1727,7 @@ Panel {
                   color: root.accent
                   Behavior on width {
                     NumberAnimation {
-                      duration: Style.duration(150)
+                      duration: 150
                       easing.type: Easing.OutCubic
                     }
                   }
@@ -1775,7 +1847,7 @@ Panel {
                   border.width: 1
                   border.color: prefixInput.activeFocus ? root.accent : root.hairline
                   Behavior on border.color {
-                    ColorAnimation { duration: Style.duration(120) }
+                    ColorAnimation { duration: 120 }
                   }
 
                   TextInput {
@@ -1978,14 +2050,14 @@ Panel {
             target: noticeToast
             property: "opacity"
             to: 1
-            duration: Style.duration(160)
+            duration: 160
             easing.type: Easing.OutCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "y"
             to: 0
-            duration: Style.duration(200)
+            duration: 200
             easing.type: Easing.OutBack
             easing.overshoot: 1.12
           }
@@ -1993,7 +2065,7 @@ Panel {
             target: noticeToast
             property: "scale"
             to: 1
-            duration: Style.duration(200)
+            duration: 200
             easing.type: Easing.OutBack
             easing.overshoot: 1.06
           }
@@ -2005,21 +2077,21 @@ Panel {
             target: noticeToast
             property: "opacity"
             to: 0
-            duration: Style.duration(120)
+            duration: 120
             easing.type: Easing.InCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "y"
             to: Style.space(12)
-            duration: Style.duration(150)
+            duration: 150
             easing.type: Easing.InCubic
           }
           NumberAnimation {
             target: noticeToast
             property: "scale"
             to: 0.96
-            duration: Style.duration(150)
+            duration: 150
             easing.type: Easing.InCubic
           }
         }
@@ -2084,7 +2156,7 @@ Panel {
             anchors.left: parent.left
             color: root.noticeUrgent ? root.urgent : root.accent
             Behavior on width {
-              NumberAnimation { duration: Style.duration(180); easing.type: Easing.OutCubic }
+              NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
             }
           }
 
@@ -2424,7 +2496,7 @@ Panel {
     opacity: enabled ? 1.0 : 0.35
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
-      NumberAnimation { duration: Style.duration(90); easing.type: Easing.OutCubic }
+      NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
     }
 
     Rectangle {
@@ -2466,7 +2538,7 @@ Panel {
         : action.pointerHovered ? Util.alpha(root.foreground, 0.12)
         : "transparent"
       Behavior on color {
-        ColorAnimation { duration: Style.duration(120) }
+        ColorAnimation { duration: 120 }
       }
     }
 
@@ -2556,7 +2628,7 @@ Panel {
       ? (menuItem.urgent ? root.urgentSoft : root.selectedFill)
       : "transparent"
     Behavior on color {
-      ColorAnimation { duration: Style.duration(120) }
+      ColorAnimation { duration: 120 }
     }
 
     Rectangle {
@@ -2705,10 +2777,10 @@ Panel {
     clip: true
     opacity: removing ? 0 : 1
     Behavior on opacity {
-      NumberAnimation { duration: Style.duration(120) }
+      NumberAnimation { duration: 120 }
     }
     Behavior on implicitHeight {
-      NumberAnimation { duration: Style.duration(160); easing.type: Easing.OutCubic }
+      NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
     }
 
     Row {
@@ -3184,10 +3256,10 @@ Panel {
         }
 
         Behavior on color {
-          ColorAnimation { duration: Style.duration(120) }
+          ColorAnimation { duration: 120 }
         }
         Behavior on border.color {
-          ColorAnimation { duration: Style.duration(120) }
+          ColorAnimation { duration: 120 }
         }
       }
 
@@ -3210,7 +3282,7 @@ Panel {
           color: setting.switchOn ? root.inkOn(root.accent) : root.secondary
 
           Behavior on x {
-            NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
           }
         }
       }
@@ -3287,6 +3359,21 @@ Panel {
     running: false
     command: ["sh", "-c", "command -v omacut >/dev/null 2>&1"]
     onExited: function(code) { root.hasOmacut = code === 0 }
+  }
+
+  // Cameras can be plugged in while the shell runs, so this is re-read on
+  // panel open and every time settings open rather than only at startup.
+  Process {
+    id: cameraProbe
+    running: false
+    command: ["reel", "webcams", "--json"]
+    stdout: StdioCollector { id: cameraOut; waitForEnd: true }
+    // Only the list changes here: a stored camera that is unplugged keeps its
+    // setting and shows as unplugged, and a failed probe keeps the last list.
+    onExited: function(code) {
+      if (code !== 0) return
+      root.cameras = Model.parseCameras(String(cameraOut.text || ""))
+    }
   }
 
   Process {
@@ -3408,7 +3495,33 @@ Panel {
       root.open()
       root.openSettings()
     }
-    function refresh(): void { if (root.service) root.service.refresh() }
+    function refresh(): void {
+      if (root.service) {
+        root.service.refresh()
+        root.service.checkForUpdates(true)
+      }
+    }
+  }
+
+  Connections {
+    target: root.service
+    function onUpdateInfoChanged() {
+      if (!root.updateNoticePending) return
+      root.updateNoticePending = false
+      var report = root.service && root.service.updateInfo
+        ? root.service.updateInfo : Model.emptyUpdate()
+      if (String(report.error || "") !== "") {
+        root.setNotice("Could not check for updates.", true)
+      } else if (report.available === true) {
+        var latest = String(report.latest || "")
+        var current = String(report.current || "")
+        root.setNotice(latest !== "" && latest !== current
+          ? "Update available: v" + latest + ". Press Shift+U to update."
+          : "Update available. Press Shift+U to update.")
+      } else {
+        root.setNotice("Reel is up to date.")
+      }
+    }
   }
 
   Component.onCompleted: {

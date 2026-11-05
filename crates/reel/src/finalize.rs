@@ -133,6 +133,200 @@ pub(crate) fn valid_video(file: &Path) -> bool {
     video && util::duration_of(file) > 0.0
 }
 
+fn video_keyframes(file: &Path) -> Option<Vec<f64>> {
+    let out = util::run_stdout_within(
+        "ffprobe",
+        &[
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-skip_frame",
+            "nokey",
+            "-show_entries",
+            "frame=pts_time",
+            "-of",
+            "csv=p=0",
+            &file.display().to_string(),
+        ],
+        Duration::from_secs(120),
+    )?;
+    let mut times: Vec<f64> = out
+        .lines()
+        .filter_map(|line| line.trim().trim_end_matches(',').parse::<f64>().ok())
+        .filter(|time| time.is_finite() && *time >= 0.0)
+        .collect();
+    times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    times.dedup_by(|a, b| (*a - *b).abs() < 1e-4);
+    (!times.is_empty()).then_some(times)
+}
+
+/// Where a take with a discard-marked first GOP can hand over to a stream
+/// copy: the first keyframe after the trim. `None` when re-encoding the whole
+/// take is simpler (a very short take, or no keyframe data).
+fn trim_split(source_end: f64, trim: f64, keyframes: &[f64]) -> Option<f64> {
+    let split = keyframes.iter().copied().find(|key| *key > trim + 0.005)?;
+    (split > trim + 0.05 && split < source_end - 0.05).then_some(split)
+}
+
+fn concat_quote(path: &Path) -> String {
+    path.display().to_string().replace('\'', "'\\''")
+}
+
+/// Trim a discard-marked take without re-encoding the whole video.
+///
+/// The first GOP has to be rebuilt because the capture marks the pre-trim
+/// frames for discard. Re-encoding just the stretch up to the next keyframe
+/// gives a clean start; everything after it is stream-copied from the raw
+/// capture and joined with the processed audio in one pass.
+fn trimmed_save(
+    paths: &Paths,
+    file: &Path,
+    work: &Path,
+    trim: f64,
+    audio_filter: &str,
+    audio_present: bool,
+) -> bool {
+    let source_end = util::duration_of(file);
+    if source_end <= trim + 0.1 {
+        return false;
+    }
+    let Some(keyframes) = video_keyframes(file) else {
+        return false;
+    };
+    let Some(split) = trim_split(source_end, trim, &keyframes) else {
+        return false;
+    };
+
+    let name = work
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| "reel-save".into());
+    let dir = work
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(".{name}-parts"));
+    let _ = fs::remove_dir_all(&dir);
+    if fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
+
+    let head = dir.join("head.mp4");
+    let head_args: Vec<String> = vec![
+        "-y".into(),
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-ss".into(),
+        format!("{trim:.3}"),
+        "-i".into(),
+        file.display().to_string(),
+        "-t".into(),
+        format!("{:.3}", split - trim),
+        "-map".into(),
+        "0:v:0".into(),
+        "-c:v".into(),
+        "libx264".into(),
+        "-preset".into(),
+        "veryfast".into(),
+        "-crf".into(),
+        "20".into(),
+        "-pix_fmt".into(),
+        "yuv420p".into(),
+        "-an".into(),
+        head.display().to_string(),
+    ];
+    if !run_ffmpeg(paths, &head_args) {
+        let _ = fs::remove_dir_all(&dir);
+        return false;
+    }
+
+    let list = format!(
+        "file '{}'\nfile '{}'\ninpoint {:.3}\noutpoint {:.3}\n",
+        concat_quote(&head),
+        concat_quote(file),
+        split,
+        source_end
+    );
+    let list_path = dir.join("segments.txt");
+    if fs::write(&list_path, &list).is_err() {
+        let _ = fs::remove_dir_all(&dir);
+        return false;
+    }
+
+    let mut audio: Option<PathBuf> = None;
+    if audio_present {
+        let audio_path = dir.join("audio.m4a");
+        let args: Vec<String> = vec![
+            "-y".into(),
+            "-hide_banner".into(),
+            "-loglevel".into(),
+            "error".into(),
+            "-ss".into(),
+            format!("{trim:.3}"),
+            "-i".into(),
+            file.display().to_string(),
+            "-vn".into(),
+            "-af".into(),
+            audio_filter.to_string(),
+            "-c:a".into(),
+            "aac".into(),
+            "-b:a".into(),
+            "192k".into(),
+            "-ar".into(),
+            "48000".into(),
+            audio_path.display().to_string(),
+        ];
+        if run_ffmpeg(paths, &args) {
+            audio = Some(audio_path);
+        } else {
+            paths::log(
+                paths,
+                "finalize: trimmed save could not process audio; saving video only",
+            );
+        }
+    }
+
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-f".into(),
+        "concat".into(),
+        "-safe".into(),
+        "0".into(),
+        "-i".into(),
+        list_path.display().to_string(),
+    ];
+    match audio.as_ref() {
+        Some(audio) => args.extend([
+            "-i".into(),
+            audio.display().to_string(),
+            "-map".into(),
+            "0:v:0".into(),
+            "-map".into(),
+            "1:a:0".into(),
+            "-c".into(),
+            "copy".into(),
+        ]),
+        None => args.extend([
+            "-map".into(),
+            "0:v:0".into(),
+            "-c".into(),
+            "copy".into(),
+            "-an".into(),
+        ]),
+    }
+    if work.extension().map(|ext| ext == "mp4").unwrap_or(false) {
+        args.extend(["-movflags".into(), "+faststart".into()]);
+    }
+    args.push(work.display().to_string());
+    let ok = run_ffmpeg(paths, &args);
+    let _ = fs::remove_dir_all(&dir);
+    ok
+}
+
 /// Trim the first frame, mute the PipeWire pop, optionally reduce microphone
 /// noise, normalize the audio, and either stream-copy the video or re-encode
 /// it. The source is left untouched until the finished file has been validated
@@ -174,6 +368,27 @@ pub fn finalize_video(
     }
 
     let audio_filter = audio_filter(noise_cancellation);
+
+    // A capture whose first GOP carries discard flags needs a rebuilt head, but
+    // re-encoding the whole video made long takes spend minutes in the save
+    // pass. Rebuild only the head and stream-copy the rest.
+    let mut ok = false;
+    if needs_video_reencode {
+        let trim_value = trim.parse::<f64>().unwrap_or(0.0);
+        let saved = trimmed_save(paths, file, &work, trim_value, &audio_filter, audio_present);
+        if saved && valid_video(&work) {
+            ok = true;
+        } else {
+            paths::remove_quiet(&work);
+            paths::log(
+                paths,
+                &format!(
+                    "finalize: trimmed save failed for {}; re-encoding the whole take",
+                    file.display()
+                ),
+            );
+        }
+    }
 
     let attempt = |use_audio: bool| -> bool {
         let mut args: Vec<String> = vec![
@@ -218,13 +433,15 @@ pub fn finalize_video(
         run_ffmpeg(paths, &args)
     };
 
-    let mut ok = attempt(audio_present);
-    if !ok && audio_present {
-        paths::log(
-            paths,
-            &format!("finalize: retrying without audio for {}", file.display()),
-        );
-        ok = attempt(false);
+    if !ok {
+        ok = attempt(audio_present);
+        if !ok && audio_present {
+            paths::log(
+                paths,
+                &format!("finalize: retrying without audio for {}", file.display()),
+            );
+            ok = attempt(false);
+        }
     }
 
     if ok && valid_video(&work) {
@@ -1001,6 +1218,17 @@ mod tests {
         assert!(!paths::telemetry_path(&take).exists());
         assert!(take.is_file(), "the take itself is untouched");
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_trim_split_is_the_first_keyframe_after_the_cut() {
+        let keyframes = [0.0, 2.0, 4.0, 6.0];
+        assert_eq!(trim_split(10.0, 0.1, &keyframes), Some(2.0));
+        assert_eq!(trim_split(10.0, 2.4, &keyframes), Some(4.0));
+        // No usable keyframe after the trim: re-encode the whole take.
+        assert_eq!(trim_split(10.0, 0.1, &[0.0]), None);
+        // The split is at the very end: nothing left to copy.
+        assert_eq!(trim_split(2.02, 0.1, &keyframes), None);
     }
 
     #[test]

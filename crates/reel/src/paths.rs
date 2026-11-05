@@ -19,6 +19,9 @@ pub struct Paths {
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
     pub session_telemetry: PathBuf,
+    /// Cached result of the last update check, so restarts inside the hour do
+    /// not touch the network.
+    pub update: PathBuf,
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
@@ -42,6 +45,7 @@ impl Paths {
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
             session_telemetry: root.join("session.telemetry.jsonl"),
+            update: root.join("update.json"),
             config_dir: root.join("config"),
             config: root.join("config.json"),
             previews: root.join("previews"),
@@ -96,6 +100,7 @@ impl Paths {
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
             session_telemetry: runtime.join("session.telemetry.jsonl"),
+            update: runtime.join("update.json"),
             config: config_dir.join("reel.json"),
             config_dir,
             previews,

@@ -28,6 +28,9 @@ assert_no_file() {
 export HOME="$TEST_ROOT/home"
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_STATE_HOME="$HOME/.state"
+# The installer test runs on the developer's live desktop. A failed probe must
+# stay in the log, not become a notification.
+export REEL_NO_NOTIFY=1
 mkdir -p -- "$HOME/.config/hypr" "$HOME/.local/bin" "$TEST_ROOT/bin"
 
 # The installer checks for the recorder tools. Shim them so the test does not
@@ -57,8 +60,13 @@ cat >"$TEST_ROOT/bin/hyprctl" <<'EOF'
 printf '%s\n' "$*" >>"${TEST_ROOT:?}/hyprctl.log"
 exit 0
 EOF
+cat >"$TEST_ROOT/bin/omarchy-notification-send" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$*" >>"${TEST_ROOT:?}/notification.log"
+exit 0
+EOF
 chmod 755 -- "$TEST_ROOT/bin/omarchy" "$TEST_ROOT/bin/omarchy-shell" \
-  "$TEST_ROOT/bin/hyprctl"
+  "$TEST_ROOT/bin/hyprctl" "$TEST_ROOT/bin/omarchy-notification-send"
 export PATH="$HOME/.local/bin:$TEST_ROOT/bin:$PATH"
 unset HYPRLAND_INSTANCE_SIGNATURE
 
@@ -162,5 +170,8 @@ BACKUPS_AFTER="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.ba
 ln -s -- "$TEST_ROOT/my-reel-helper" "$HOME/.local/bin/reel"
 "$REPO/bin/uninstall" >/dev/null
 [[ -L "$HOME/.local/bin/reel" ]] || fail "uninstaller removed an unrelated symlink"
+
+# The test must stay silent on the live desktop even if a probe fails.
+assert_no_file "$TEST_ROOT/notification.log"
 
 echo "install.test: ok"

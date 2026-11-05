@@ -51,13 +51,27 @@ pub fn run_stdout(program: &str, args: &[&str]) -> Option<String> {
 /// indefinitely; a probe stuck behind a wedged service must not hold up a
 /// recording. Only use this where the output fits in the pipe buffer.
 pub fn run_stdout_within(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
-    let mut child = match Command::new(program)
+    run_stdout_within_env(program, args, &[], timeout)
+}
+
+/// Like `run_stdout_within`, with extra environment variables. Used by the
+/// update check so git can never block waiting for a credential prompt.
+pub fn run_stdout_within_env(
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Option<String> {
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-    {
+        .stderr(Stdio::null());
+    for (key, value) in envs {
+        command.env(key, value);
+    }
+    let mut child = match command.spawn() {
         Ok(child) => child,
         Err(err) => {
             debug(&format!("run {program} {args:?} could not spawn: {err}"));
@@ -103,6 +117,12 @@ pub fn run_ok(program: &str, args: &[&str]) -> bool {
 }
 
 pub fn notify(title: &str, body: Option<&str>, urgency: &str) {
+    // Tests run on the developer's live desktop, so a failure path must not
+    // surface a notification. Test builds are silenced by cfg(test); test
+    // scripts set REEL_NO_NOTIFY for the shipped engine they invoke.
+    if cfg!(test) || std::env::var_os("REEL_NO_NOTIFY").is_some() {
+        return;
+    }
     if !have("omarchy-notification-send") {
         return;
     }
