@@ -82,28 +82,6 @@ Panel {
     if (root.finalizing) root.savingTitleCache = Model.savingTitle(root.savingTakePath)
   }
 
-  onFinalizingChanged: {
-    if (root.finalizing) {
-      root.savingHold = false
-      root.savingWasFinalizing = true
-      root.savingTitleCache = Model.savingTitle(root.savingTakePath)
-      return
-    }
-    if (!root.savingWasFinalizing) return
-    root.savingWasFinalizing = false
-    // A failed save publishes no take, so there is nothing to hand off to.
-    if (root.state.last && String(root.state.last.error || "") !== "") return
-    // Hold the row until the history refreshed for this take has landed: the
-    // saved path is in the list, or the list gained the take. The service bumps
-    // recentVersion on every refresh, so the placeholder and the real row then
-    // change within one frame instead of leaving a gap.
-    root.savingHold = true
-    root.savingHoldPath = Model.publishedPath(root.savingTakePath)
-    root.savingHoldCount = root.visibleRecents.length
-    root.savingHoldVersion = root.recentsVersion
-    savingHoldTimer.restart()
-  }
-
   onRecentsVersionChanged: {
     if (!root.savingHold || root.recentsVersion === root.savingHoldVersion) return
     if ((root.savingHoldPath !== "" && root.historyContains(root.savingHoldPath))
@@ -1289,7 +1267,26 @@ Panel {
   }
 
   onFinalizingChanged: {
-    if (root.finalizing) root.setNotice("Saving the take…")
+    if (root.finalizing) {
+      root.setNotice("Saving the take…")
+      root.savingHold = false
+      root.savingWasFinalizing = true
+      root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+      return
+    }
+    if (!root.savingWasFinalizing) return
+    root.savingWasFinalizing = false
+    // A failed save publishes no take, so there is nothing to hand off to.
+    if (root.state.last && String(root.state.last.error || "") !== "") return
+    // Hold the row until the history refreshed for this take has landed: the
+    // saved path is in the list, or the list gained the take. The service bumps
+    // recentVersion on every refresh, so the placeholder and the real row then
+    // change within one frame instead of leaving a gap.
+    root.savingHold = true
+    root.savingHoldPath = Model.publishedPath(root.savingTakePath)
+    root.savingHoldCount = root.visibleRecents.length
+    root.savingHoldVersion = root.recentsVersion
+    savingHoldTimer.restart()
   }
 
   onPendingTrashChanged: {
