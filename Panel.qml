@@ -81,8 +81,6 @@ Panel {
     "container": "mp4",
     "notifications": "off",
     "manualZoom": "on",
-    "zoomMax": "2.0",
-    "panStep": "60",
     "autoZoom": "off",
     "outputDir": "",
     "webcamDevice": ""
@@ -127,9 +125,7 @@ Panel {
     { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
       { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" },
-      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
-      { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
-      { key: "panStep", label: "Pan step", glyph: "󰆞" }
+      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -282,8 +278,6 @@ Panel {
     case "container": return ["mp4", "mkv"]
     case "notifications": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
-    case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
-    case "panStep": return ["30", "60", "120"]
     case "autoZoom": return ["off", "on"]
     default: return [String(root.defaults[key] || "")]
     }
@@ -330,10 +324,6 @@ Panel {
     case "manualZoom":
     case "autoZoom":
       return value === "on" ? "On" : "Off"
-    case "zoomMax":
-      return value + "x"
-    case "panStep":
-      return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "webcamDevice":

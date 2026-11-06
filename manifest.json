@@ -37,8 +37,6 @@
       "webcamDevice": "",
       "notifications": "off",
       "manualZoom": "on",
-      "zoomMax": 2.0,
-      "panStep": 60,
       "autoZoom": "off",
       "autoZoomDepth": 2.0
     },
@@ -213,31 +211,6 @@
         ],
         "defaultValue": "on",
         "description": "Allows live magnifier zoom with keyboard shortcuts (Ctrl+Alt + =/-), mouse wheel (Ctrl+Alt + Scroll), or touchpad pinch gestures."
-      },
-      {
-        "key": "zoomMax",
-        "type": "enum",
-        "label": "Zoom depth",
-        "options": [
-          1.5,
-          2.0,
-          2.5,
-          3.0
-        ],
-        "defaultValue": 2.0,
-        "description": "Maximum magnification level when zooming in."
-      },
-      {
-        "key": "panStep",
-        "type": "enum",
-        "label": "Pan step",
-        "options": [
-          30,
-          60,
-          120
-        ],
-        "defaultValue": 60,
-        "description": "How far one keyboard pan moves the zoomed view, in screen pixels. Hold Shift for three times the step."
       },
       {
         "key": "autoZoom",

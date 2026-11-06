@@ -284,17 +284,17 @@ file.
 
 Manual zoom is enabled by the **Manual zoom** setting (on by default) and only
 acts while a take is recording. Pausing or stopping resets the compositor to
-1×.
+1×. Zoom depth and pan step have no panel rows; they stay config-only.
 
 - Touchpad pinch zooms at the pointer and is registered when a take starts.
   Once zoomed in, a pinch that reads as a pan moves the viewport instead.
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
-- **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×. Pinch,
-  keyboard steps, and the toggle all stop at that depth; the engine clamps to
-  1×–4× regardless. Raising or lowering the depth never snaps an existing zoom
-  back on its own.
+- Zoom depth is 2× by default. `reel config set zoomMax 1.5` (or `2.5`, `3`)
+  changes it; pinch, keyboard steps, and the toggle all stop at that depth. The
+  engine clamps to 1×–4× regardless. Raising or lowering the depth never snaps
+  an existing zoom back on its own.
 
 ### Panning
 
@@ -309,11 +309,11 @@ pointer inside the frame instead of pulling it toward the screen centre. Pinch
 zoom still works there; only panning is monitor-only, and `zoom-pan` does
 nothing for a window or area.
 
-- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves **Pan step**
-  pixels (30, 60, or 120; 60 by default), holding keeps panning at a steady
-  speed, and `Shift` covers three times as much. The view moves immediately and
-  the cursor stays over the point being panned toward. A hold stops as soon as
-  the zoom returns to 1×.
+- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves 60 px by default
+  (`reel config set panStep 30` or `120` changes it), holding keeps panning at
+  a steady speed, and `Shift` covers three times as much. The view moves
+  immediately and the cursor stays over the point being panned toward. A hold
+  stops as soon as the zoom returns to 1×.
 - Panning never changes the zoom factor, so the depth stays locked.
 - The pan target is clamped to the recorded monitor, so the view cannot walk off
   the capture. The compositor additionally clamps it to the monitor.
