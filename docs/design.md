@@ -311,17 +311,23 @@ state changes.
 Rules:
 
 - One mark, not seven. The pill is `Style.space(20)` tall, radius
-  `height / 2`, `foreground` at 5% with a 14% hairline. Its width comes from
-  the clock's advance, so the timer never clips; the same width is reserved at
-  rest, so starting a take does not move the bar.
+  `height / 2`, `foreground` at 5% with a 14% hairline on a dark bar. Its width
+  comes from the clock's advance, so the timer never clips; the same width is
+  reserved at rest, so starting a take does not move the bar.
+- A light bar gets a stronger capsule — `foreground` at 10% with a 30%
+  hairline — because the same wash reads as nothing on a bright surface. The
+  quiet dot and clock switch from the theme's `muted` to the foreground at
+  62%, since `muted` is a light grey on light themes. The choice follows the
+  bar's own background luminance, so a theme with a light bar and dark popups
+  still gets it right.
 - The clock carries the state: `0:00` at rest and while the take is armed (the
   countdown is already on screen, so the bar does not echo it), the live time
   while frames run, the frozen time while paused, the take's last time while it
   is written out, and back to `0:00` when the save lands.
 - Accent belongs to frames running: the pill's dot is accent and pulses
   between `0.55` and full while recording or capturing. Idle, arming and saving
-  are `dim`, pause is `secondary`, and the clock stays `foreground` only while
-  live.
+  are the quiet tone, pause is `secondary`, and the clock stays `foreground`
+  only while live.
 - Saving is the same pill sinking into dim and breathing between `0.60` and
   `0.85` opacity until the save lands — dim enough to read as closing, bright
   enough to keep the last time legible. No ring, no second language for the

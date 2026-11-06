@@ -1322,6 +1322,28 @@ Panel {
   readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
     + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
 
+  // The bar's own surface decides how much tint the pill needs. On a light bar
+  // a 5% foreground wash and the theme's muted both vanish, so the capsule
+  // steps up and the quiet state leans on the foreground rather than on the
+  // muted role. Dark bars keep the values the pill was designed with.
+  readonly property color barSurface: Commons.Color.bar.background
+  readonly property real barSurfaceLuminance: {
+    var base = Commons.Color.background
+    var surface = root.barSurface
+    var a = surface.a
+    var r = surface.r * a + base.r * (1 - a)
+    var g = surface.g * a + base.g * (1 - a)
+    var b = surface.b * a + base.b * (1 - a)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+  readonly property bool barOnLight: root.barSurfaceLuminance > 0.5
+  readonly property color barPillQuiet: root.barOnLight
+    ? Util.alpha(root.foreground, 0.62) : root.dim
+  readonly property real barPillFillAlpha: root.barOnLight ? 0.10 : 0.05
+  readonly property real barPillLineAlpha: root.barOnLight ? 0.30 : 0.14
+  readonly property real barPillSavingFillAlpha: root.barOnLight ? 0.10 : 0.04
+  readonly property real barPillSavingLineAlpha: root.barOnLight ? 0.30 : 0.12
+
   // The take's clock: 0:00 at rest and while a take is being armed (the
   // countdown is on screen, so the bar does not echo it), the live time while
   // frames run, and the take's last time while it is saved.
@@ -1385,17 +1407,19 @@ Panel {
       Rectangle {
         anchors.fill: parent
         radius: height / 2
-        color: Util.alpha(root.foreground, root.finalizing ? 0.04 : 0.05)
+        color: Util.alpha(root.foreground,
+          root.finalizing ? root.barPillSavingFillAlpha : root.barPillFillAlpha)
         border.width: 1
-        border.color: Util.alpha(root.foreground, root.finalizing ? 0.12 : 0.14)
+        border.color: Util.alpha(root.foreground,
+          root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
       }
 
       Row {
         anchors.centerIn: parent
         spacing: root.barPillGap
 
-        // Accent belongs to frames running. Idle, arming and saving are dim;
-        // pause is muted, as in the panel.
+        // Accent belongs to frames running. Idle, arming and saving are quiet;
+        // pause is secondary, as in the panel.
         Rectangle {
           id: takeDot
           width: root.barPillDot
@@ -1403,7 +1427,7 @@ Panel {
           radius: width / 2
           anchors.verticalCenter: parent.verticalCenter
           color: root.status === "recording" || root.capturing
-            ? root.accent : root.paused ? root.secondary : root.dim
+            ? root.accent : root.paused ? root.secondary : root.barPillQuiet
 
           SequentialAnimation on opacity {
             running: (root.status === "recording" || root.capturing)
@@ -1418,7 +1442,7 @@ Panel {
           textFormat: Text.PlainText
           text: root.barClockText()
           color: root.status === "recording" || root.capturing
-            ? root.foreground : root.paused ? root.secondary : root.dim
+            ? root.foreground : root.paused ? root.secondary : root.barPillQuiet
           font.family: root.fontFamily
           font.pixelSize: Style.bar.iconFont
           font.bold: root.status === "recording" || root.capturing
