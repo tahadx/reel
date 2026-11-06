@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 24 24">
+  <title>Reel</title>
+  <desc>The Reel bar mark: a screen outline and a recording dot.</desc>
+  <rect x="2.5" y="4.5" width="19" height="15" rx="4.5" fill="none" stroke="#8a9a7b" stroke-width="1.6" opacity="0.9"/>
+  <circle cx="12" cy="12" r="3.2" fill="#8a9a7b"/>
+</svg>

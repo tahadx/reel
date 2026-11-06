@@ -191,7 +191,6 @@ Panel {
 
   property string page: "home"
   property bool typingPrefix: false
-  property int countdownTick: 0
   property string focusSection: "primary"
   property int selectedIndex: 0
   property string hoverSection: ""
@@ -470,43 +469,6 @@ Panel {
 
   function destinationLabel() {
     return Model.shortPath(root.currentValue("outputDir") || root.outputDir, root.home)
-  }
-
-  function countdownLeft() {
-    var tick = root.countdownTick
-    if (root.status !== "starting" || String(root.state.stage || "") !== "countdown") return 0
-    var settings = root.state.settings || ({})
-    var count = Number(settings.countdown || 0)
-    var started = Number(root.state.startedAt || 0)
-    if (count <= 0 || started <= 0) return 0
-    return Math.max(0, Math.ceil(count - (Date.now() / 1000 - started)))
-  }
-
-  function barGlyph() {
-    // The bar answers "what is happening?" with a mark rather than a word:
-    // pause, target pick, or countdown. Recording speaks with the clock, and
-    // saving draws its own seal. Pause and target pick stay glyphs for now.
-    if (root.paused) return "󰏤"
-    if (root.starting) {
-      var stage = String(root.state.stage || "select")
-      if (stage === "countdown") {
-        var left = root.countdownLeft()
-        return left > 0 ? String(left) : "󰔟"
-      }
-      if (stage === "warmup") {
-        var warmupSettings = root.state.settings || ({})
-        var warmupCount = Math.max(0, Number(warmupSettings.countdown || 0))
-        return warmupCount > 0 ? String(warmupCount) : "●"
-      }
-      if (stage === "select") return "󰒉"
-    }
-    return ""
-  }
-
-  function barLabel() {
-    if (root.paused) return ""
-    if (root.active || root.capturing) return Model.clock(root.elapsed)
-    return ""
   }
 
   function barTooltip() {
@@ -1269,6 +1231,9 @@ Panel {
 
   onFinalizingChanged: {
     if (root.finalizing) {
+      // Freeze the clock for the saving pill: the take is over, so its time
+      // must stop rather than keep counting through the write-out.
+      root.savedElapsed = root.elapsed
       root.setNotice("Saving the take…")
       root.savingHold = false
       root.savingWasFinalizing = true
@@ -1337,6 +1302,33 @@ Panel {
     font.pixelSize: Style.bar.iconFont
   }
 
+  // Centring a label on its line box keeps room for descenders, which lifts
+  // the figures and makes the clock read a pixel high next to the take's dot.
+  // Centre the digit height instead, the same way the bar's text buttons do.
+  readonly property real barFigureOffset: (barLabelMetrics.descent
+    - barLabelMetrics.ascent
+    + barLabelMetrics.tightBoundingRect("0").height) / 2
+
+  // The recording mark is the panel's pill, carried into the bar: a capsule
+  // with the live clock inside it and the accent kept for its dot.
+  readonly property real barPillHeight: Style.space(20)
+  readonly property real barPillPad: Style.space(9)
+  readonly property real barPillDot: Style.space(6)
+  readonly property real barPillGap: Style.space(4)
+  readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
+    + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
+
+  // The take's clock: 0:00 while a take is being armed (the countdown is on
+  // screen, so the bar does not echo it), the live time while frames run, and
+  // the take's last time while it is saved.
+  property int savedElapsed: 0
+
+  function barClockText() {
+    if (root.finalizing) return Model.clock(root.savedElapsed)
+    if (root.starting) return Model.clock(0)
+    return Model.clock(root.elapsed)
+  }
+
   // The idle mark is drawn rather than borrowed from the icon font: a small
   // screen outline with a record dot. It keeps its shape at every bar size and
   // picks up the bar foreground plus the theme accent. While a take is
@@ -1348,9 +1340,7 @@ Panel {
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.status === "recording" || root.capturing
-      ? barLabelMetrics.advanceWidth(root.barLabel()) + Style.space(30)
-      : Style.bar.iconSlot
+    fixedWidth: root.busy ? root.barPillWidth : Style.bar.iconSlot
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
     onPressed: function(button) {
@@ -1366,16 +1356,57 @@ Panel {
     }
 
     Item {
+      id: idleMark
       visible: !root.busy
       anchors.centerIn: parent
       width: Style.bar.iconCanvas
       height: Style.bar.iconCanvas
       readonly property real unit: width / 24
 
+      // The corner badge reaches above the screen, so while it is showing the
+      // whole silhouette — badge plus screen — is dropped a pixel to sit on
+      // the bar's centre line. Without the badge the screen alone is already
+      // centred, so the drop must come back out or the mark reads low.
+      anchors.verticalCenterOffset: root.updateAvailable ? Style.space(1) : 0
+
+      // The resting mark comes back the same way every other mark arrives,
+      // so a saved take does not snap the bar back to its idle drawing.
+      property real appear: 1
+      opacity: appear
+      scale: 0.92 + 0.08 * appear
+
+      NumberAnimation {
+        id: idleAppear
+        target: idleMark
+        property: "appear"
+        from: 0
+        to: 1
+        duration: Style.duration(180)
+        easing.type: Easing.OutCubic
+      }
+
+      Connections {
+        target: root
+        function onBusyChanged() {
+          if (root.busy) {
+            idleMark.appear = 0
+            return
+          }
+          if (Style.reduceMotion) {
+            idleMark.appear = 1
+            return
+          }
+          idleMark.appear = 0
+          idleAppear.restart()
+        }
+      }
+
       Rectangle {
         id: screenOutline
         x: 2.5 * parent.unit
-        y: 4 * parent.unit
+        // The screen fills the canvas with equal margins now that the stand
+        // is gone, so the mark sits on the bar's centre line.
+        y: 4.5 * parent.unit
         width: 19 * parent.unit
         height: 15 * parent.unit
         radius: 4.5 * parent.unit
@@ -1393,16 +1424,6 @@ Panel {
         color: root.foreground
       }
 
-      Rectangle {
-        x: 9.5 * parent.unit
-        y: 21 * parent.unit
-        width: 5 * parent.unit
-        height: Math.max(1, 1.6 * parent.unit)
-        radius: Math.max(0.5, 0.8 * parent.unit)
-        color: root.foreground
-        opacity: 0.55
-      }
-
       // An update waiting is actionable, so it earns a mark on the idle
       // widget. A take keeps the bar for its clock; the badge comes back
       // when the take is done. It sits clear of the screen outline so the
@@ -1418,161 +1439,102 @@ Panel {
       }
     }
 
-    Row {
+    // The bar has two marks, not seven: the resting screen, and the take.
+    // The take is one thing from the moment it starts until the save lands —
+    // the panel's pill, reading 0:00 until frames run, the live clock while
+    // they do, and the take's last time while it is written out.
+    Item {
+      id: takePill
       visible: root.busy
       anchors.centerIn: parent
-      spacing: Style.space(6)
+      width: root.barPillWidth
+      height: root.barPillHeight
 
-      // Pause, target pick, and countdown are marks, not words. The clock and
-      // the pulsing dot carry the recording state on their own, and saving
-      // draws the seal below.
-      Text {
-        visible: text !== ""
-        anchors.verticalCenter: parent.verticalCenter
-        textFormat: Text.PlainText
-        text: root.barGlyph()
-        color: root.paused ? root.dim : root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.bar.iconFont
+      property real appear: 0
+      property real savingPulse: 0
+
+      // Saving is the same pill sinking into dim and breathing there until
+      // the save is done: no ring, no second language for the same beat. The
+      // floor stays high enough that the clock is still readable — the dim is
+      // the message, not a fade out.
+      opacity: appear * (root.finalizing
+        ? (Style.reduceMotion ? 0.72 : 0.6 + 0.25 * savingPulse)
+        : 1)
+      scale: 0.94 + 0.06 * appear
+
+      SequentialAnimation on savingPulse {
+        running: root.finalizing && !Style.reduceMotion
+        loops: Animation.Infinite
+        NumberAnimation { to: 1; duration: 1000; easing.type: Easing.InOutQuad }
+        NumberAnimation { to: 0; duration: 1000; easing.type: Easing.InOutQuad }
       }
 
-      // The capture warmup is a real take, so the recording dot appears as
-      // soon as the clock starts rather than a second or two later.
       Rectangle {
-        visible: root.status === "recording" || root.capturing
-        width: Style.space(6)
-        height: width
-        radius: width / 2
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.foreground
-
-        SequentialAnimation on opacity {
-          running: (root.status === "recording" || root.capturing) && !Style.reduceMotion
-          loops: Animation.Infinite
-          NumberAnimation { to: 0.4; duration: 1000; easing.type: Easing.InOutQuad }
-          NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
-        }
+        anchors.fill: parent
+        radius: height / 2
+        color: Util.alpha(root.foreground, root.finalizing ? 0.04 : 0.05)
+        border.width: 1
+        border.color: Util.alpha(root.foreground, root.finalizing ? 0.12 : 0.14)
       }
 
+      Row {
+        anchors.centerIn: parent
+        spacing: root.barPillGap
 
-      // Saving is a transition, not a condition, so it is drawn as one: the
-      // take's dot is sealed by an accent ring that draws itself in a single
-      // pass, then decays to muted. One shot, 200 ms, no loop. The ring is the
-      // only place the accent appears while a take owns the bar, and only for
-      // the closing beat.
-      Item {
-        id: sealMark
-        visible: root.finalizing
-        width: Style.bar.iconCanvas
-        height: width
-        anchors.verticalCenter: parent.verticalCenter
-        readonly property real unit: width / 24
-
-        property real sweep: 0
-        property color ringColor: root.accent
-        property color dotColor: root.foreground
-
-        function play() {
-          if (Style.reduceMotion) {
-            sealMark.sweep = 360
-            sealMark.ringColor = root.dim
-            sealMark.dotColor = root.dim
-            return
-          }
-          sealMark.sweep = 0
-          sealMark.ringColor = root.accent
-          sealMark.dotColor = root.foreground
-          sealAnimation.restart()
-        }
-
-        Component.onCompleted: if (root.finalizing) sealMark.play()
-
-        Connections {
-          target: root
-          function onFinalizingChanged() {
-            if (root.finalizing) sealMark.play()
-          }
-        }
-
-        Shape {
-          anchors.fill: parent
-          // A zero-length arc still paints its round cap as a stray dot.
-          opacity: sealMark.sweep > 0.5 ? 1 : 0
-
-          ShapePath {
-            strokeColor: sealMark.ringColor
-            strokeWidth: 2.2 * sealMark.unit
-            fillColor: "transparent"
-            capStyle: ShapePath.RoundCap
-
-            PathAngleArc {
-              centerX: 12 * sealMark.unit
-              centerY: 12 * sealMark.unit
-              radiusX: 8.2 * sealMark.unit
-              radiusY: 8.2 * sealMark.unit
-              startAngle: -90
-              sweepAngle: sealMark.sweep
-            }
-          }
-        }
-
+        // Accent belongs to frames running. Arming and saving are dim; pause
+        // is muted, as in the panel.
         Rectangle {
-          anchors.centerIn: parent
-          width: 6 * sealMark.unit
+          id: takeDot
+          width: root.barPillDot
           height: width
           radius: width / 2
-          color: sealMark.dotColor
-        }
+          anchors.verticalCenter: parent.verticalCenter
+          color: root.status === "recording" || root.capturing
+            ? root.accent : root.paused ? root.secondary : root.dim
 
-        SequentialAnimation {
-          id: sealAnimation
-
-          ParallelAnimation {
-            NumberAnimation {
-              target: sealMark
-              property: "sweep"
-              from: 0
-              to: 360
-              duration: Style.duration(200)
-              easing.type: Easing.OutCubic
-            }
-
-            ColorAnimation {
-              target: sealMark
-              property: "dotColor"
-              from: root.foreground
-              to: root.dim
-              duration: Style.duration(200)
-            }
-
-            // The ring keeps the accent until it has closed, then settles so
-            // the resting bar stays monochrome.
-            SequentialAnimation {
-              PauseAnimation { duration: Style.duration(200) }
-
-              ColorAnimation {
-                target: sealMark
-                property: "ringColor"
-                from: root.accent
-                to: root.dim
-                duration: Style.duration(260)
-              }
-            }
+          SequentialAnimation on opacity {
+            running: (root.status === "recording" || root.capturing)
+              && !Style.reduceMotion
+            loops: Animation.Infinite
+            NumberAnimation { to: 0.55; duration: 1000; easing.type: Easing.InOutQuad }
+            NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
           }
         }
+
+        Text {
+          textFormat: Text.PlainText
+          text: root.barClockText()
+          color: root.status === "recording" || root.capturing
+            ? root.foreground : root.paused ? root.secondary : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.bar.iconFont
+          font.bold: root.status === "recording" || root.capturing
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.verticalCenterOffset: root.barFigureOffset
+        }
       }
 
-      Text {
-        visible: text !== ""
-        textFormat: Text.PlainText
-        text: root.barLabel()
-        color: root.status === "recording" || root.capturing
-          ? root.urgent : root.finalizing ? root.dim : root.foreground
-        font.family: root.fontFamily
-        font.pixelSize: Style.bar.iconFont
-        font.bold: root.status === "recording" || root.capturing
-        anchors.verticalCenter: parent.verticalCenter
+      function show() {
+        if (Style.reduceMotion) {
+          takePill.appear = 1
+          return
+        }
+        takePill.appear = 0
+        pillAppear.restart()
       }
+
+      NumberAnimation {
+        id: pillAppear
+        target: takePill
+        property: "appear"
+        from: 0
+        to: 1
+        duration: Style.duration(160)
+        easing.type: Easing.OutCubic
+      }
+
+      Component.onCompleted: if (visible) show()
+      onVisibleChanged: if (visible) show()
     }
   }
 
@@ -3666,15 +3628,6 @@ Panel {
     interval: 260
     repeat: false
     onTriggered: root.suppressHistoryHover = false
-  }
-
-  Timer {
-    id: countdownTicker
-    interval: 500
-    repeat: true
-    running: root.status === "starting"
-      && String(root.state.stage || "") === "countdown"
-    onTriggered: root.countdownTick++
   }
 
   Timer {
