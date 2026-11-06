@@ -207,9 +207,11 @@ save pass, and the same project and inputs produce the same bytes.
 
 ## Save pass
 
-A take is written by the encoder, then finished in place: the first frame is
-dropped (or the countdown is trimmed), the PipeWire pop is muted, the audio is
-normalized, and noise reduction runs when it was on.
+A take is written by the encoder to `<take>.capture.<ext>`, then finished: the
+first frame is dropped (or the countdown is trimmed), the camera from auto zoom
+is applied, the PipeWire pop is muted, the audio is normalized, and noise
+reduction runs when it was on. The ordinary `<take>.<ext>` name is published
+only when that pass succeeds, so history never shows an un-zoomed capture.
 
 When the capture's first GOP is flagged for discard, only the head of the video
 is re-encoded, up to the next keyframe. Everything after that is stream-copied
@@ -237,7 +239,9 @@ If `XDG_RUNTIME_DIR` is unset, the runtime files live under
 `~/.local/state/omarchy/reel/run` instead. The default output folder follows
 the XDG Videos directory, so it may not be `~/Videos`.
 
-Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
+Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. While a take is
+being recorded and saved, its raw file is `<prefix>-YYYY-MM-DD_HH-MM-SS.capture.<container>`
+and the ordinary name appears at the end of the save pass. An empty prefix
 uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
 is on, Reel records it in the runtime folder and copies it next to the saved
 video as `<take-stem>.telemetry.jsonl`, with the render contract beside it as

@@ -496,7 +496,10 @@ fn unique_recording(dir: &str, container: &str, prefix: &str) -> String {
     let base = format!("{prefix}{}", paths::file_stamp());
     let mut candidate = format!("{dir}/{base}.{container}");
     let mut suffix = 2;
-    while Path::new(&candidate).exists() || paths::untrimmed_path(Path::new(&candidate)).exists() {
+    while Path::new(&candidate).exists()
+        || paths::untrimmed_path(Path::new(&candidate)).exists()
+        || paths::capture_path(Path::new(&candidate)).exists()
+    {
         candidate = format!("{dir}/{base}-{suffix}.{container}");
         suffix += 1;
     }
@@ -553,17 +556,10 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         &settings.container,
         &settings.filename_prefix,
     );
-    // A countdown is recorded into the same capture and trimmed off in the save
-    // pass. Give that raw file its own `-untrimmed` name so the recent list,
-    // and any share action built on it, never see overlay footage while the
-    // trim is pending or after it fails.
-    let capture_file = if settings.countdown > 0 {
-        paths::untrimmed_path(Path::new(&file))
-            .display()
-            .to_string()
-    } else {
-        file.clone()
-    };
+    // Always record into a hidden capture name. The save pass publishes the
+    // ordinary take name only after the camera and audio pass, so the take the
+    // user can see is never the raw, un-zoomed capture.
+    let capture_file = paths::capture_path(Path::new(&file)).display().to_string();
     let capture_fps = settings.fps;
 
     // A take's log always starts clean; telemetry resolves below and logs
@@ -696,11 +692,12 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} cursor={} telemetry={} output={}",
+            "capture: target={} fps={} cursor={} telemetry={} autoZoom={} output={}",
             target,
             capture_fps,
             if settings.cursor { "on" } else { "off" },
             if telemetry_ready { "on" } else { "off" },
+            if settings.auto_zoom { "on" } else { "off" },
             capture_file
         ),
     );

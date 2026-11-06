@@ -490,7 +490,11 @@ fn quarantine_before_save(
     trim_start: f64,
     quarantined: &mut bool,
 ) -> Result<()> {
-    if *quarantined || trim_start <= 0.0 || paths::is_untrimmed(file) {
+    // A capture that already has its own `.capture` name is out of history and
+    // away from the take name, so it needs no second move. An empty output is
+    // the legacy in-place caller.
+    let staged = !output.as_os_str().is_empty() && *file != *output;
+    if *quarantined || staged || trim_start <= 0.0 || paths::is_untrimmed(file) {
         return Ok(());
     }
     match crate::quarantine::capture(paths, file) {
@@ -883,9 +887,9 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     }
     let mut telemetry_saved = false;
     if pass.is_ok() {
-        // The trimmed take now owns the normal name. The raw countdown capture
-        // must not linger as a second, shippable copy.
-        if quarantined {
+        // The save pass now owns the normal name. The raw capture must not
+        // linger as a second, shippable copy.
+        if file != output {
             paths::remove_quiet(&file);
         }
         // The work file has been validated and renamed into place. An explicit
@@ -900,15 +904,22 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         if let Some(project) = &built_project {
             write_project(paths, &output, project);
         }
-    } else if quarantined {
-        // The raw capture is already named `-untrimmed`, and the recent list
-        // skips that suffix. Point the user at it instead of offering it as a
-        // normal take.
+    } else if file != output {
+        // The raw capture is hidden from history and the take name was never
+        // published. Keep it and point the user at it instead of losing the
+        // footage.
         saved = file.clone();
-        error = format!(
-            "The countdown could not be trimmed. Untrimmed footage is at {}.",
-            file.display()
-        );
+        error = if args.trim_start > 0.0 {
+            format!(
+                "The countdown could not be trimmed. Raw footage is at {}.",
+                file.display()
+            )
+        } else {
+            format!(
+                "The save pass failed. The raw capture is kept at {}.",
+                file.display()
+            )
+        };
     } else {
         error = "The take was saved, but the final pass failed.".into();
     }

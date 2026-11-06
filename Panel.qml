@@ -170,7 +170,6 @@ Panel {
   property bool discardArmed: false
   property bool cancelling: false
   property string pendingConfig: ""
-  property string pushedSignature: ""
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
@@ -373,19 +372,28 @@ Panel {
     entry[key] = value
     root.settings = entry
 
-    var signatureEntries = ({})
-    for (var s in entry) if (s !== "id") signatureEntries[s] = entry[s]
-    root.pushedSignature = JSON.stringify(signatureEntries)
-
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
-    root.queueConfig(entry)
+
+    // Only send the key the user changed. Sending the whole settings object
+    // let a stale or default value for an unrelated key overwrite the engine
+    // config, which is how auto zoom kept turning itself off.
+    var patch = ({})
+    patch[key] = value
+    root.queueConfig(patch)
   }
 
-  function queueConfig(entry) {
-    var payload = ({})
-    for (var k in entry) if (k !== "id") payload[k] = entry[k]
-    root.pendingConfig = JSON.stringify(payload)
+  function queueConfig(patch) {
+    var merged = ({})
+    if (root.pendingConfig !== "") {
+      try {
+        merged = JSON.parse(root.pendingConfig)
+      } catch (e) {
+        merged = ({})
+      }
+    }
+    for (var k in patch) if (k !== "id") merged[k] = patch[k]
+    root.pendingConfig = JSON.stringify(merged)
     root.flushConfig()
   }
 
@@ -402,16 +410,6 @@ Panel {
     var next = Model.cycle(list, root.currentValue(key), direction)
     var value = (key === "countdown" || key === "fps") ? Number(next) : next
     root.writeSetting(key, value)
-  }
-
-  function syncConfig() {
-    var payload = ({})
-    var source = root.settings || ({})
-    for (var k in source) if (k !== "id") payload[k] = source[k]
-    var signature = JSON.stringify(payload)
-    if (signature === root.pushedSignature) return
-    root.pushedSignature = signature
-    root.queueConfig(source)
   }
 
   // ---------- labels ------------------------------------------------------
@@ -1250,7 +1248,6 @@ Panel {
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
-      root.syncConfig()
       root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
