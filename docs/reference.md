@@ -22,6 +22,7 @@ its own:
 | `reel trash <file>` | Move a take to the trash |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
+| `reel render --project <path> [--output <path>]` | Render a take again from its project file |
 | `reel webcams [--json]` | List the cameras available for the webcam corner |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
@@ -124,11 +125,99 @@ needs read access to `/dev/input`; add your user to the `input` group
 (`sudo usermod -aG input "$USER"`) and log in again. If the devices cannot be
 read, the take still records and simply has no pointer telemetry.
 
+## Auto zoom
+
+**Auto zoom** is the first row in Settings → **Zoom**, a single on/off switch
+that is off by default. When it is on, clicks during the take become short zoom
+blocks in the saved file. A touchpad tap counts too when the compositor has
+tap-to-click on; a physical click always counts. The magnification is 2×; set
+another allowed depth with `reel config set autoZoomDepth 1.5` (or `2.5`).
+
+The save pass builds the camera from the take's telemetry, not from the live
+zoom:
+
+- Clicks within 2.5 seconds and 350 pixels of each other become one block, and
+  the block aims at their centroid.
+- If the click landed on a quiet patch while the screen changed in one compact
+  place during the block — the text you were typing, the caret blinking next to
+  it, a panel that opened — the block follows the change instead. A tap that
+  only focuses a window clicks wherever the pointer was parked, so this keeps
+  the zoom on the work rather than on an empty area. A click that changes the
+  picture where it landed keeps its place.
+- Each block eases in over 500 ms before the first click, holds through the
+  last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
+  keyframe.
+- Blocks that overlap in time stay zoomed and pan between the two areas, so a
+  quick click somewhere else does not flash back to 1x for a millisecond.
+- The viewport is clamped inside the capture, so a zoom never shows empty
+  space.
+- Keyframe times are saved-take time: the countdown is subtracted, so a zoom
+  stays on its click after trimming.
+
+Only takes recorded with **Record the pointer** on have telemetry, so a take
+started with the pointer off never zooms. If the telemetry is missing or
+unreadable the take saves normally, without a zoom and without a project file.
+
+Every saved take with telemetry writes `<take-stem>.project.json` next to the
+video, even when auto zoom is off; that file holds the capture facts and the
+camera path. The raw log is kept beside it as
+`<take-stem>.telemetry.jsonl`. Edit the project and run
+`reel render --project <path>` to change the zoom without recording again; see
+[Re-rendering a take](#re-rendering-a-take).
+
+## Re-rendering a take
+
+A saved take with pointer telemetry carries a `project.json` next to the video.
+It is the render contract: `reel render` reads it instead of the live settings,
+so a hand edit is all it takes to change the camera and render again.
+
+```sh
+reel render --project ~/Videos/Reel/reel-2026-11-03_12-00-00.project.json
+reel render --project take.project.json --output take-wide.mp4
+```
+
+The default output is `<take-stem>.rendered.<ext>`, next to the take. A
+re-render never replaces the original file.
+
+The `camera` object holds the zoom path. `style` is `off` or `auto` (projects
+written before the modes were folded away may say `subtle`, `cinematic`, or
+`close`; they all read as `auto`). `depth` is the magnification (`1.5`, `2.0`,
+or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
+
+```json
+"camera": {
+  "style": "auto",
+  "depth": 2.0,
+  "easing": "smoothstep",
+  "keyframes": [
+    { "t": 0.0, "zoom": 1.0, "x": 1280.0, "y": 720.0 },
+    { "t": 1.5, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
+    { "t": 3.7, "zoom": 1.0, "x": 1280.0, "y": 720.0 }
+  ]
+}
+```
+
+`t` is seconds in the saved take. `x` and `y` are the viewport centre in source
+capture pixels. Keyframes are sorted by `t`, `zoom` is at least `1`, and every
+viewport is clamped so the frame never shows space outside the capture. Values
+between keyframes use smoothstep, so the camera is still at each keyframe.
+`style: "off"` disables the zoom even when keyframes are present.
+
+Unknown fields are preserved, and missing fields fall back to the v1 defaults.
+`trimStart` is only used by the hidden save pass; a re-render reads the saved
+take and does not trim it again.
+
+When the project is missing or has no camera keyframes, `reel render` encodes
+the take without a zoom. It uses the same audio filter and validation as the
+save pass, and the same project and inputs produce the same bytes.
+
 ## Save pass
 
-A take is written by the encoder, then finished in place: the first frame is
-dropped (or the countdown is trimmed), the PipeWire pop is muted, the audio is
-normalized, and noise reduction runs when it was on.
+A take is written by the encoder to `<take>.capture.<ext>`, then finished: the
+first frame is dropped (or the countdown is trimmed), the camera from auto zoom
+is applied, the PipeWire pop is muted, the audio is normalized, and noise
+reduction runs when it was on. The ordinary `<take>.<ext>` name is published
+only when that pass succeeds, so history never shows an un-zoomed capture.
 
 When the capture's first GOP is flagged for discard, only the head of the video
 is re-encoded, up to the next keyframe. Everything after that is stream-copied
@@ -147,6 +236,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
+| `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
 | `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
 | `~/Videos/Reel` | Default recordings folder |
@@ -155,10 +245,13 @@ If `XDG_RUNTIME_DIR` is unset, the runtime files live under
 `~/.local/state/omarchy/reel/run` instead. The default output folder follows
 the XDG Videos directory, so it may not be `~/Videos`.
 
-Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. An empty prefix
+Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. While a take is
+being recorded and saved, its raw file is `<prefix>-YYYY-MM-DD_HH-MM-SS.capture.<container>`
+and the ordinary name appears at the end of the save pass. An empty prefix
 uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
 is on, Reel records it in the runtime folder and copies it next to the saved
-video as `<take-stem>.telemetry.jsonl`. JPEG previews are kept
+video as `<take-stem>.telemetry.jsonl`, with the render contract beside it as
+`<take-stem>.project.json`. JPEG previews are kept
 in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
 by older Reel versions are moved into the cache when history is first read.
 
@@ -191,17 +284,17 @@ file.
 
 Manual zoom is enabled by the **Manual zoom** setting (on by default) and only
 acts while a take is recording. Pausing or stopping resets the compositor to
-1×.
+1×. Zoom depth and pan step have no panel rows; they stay config-only.
 
 - Touchpad pinch zooms at the pointer and is registered when a take starts.
   Once zoomed in, a pinch that reads as a pan moves the viewport instead.
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
-- **Zoom depth** caps the maximum factor at 1.5×, 2×, 2.5×, or 3×. Pinch,
-  keyboard steps, and the toggle all stop at that depth; the engine clamps to
-  1×–4× regardless. Raising or lowering the depth never snaps an existing zoom
-  back on its own.
+- Zoom depth is 2× by default. `reel config set zoomMax 1.5` (or `2.5`, `3`)
+  changes it; pinch, keyboard steps, and the toggle all stop at that depth. The
+  engine clamps to 1×–4× regardless. Raising or lowering the depth never snaps
+  an existing zoom back on its own.
 
 ### Panning
 
@@ -216,11 +309,11 @@ pointer inside the frame instead of pulling it toward the screen centre. Pinch
 zoom still works there; only panning is monitor-only, and `zoom-pan` does
 nothing for a window or area.
 
-- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves **Pan step**
-  pixels (30, 60, or 120; 60 by default), holding keeps panning at a steady
-  speed, and `Shift` covers three times as much. The view moves immediately and
-  the cursor stays over the point being panned toward. A hold stops as soon as
-  the zoom returns to 1×.
+- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves 60 px by default
+  (`reel config set panStep 30` or `120` changes it), holding keeps panning at
+  a steady speed, and `Shift` covers three times as much. The view moves
+  immediately and the cursor stays over the point being panned toward. A hold
+  stops as soon as the zoom returns to 1×.
 - Panning never changes the zoom factor, so the depth stays locked.
 - The pan target is clamped to the recorded monitor, so the view cannot walk off
   the capture. The compositor additionally clamps it to the monitor.

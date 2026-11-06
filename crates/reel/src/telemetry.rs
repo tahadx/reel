@@ -30,12 +30,32 @@ const CLOCK_NAME: &str = "CLOCK_MONOTONIC";
 const EV_SYN: u16 = 0x00;
 const EV_KEY: u16 = 0x01;
 const EV_REL: u16 = 0x02;
+const EV_ABS: u16 = 0x03;
 const REL_X: u16 = 0x00;
 const REL_Y: u16 = 0x01;
+const ABS_X: u16 = 0x00;
+const ABS_Y: u16 = 0x01;
+const ABS_MT_POSITION_X: u16 = 0x35;
+const ABS_MT_POSITION_Y: u16 = 0x36;
 const SYN_REPORT: u16 = 0x00;
 const BTN_LEFT: u16 = 0x110;
 const BTN_RIGHT: u16 = 0x111;
 const BTN_MIDDLE: u16 = 0x112;
+const BTN_TOOL_DOUBLETAP: u16 = 0x14d;
+const BTN_TOOL_TRIPLETAP: u16 = 0x14e;
+const BTN_TOOL_QUADTAP: u16 = 0x14f;
+const BTN_TOOL_QUINTTAP: u16 = 0x148;
+const BTN_TOUCH: u16 = 0x14a;
+
+/// The longest contact that still counts as a tap.
+const TAP_MAX_SECS: f64 = 0.3;
+/// Contact movement (in raw touchpad units) that turns a tap into a drag.
+const TAP_SLOP: f64 = 60.0;
+/// Wait for the compositor to move the cursor onto a tap before reading it.
+const TAP_SETTLE: Duration = Duration::from_millis(15);
+/// Capability bitmaps are queried in 64-bit words. Eight words cover event
+/// codes up to 511, including BTN_TOUCH.
+const CAP_WORDS: usize = 8;
 
 const BY_ID: &str = "/dev/input/by-id";
 const EVENT_DIR: &str = "/dev/input";
@@ -282,8 +302,75 @@ struct InputEvent {
     value: i32,
 }
 
+/// What a device can report. A mouse is relative, a touchpad and a touchscreen
+/// are absolute (and may report contact through `BTN_TOUCH`).
+#[derive(Debug, Clone, Copy, Default)]
+struct PointerCaps {
+    relative: bool,
+    absolute: bool,
+    touch: bool,
+}
+
 struct Device {
     file: File,
+    name: String,
+    caps: PointerCaps,
+    tap: TapState,
+}
+
+/// The in-progress contact on a touch device, used to turn a tap into a click.
+///
+/// Taps never reach evdev: libinput turns them into a button press above the
+/// device node. Watching `BTN_TOUCH` is the only way to see them, so a short,
+/// still, single-finger contact is emitted as a left click at the cursor.
+#[derive(Debug, Default)]
+struct TapState {
+    down_at: Option<Instant>,
+    /// Per-axis raw position bounds during the contact.
+    x: Option<(f64, f64)>,
+    y: Option<(f64, f64)>,
+    multi: bool,
+    /// A real BTN_LEFT arrived, so this contact is already a click.
+    physical: bool,
+}
+
+impl TapState {
+    fn begin(&mut self) {
+        self.down_at = Some(Instant::now());
+        self.x = None;
+        self.y = None;
+        self.multi = false;
+        self.physical = false;
+    }
+
+    fn track_x(&mut self, value: f64) {
+        track(&mut self.x, value);
+    }
+
+    fn track_y(&mut self, value: f64) {
+        track(&mut self.y, value);
+    }
+
+    fn travelled(&self) -> f64 {
+        let span =
+            |bounds: Option<(f64, f64)>| bounds.map(|(min, max)| (max - min).abs()).unwrap_or(0.0);
+        span(self.x).hypot(span(self.y))
+    }
+
+    fn is_tap(&self) -> bool {
+        self.down_at
+            .map(|down| down.elapsed().as_secs_f64() <= TAP_MAX_SECS)
+            .unwrap_or(false)
+            && !self.multi
+            && !self.physical
+            && self.travelled() <= TAP_SLOP
+    }
+}
+
+fn track(bounds: &mut Option<(f64, f64)>, value: f64) {
+    let (min, max) = bounds.get_or_insert((value, value));
+    *min = min.min(value);
+    *max = max.max(value);
 }
 
 /// A take's telemetry file, opened and waiting for `T0`.
@@ -347,6 +434,9 @@ impl Prepared {
                     space.target
                 ),
             );
+        } else {
+            let names: Vec<&str> = devices.iter().map(|device| device.name.as_str()).collect();
+            paths::log(paths, &format!("telemetry: watching {}", names.join(", ")));
         }
         Prepared {
             file,
@@ -519,6 +609,9 @@ fn discover_devices(by_id: &Path, event_dir: &Path) -> (Vec<Device>, Option<Sour
     let mut permission_denied = false;
     let mut opened_any = false;
     let mut candidates = 0;
+    // Watch both: by-id only lists USB mice, so a laptop touchpad (an i2c
+    // device) exists only as a raw event node. Always scanning both also keeps
+    // a sleeping mouse from hiding the touchpad.
     let mut devices = open_candidates(
         &by_id_paths,
         &mut seen,
@@ -526,17 +619,13 @@ fn discover_devices(by_id: &Path, event_dir: &Path) -> (Vec<Device>, Option<Sour
         &mut opened_any,
         &mut candidates,
     );
-    // A by-id entry can exist but be unreadable or broken. Fall back to the
-    // raw event nodes before giving up.
-    if devices.is_empty() {
-        devices = open_candidates(
-            &event_paths,
-            &mut seen,
-            &mut permission_denied,
-            &mut opened_any,
-            &mut candidates,
-        );
-    }
+    devices.extend(open_candidates(
+        &event_paths,
+        &mut seen,
+        &mut permission_denied,
+        &mut opened_any,
+        &mut candidates,
+    ));
     if !devices.is_empty() {
         return (devices, None);
     }
@@ -565,8 +654,13 @@ fn open_candidates(
         {
             Ok(file) => {
                 *opened_any = true;
-                if supports_pointer(&file) {
-                    devices.push(Device { file });
+                if let Some(caps) = pointer_caps(&file) {
+                    devices.push(Device {
+                        file,
+                        name: device_name(path),
+                        caps,
+                        tap: TapState::default(),
+                    });
                 }
             }
             Err(err) => {
@@ -608,24 +702,84 @@ fn classify_source_error(
     }
 }
 
-fn supports_pointer(file: &File) -> bool {
-    let fd = file.as_raw_fd();
-    let mut event_types = 0u64;
-    if unsafe { libc::ioctl(fd, eviocgbit(0, size_of_u64()), &mut event_types) } < 0 {
-        return false;
+/// What a pointer device can report, or `None` when the node is not a pointer.
+///
+/// A mouse reports `EV_REL` deltas; a laptop touchpad and a touchscreen report
+/// `EV_ABS` positions and may only expose taps through `BTN_TOUCH`. The old
+/// check required `EV_REL`, which silently skipped every touchpad.
+fn pointer_caps(file: &File) -> Option<PointerCaps> {
+    let types = capability_bits(file, 0);
+    if !has_code(&types, EV_KEY) {
+        return None;
     }
-    if event_types & (1 << EV_REL) == 0 {
-        return false;
+
+    let relative = has_code(&types, EV_REL) && {
+        let bits = capability_bits(file, EV_REL as u32);
+        has_code(&bits, REL_X) && has_code(&bits, REL_Y)
+    };
+    let absolute = has_code(&types, EV_ABS) && {
+        let bits = capability_bits(file, EV_ABS as u32);
+        (has_code(&bits, ABS_X) || has_code(&bits, ABS_MT_POSITION_X))
+            && (has_code(&bits, ABS_Y) || has_code(&bits, ABS_MT_POSITION_Y))
+    };
+    if !relative && !absolute {
+        return None;
     }
-    let mut relative = 0u64;
-    if unsafe { libc::ioctl(fd, eviocgbit(EV_REL as u32, size_of_u64()), &mut relative) } < 0 {
-        return false;
+
+    let keys = capability_bits(file, EV_KEY as u32);
+    let touch = has_code(&keys, BTN_TOUCH);
+    if !touch && !has_code(&keys, BTN_LEFT) {
+        return None;
     }
-    relative & ((1 << REL_X) | (1 << REL_Y)) == ((1 << REL_X) | (1 << REL_Y))
+    Some(PointerCaps {
+        relative,
+        absolute,
+        touch,
+    })
 }
 
-fn size_of_u64() -> usize {
-    std::mem::size_of::<u64>()
+fn capability_bits(file: &File, ev: u32) -> [u64; CAP_WORDS] {
+    let mut bits = [0u64; CAP_WORDS];
+    let len = std::mem::size_of_val(&bits);
+    let rc = unsafe { libc::ioctl(file.as_raw_fd(), eviocgbit(ev, len), bits.as_mut_ptr()) };
+    if rc < 0 {
+        [0u64; CAP_WORDS]
+    } else {
+        bits
+    }
+}
+
+fn has_code(bits: &[u64; CAP_WORDS], code: u16) -> bool {
+    let word = usize::from(code) / 64;
+    let bit = usize::from(code) % 64;
+    bits.get(word)
+        .map(|word| word & (1u64 << bit) != 0)
+        .unwrap_or(false)
+}
+
+/// The human name of an event node, for the take log.
+fn device_name(path: &Path) -> String {
+    let node = path
+        .canonicalize()
+        .ok()
+        .and_then(|path| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .or_else(|| {
+            path.file_name()
+                .map(|name| name.to_string_lossy().to_string())
+        })
+        .unwrap_or_default();
+    std::fs::read_to_string(
+        Path::new("/sys/class/input")
+            .join(&node)
+            .join("device/name"),
+    )
+    .map(|name| name.trim().to_string())
+    .ok()
+    .filter(|name| !name.is_empty())
+    .unwrap_or(node)
 }
 
 /// Linux `_IOC(_IOC_READ, 'E', 0x20 + ev, len)`, the EVIOCGBIT request.
@@ -692,6 +846,9 @@ fn run_listener(
     let mut next_sync = Instant::now();
     let mut dx = 0.0;
     let mut dy = 0.0;
+    // Taps are synthesized above evdev by the compositor, so only look for
+    // them when the compositor turns taps into clicks.
+    let taps_enabled = tap_to_click();
 
     while !stop.load(Ordering::SeqCst) && !devices.is_empty() {
         let mut fds: Vec<libc::pollfd> = devices
@@ -723,8 +880,21 @@ fn run_listener(
             }
             match read_device(&mut devices[index]) {
                 Ok((events, count)) => {
+                    let caps = devices[index].caps;
+                    let tap = &mut devices[index].tap;
                     for event in &events[..count] {
-                        handle_event(event, &space, &mut tracker, &writer, &mut dx, &mut dy);
+                        handle_event(
+                            event,
+                            &space,
+                            &mut tracker,
+                            tap,
+                            caps,
+                            taps_enabled,
+                            &writer,
+                            &cursor_position,
+                            &mut dx,
+                            &mut dy,
+                        );
                     }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {}
@@ -768,11 +938,16 @@ fn read_device(device: &mut Device) -> std::io::Result<([InputEvent; 64], usize)
     Ok((events, count))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_event(
     event: &InputEvent,
     space: &CaptureSpace,
     tracker: &mut PointerTracker,
+    tap: &mut TapState,
+    caps: PointerCaps,
+    taps_enabled: bool,
     writer: &Arc<Mutex<TelemetryWriter>>,
+    cursor: &dyn Fn() -> Option<(f64, f64)>,
     dx: &mut f64,
     dy: &mut f64,
 ) {
@@ -782,7 +957,37 @@ fn handle_event(
             REL_Y => *dy += f64::from(event.value),
             _ => {}
         },
+        EV_ABS => match event.code {
+            ABS_X | ABS_MT_POSITION_X => tap.track_x(f64::from(event.value)),
+            ABS_Y | ABS_MT_POSITION_Y => tap.track_y(f64::from(event.value)),
+            _ => {}
+        },
         EV_KEY => {
+            // A tap only exists as a contact: libinput turns it into a button
+            // press above evdev, so watch BTN_TOUCH and synthesize the click.
+            if event.code == BTN_TOUCH {
+                match event.value {
+                    1 => tap.begin(),
+                    0 if tap.down_at.is_some() => {
+                        let click = taps_enabled && caps.touch && tap.is_tap();
+                        tap.down_at = None;
+                        if click {
+                            emit_tap(writer, space, tracker, cursor);
+                        }
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            if matches!(
+                event.code,
+                BTN_TOOL_DOUBLETAP | BTN_TOOL_TRIPLETAP | BTN_TOOL_QUADTAP | BTN_TOOL_QUINTTAP
+            ) {
+                if event.value >= 1 {
+                    tap.multi = true;
+                }
+                return;
+            }
             let Some(button) = button_name(event.code) else {
                 return;
             };
@@ -791,11 +996,13 @@ fn handle_event(
                 1 => "down",
                 _ => return,
             };
+            if state == "down" {
+                tap.physical = true;
+            }
             flush_move(*dx, *dy, tracker, space, writer);
             *dx = 0.0;
             *dy = 0.0;
-            let (x, y) = tracker.position();
-            let (x, y) = space.to_capture(x, y);
+            let (x, y) = pointer_position(tracker, space, caps.absolute && !caps.relative, cursor);
             let mut writer = writer
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -809,6 +1016,62 @@ fn handle_event(
         }
         _ => {}
     }
+}
+
+/// Where the pointer is right now, in capture pixels. An absolute device has
+/// no deltas to integrate, so ask the compositor and fall back to the last
+/// synced position. A relative device uses the tracked position.
+fn pointer_position(
+    tracker: &PointerTracker,
+    space: &CaptureSpace,
+    absolute: bool,
+    cursor: &dyn Fn() -> Option<(f64, f64)>,
+) -> (f64, f64) {
+    if absolute {
+        if let Some((x, y)) = cursor() {
+            return space.to_capture(x, y);
+        }
+    }
+    let (x, y) = tracker.position();
+    space.to_capture(x, y)
+}
+
+/// Emit one left click for a tap. The contact had no evdev button event, so the
+/// compositor is asked for the cursor position the tap moved to.
+fn emit_tap(
+    writer: &Arc<Mutex<TelemetryWriter>>,
+    space: &CaptureSpace,
+    tracker: &PointerTracker,
+    cursor: &dyn Fn() -> Option<(f64, f64)>,
+) {
+    let click_t = {
+        let writer = writer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        writer.t()
+    };
+    // The compositor sees the same kernel event after this process; give it a
+    // moment to move the cursor onto the tap before reading the position.
+    std::thread::sleep(TAP_SETTLE);
+    let (x, y) = pointer_position(tracker, space, true, cursor);
+    let mut writer = writer
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    writer.write(&button_value(click_t, "left", "down", x, y));
+    writer.write(&button_value(click_t, "left", "up", x, y));
+}
+
+/// Whether the compositor turns touchpad taps into clicks. Taps never produce
+/// a button event on the device node, so synthesizing one when taps are off
+/// would invent clicks the user did not make.
+fn tap_to_click() -> bool {
+    util::run_stdout_within(
+        "hyprctl",
+        &["getoption", "input:touchpad:tap-to-click"],
+        Duration::from_millis(300),
+    )
+    .map(|output| output.contains("bool: true"))
+    .unwrap_or(false)
 }
 
 fn flush_move(
@@ -1137,9 +1400,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn relative_events_and_a_click_become_move_and_button_lines() {
-        let path = temp_file("events");
+    fn test_writer(label: &str) -> (PathBuf, Arc<Mutex<TelemetryWriter>>) {
+        let path = temp_file(label);
         let file = OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -1151,59 +1413,81 @@ mod tests {
             t0: Instant::now(),
             t0_ns: 1,
         }));
-        let mut space = monitor_space();
-        space.scale = 1.0;
-        space.source_width = 2560.0;
-        space.source_height = 1440.0;
-        let mut tracker = PointerTracker::known(100.0, 200.0);
-        let (mut dx, mut dy) = (0.0, 0.0);
+        (path, writer)
+    }
 
-        let event = |kind, code, value| InputEvent {
+    fn event(kind: u16, code: u16, value: i32) -> InputEvent {
+        InputEvent {
             _time: unsafe { std::mem::zeroed() },
             kind,
             code,
             value,
-        };
+        }
+    }
 
-        handle_event(
-            &event(EV_REL, REL_X, 10),
-            &space,
-            &mut tracker,
-            &writer,
-            &mut dx,
-            &mut dy,
-        );
-        handle_event(
-            &event(EV_REL, REL_Y, 5),
-            &space,
-            &mut tracker,
-            &writer,
-            &mut dx,
-            &mut dy,
-        );
-        handle_event(
-            &event(EV_SYN, SYN_REPORT, 0),
-            &space,
-            &mut tracker,
-            &writer,
-            &mut dx,
-            &mut dy,
-        );
-        handle_event(
-            &event(EV_KEY, BTN_LEFT, 1),
-            &space,
-            &mut tracker,
-            &writer,
-            &mut dx,
-            &mut dy,
-        );
-        drop(writer);
-
-        let text = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<Value> = text
+    fn read_lines(path: &Path) -> Vec<Value> {
+        std::fs::read_to_string(path)
+            .unwrap()
             .lines()
             .map(|line| serde_json::from_str(line).unwrap())
-            .collect();
+            .collect()
+    }
+
+    fn flat_space() -> CaptureSpace {
+        let mut space = monitor_space();
+        space.scale = 1.0;
+        space.source_width = 2560.0;
+        space.source_height = 1440.0;
+        space
+    }
+
+    fn mouse_caps() -> PointerCaps {
+        PointerCaps {
+            relative: true,
+            absolute: false,
+            touch: false,
+        }
+    }
+
+    fn touchpad_caps() -> PointerCaps {
+        PointerCaps {
+            relative: false,
+            absolute: true,
+            touch: true,
+        }
+    }
+
+    #[test]
+    fn relative_events_and_a_click_become_move_and_button_lines() {
+        let (path, writer) = test_writer("events");
+        let space = flat_space();
+        let mut tracker = PointerTracker::known(100.0, 200.0);
+        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut tap = TapState::default();
+        let cursor = || None;
+
+        for event in [
+            event(EV_REL, REL_X, 10),
+            event(EV_REL, REL_Y, 5),
+            event(EV_SYN, SYN_REPORT, 0),
+            event(EV_KEY, BTN_LEFT, 1),
+        ] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                mouse_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut dx,
+                &mut dy,
+            );
+        }
+        drop(writer);
+
+        let lines = read_lines(&path);
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0]["type"], "move");
         assert_eq!(lines[0]["x"], 110.0);
@@ -1213,6 +1497,157 @@ mod tests {
         assert_eq!(lines[1]["state"], "down");
         assert_eq!(lines[1]["x"], 110.0);
         assert_eq!(lines[1]["y"], 205.0);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_touchpad_tap_becomes_a_left_click_at_the_cursor() {
+        // A tap never produces BTN_LEFT on the event node; only BTN_TOUCH is
+        // visible, so the listener synthesizes the click.
+        let (path, writer) = test_writer("tap");
+        let space = flat_space();
+        let mut tracker = PointerTracker::known(0.0, 0.0);
+        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut tap = TapState::default();
+        let cursor = || Some((640.0, 480.0));
+
+        for event in [
+            event(EV_ABS, ABS_X, 1200),
+            event(EV_ABS, ABS_Y, 800),
+            event(EV_KEY, BTN_TOUCH, 1),
+            event(EV_SYN, SYN_REPORT, 0),
+            event(EV_ABS, ABS_X, 1201),
+            event(EV_KEY, BTN_TOUCH, 0),
+        ] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                touchpad_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut dx,
+                &mut dy,
+            );
+        }
+        drop(writer);
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 2, "a tap is a press and a release");
+        assert_eq!(lines[0]["type"], "button");
+        assert_eq!(lines[0]["button"], "left");
+        assert_eq!(lines[0]["state"], "down");
+        assert_eq!(lines[0]["x"], 640.0);
+        assert_eq!(lines[0]["y"], 480.0);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_drag_or_a_second_finger_is_not_a_tap() {
+        for (label, middle) in [
+            (
+                "drag",
+                vec![event(EV_ABS, ABS_X, 1200), event(EV_ABS, ABS_X, 1800)],
+            ),
+            ("two fingers", vec![event(EV_KEY, BTN_TOOL_DOUBLETAP, 1)]),
+        ] {
+            let (path, writer) = test_writer(label);
+            let space = flat_space();
+            let mut tracker = PointerTracker::known(0.0, 0.0);
+            let (mut dx, mut dy) = (0.0, 0.0);
+            let mut tap = TapState::default();
+            let cursor = || Some((640.0, 480.0));
+
+            let mut events = vec![event(EV_KEY, BTN_TOUCH, 1)];
+            events.extend(middle);
+            events.push(event(EV_KEY, BTN_TOUCH, 0));
+            for event in events {
+                handle_event(
+                    &event,
+                    &space,
+                    &mut tracker,
+                    &mut tap,
+                    touchpad_caps(),
+                    true,
+                    &writer,
+                    &cursor,
+                    &mut dx,
+                    &mut dy,
+                );
+            }
+            drop(writer);
+            assert!(
+                read_lines(&path).is_empty(),
+                "{label} must not become a click"
+            );
+            let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        }
+    }
+
+    #[test]
+    fn a_physical_click_does_not_also_emit_a_tap() {
+        let (path, writer) = test_writer("physical");
+        let space = flat_space();
+        let mut tracker = PointerTracker::known(0.0, 0.0);
+        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut tap = TapState::default();
+        let cursor = || Some((640.0, 480.0));
+
+        for event in [
+            event(EV_KEY, BTN_TOUCH, 1),
+            event(EV_KEY, BTN_LEFT, 1),
+            event(EV_KEY, BTN_LEFT, 0),
+            event(EV_KEY, BTN_TOUCH, 0),
+        ] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                touchpad_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut dx,
+                &mut dy,
+            );
+        }
+        drop(writer);
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 2, "press and release, not four lines");
+        assert_eq!(lines[0]["state"], "down");
+        assert_eq!(lines[1]["state"], "up");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn taps_stay_silent_when_tap_to_click_is_off() {
+        let (path, writer) = test_writer("tap-off");
+        let space = flat_space();
+        let mut tracker = PointerTracker::known(0.0, 0.0);
+        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut tap = TapState::default();
+        let cursor = || Some((640.0, 480.0));
+
+        for event in [event(EV_KEY, BTN_TOUCH, 1), event(EV_KEY, BTN_TOUCH, 0)] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                touchpad_caps(),
+                false,
+                &writer,
+                &cursor,
+                &mut dx,
+                &mut dy,
+            );
+        }
+        drop(writer);
+        assert!(read_lines(&path).is_empty());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 

@@ -1,9 +1,13 @@
+use crate::activity;
 use crate::cli::FinalizeArgs;
+use crate::config;
 use crate::paths::{self, Paths};
+use crate::project;
+use crate::render;
 use crate::state;
 use crate::telemetry;
 use crate::util;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
@@ -72,7 +76,7 @@ fn first_gop_has_discard(file: &Path) -> bool {
     .unwrap_or(false)
 }
 
-fn work_path(file: &Path, output: &Path) -> PathBuf {
+pub(crate) fn work_path(file: &Path, output: &Path) -> PathBuf {
     let ext = file
         .extension()
         .map(|e| e.to_string_lossy().to_string())
@@ -81,7 +85,7 @@ fn work_path(file: &Path, output: &Path) -> PathBuf {
     PathBuf::from(format!("{stem}.part.{}.{ext}", std::process::id()))
 }
 
-fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
+pub(crate) fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
     paths::log(paths, &format!("finalize: ffmpeg {}", args.join(" ")));
     let Ok(log) = OpenOptions::new()
         .create(true)
@@ -106,7 +110,7 @@ fn run_ffmpeg(paths: &Paths, args: &[String]) -> bool {
 /// A finished file must have a video stream and a real duration. Checking the
 /// work file before the rename means a broken MP4 can never replace the raw
 /// take that the recorder actually wrote.
-fn valid_video(file: &Path) -> bool {
+pub(crate) fn valid_video(file: &Path) -> bool {
     if !file.is_file() || fs::metadata(file).map(|m| m.len()).unwrap_or(0) == 0 {
         return false;
     }
@@ -167,6 +171,10 @@ fn trim_split(source_end: f64, trim: f64, keyframes: &[f64]) -> Option<f64> {
 }
 
 fn concat_quote(path: &Path) -> String {
+    // The concat demuxer resolves each `file` relative to the list's own
+    // directory. A relative input would be looked up inside the parts
+    // directory a second time, so anchor the list to absolute paths.
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     path.display().to_string().replace('\'', "'\\''")
 }
 
@@ -463,7 +471,7 @@ pub fn finalize_video(
     }
 }
 
-fn audio_filter(noise_cancellation: bool) -> String {
+pub(crate) fn audio_filter(noise_cancellation: bool) -> String {
     let mut filter = String::from("volume=enable='lt(t,0.4)':volume=0,afade=t=in:st=0.4:d=0.05");
     if noise_cancellation {
         // Opt-in and only requested for takes that captured the microphone.
@@ -483,7 +491,11 @@ fn quarantine_before_save(
     trim_start: f64,
     quarantined: &mut bool,
 ) -> Result<()> {
-    if *quarantined || trim_start <= 0.0 || paths::is_untrimmed(file) {
+    // A capture that already has its own `.capture` name is out of history and
+    // away from the take name, so it needs no second move. An empty output is
+    // the legacy in-place caller.
+    let staged = !output.as_os_str().is_empty() && *file != *output;
+    if *quarantined || staged || trim_start <= 0.0 || paths::is_untrimmed(file) {
         return Ok(());
     }
     match crate::quarantine::capture(paths, file) {
@@ -506,6 +518,132 @@ fn quarantine_before_save(
             );
             util::notify("Reel", Some(&message), "critical");
             anyhow::bail!(message);
+        }
+    }
+}
+
+/// The auto zoom choices for this take, read from its settings snapshot before
+/// the save pass touches state.
+struct TakeOptions {
+    enabled: bool,
+    depth: f64,
+}
+
+fn take_options(paths: &Paths) -> TakeOptions {
+    let settings = state::read(paths)
+        .and_then(|state| state.get("settings").cloned())
+        .unwrap_or(Value::Null);
+    TakeOptions {
+        enabled: config::auto_zoom(&settings),
+        depth: config::auto_zoom_depth(&settings),
+    }
+}
+
+/// Build the project for a take from its telemetry.
+///
+/// Every saved take with telemetry gets one, even when auto zoom is off: the
+/// file records the capture facts, the trim, and whether auto zoom was on so a later
+/// `reel render` does not need live settings. The keyframe times are saved-take
+/// time (`t - trimStart`, floored at 0).
+#[allow(clippy::too_many_arguments)]
+fn project_from_telemetry(
+    telemetry_file: &Path,
+    input: &Path,
+    output: &Path,
+    trim_start: f64,
+    options: &TakeOptions,
+    target: &str,
+    target_kind: &str,
+    refiner: Option<&activity::Refiner>,
+) -> Result<project::Project> {
+    let telemetry = project::read_telemetry(telemetry_file)?;
+    let width = telemetry.width;
+    let height = telemetry.height;
+    if width == 0 || height == 0 {
+        bail!(
+            "the telemetry at {} has no capture size",
+            telemetry_file.display()
+        );
+    }
+    let trim = if trim_start.is_finite() {
+        trim_start.max(0.0)
+    } else {
+        0.0
+    };
+    let captured = util::duration_of(input);
+    let raw = if captured > 0.0 {
+        captured
+    } else {
+        telemetry.stop_t
+    };
+    let duration = (raw - trim).max(0.0);
+    let fps = if telemetry.fps.is_finite() && telemetry.fps > 0.0 {
+        telemetry.fps
+    } else {
+        60.0
+    };
+
+    let mut project = project::Project::for_take(output, width, height, fps, duration);
+    project.trim_start = trim;
+    // The `start` record is the authoritative capture; the recorder's stop
+    // arguments are the fallback for a log without one.
+    if telemetry.capture.kind.is_empty() {
+        project.capture = project::Capture {
+            kind: target_kind.to_string(),
+            target: target.to_string(),
+            monitor: String::new(),
+            extra: Default::default(),
+        };
+    } else {
+        project.capture = telemetry.capture;
+        if !target.is_empty() {
+            project.capture.target = target.to_string();
+        }
+        if !target_kind.is_empty() {
+            project.capture.kind = target_kind.to_string();
+        }
+    }
+    project.telemetry = paths::telemetry_path(output)
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<(f64, f64)> {
+        refiner?.target(enter, hold, cx, cy, width as f64, height as f64)
+    };
+    project.camera = project::build_camera(
+        &telemetry.clicks,
+        options.enabled,
+        options.depth,
+        width as f64,
+        height as f64,
+        trim,
+        Some(&refine),
+    );
+    Ok(project)
+}
+
+/// Write `<take>.project.json`. A write failure is logged and never fails the
+/// save: the take is already valid and a project is only useful for re-renders.
+fn write_project(paths: &Paths, take: &Path, project: &project::Project) -> Option<PathBuf> {
+    let path = project::project_path(take);
+    match project::Project::save(&path, project) {
+        Ok(()) => {
+            paths::log(
+                paths,
+                &format!(
+                    "finalize: project written to {} ({} keyframes)",
+                    path.display(),
+                    project.camera.keyframes.len()
+                ),
+            );
+            Some(path)
+        }
+        Err(err) => {
+            paths::log(
+                paths,
+                &format!("finalize: cannot write {}: {err}", path.display()),
+            );
+            None
         }
     }
 }
@@ -554,12 +692,12 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let target = if args.target.is_empty() {
         Value::Null
     } else {
-        Value::String(args.target)
+        Value::String(args.target.clone())
     };
     let target_kind = if args.target_kind.is_empty() {
         Value::Null
     } else {
-        Value::String(args.target_kind)
+        Value::String(args.target_kind.clone())
     };
     let target_label = if args.target_label.is_empty() {
         Value::Null
@@ -572,6 +710,18 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let telemetry_ran = state::read(paths)
         .and_then(|state| state.get("telemetry").and_then(Value::as_bool))
         .unwrap_or(false);
+    let options = take_options(paths);
+    // `--telemetry` is explicit; otherwise use the take's runtime log when the
+    // recorder actually started the listener. A missing file is not an error:
+    // the take simply saves without a camera.
+    let telemetry_file = args
+        .telemetry
+        .clone()
+        .filter(|path| path.is_file())
+        .or_else(|| {
+            (telemetry_ran && paths.session_telemetry.is_file())
+                .then(|| paths.session_telemetry.clone())
+        });
 
     let mut file = args.file;
     let mut output = args.output.unwrap_or_else(|| file.clone());
@@ -625,32 +775,166 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut error = String::new();
     let mut saved = output.clone();
+    let mut built_project: Option<project::Project> = None;
+    // Where the pointer is at click time is not always where the work is: a
+    // tap that only focuses a window lands wherever the pointer was parked.
+    // The refiner samples the capture so such a block can follow the caret.
+    let refiner = activity::Refiner::new(paths, &file, args.trim_start);
+    let pass = match args.project.as_ref() {
+        Some(project_file) => match project::Project::load(project_file) {
+            Ok(mut project) => {
+                // A project handed to the save pass can be a skeleton: fill its
+                // camera from `--telemetry` when it has none of its own.
+                if let Some(telemetry_file) = telemetry_file.as_deref() {
+                    if project.camera.keyframes.is_empty() && project.camera.style != "off" {
+                        let trim = project.trim_start;
+                        let refiner = activity::Refiner::new(paths, &file, trim);
+                        match project_from_telemetry(
+                            telemetry_file,
+                            &file,
+                            &output,
+                            trim,
+                            &options,
+                            &args.target,
+                            &args.target_kind,
+                            Some(&refiner),
+                        ) {
+                            Ok(built) => project.camera = built.camera,
+                            Err(err) => paths::log(
+                                paths,
+                                &format!("finalize: telemetry not applied: {err:#}"),
+                            ),
+                        }
+                    }
+                }
+                render::render_take(
+                    paths,
+                    &project,
+                    &file,
+                    &output,
+                    project.trim_start,
+                    args.noise_cancellation,
+                )
+            }
+            Err(err) => Err(err),
+        },
+        None => match telemetry_file.as_deref() {
+            Some(telemetry_file) => match project_from_telemetry(
+                telemetry_file,
+                &file,
+                &output,
+                args.trim_start,
+                &options,
+                &args.target,
+                &args.target_kind,
+                Some(&refiner),
+            ) {
+                Ok(project) => {
+                    paths::log(
+                        paths,
+                        &format!(
+                            "finalize: auto zoom {} depth={} keyframes={}",
+                            if project.camera.style == "off" {
+                                "off"
+                            } else {
+                                "on"
+                            },
+                            project.camera.depth,
+                            project.camera.keyframes.len()
+                        ),
+                    );
+                    // No zoom block means the camera would be a no-op. Use the
+                    // trim/loudness pass instead, which can stream-copy the
+                    // tail, and still write the project for a later re-render.
+                    let saved = if project.camera.needs_zoom() {
+                        render::render_take(
+                            paths,
+                            &project,
+                            &file,
+                            &output,
+                            project.trim_start,
+                            args.noise_cancellation,
+                        )
+                    } else {
+                        paths::log(
+                            paths,
+                            "finalize: auto zoom has no blocks; using the trim pass",
+                        );
+                        finalize_video(
+                            paths,
+                            &file,
+                            args.trim_start,
+                            &output,
+                            args.noise_cancellation,
+                        )
+                    };
+                    if saved.is_ok() {
+                        built_project = Some(project);
+                    }
+                    saved
+                }
+                Err(err) => {
+                    // Missing or unusable telemetry must never cost the take.
+                    paths::log(
+                        paths,
+                        &format!("finalize: telemetry skipped, saving without a zoom: {err:#}"),
+                    );
+                    finalize_video(
+                        paths,
+                        &file,
+                        args.trim_start,
+                        &output,
+                        args.noise_cancellation,
+                    )
+                }
+            },
+            None => finalize_video(
+                paths,
+                &file,
+                args.trim_start,
+                &output,
+                args.noise_cancellation,
+            ),
+        },
+    };
+    if let Err(err) = &pass {
+        paths::log(paths, &format!("finalize: save pass: {err:#}"));
+    }
     let mut telemetry_saved = false;
-    if finalize_video(
-        paths,
-        &file,
-        args.trim_start,
-        &output,
-        args.noise_cancellation,
-    )
-    .is_ok()
-    {
-        // The trimmed take now owns the normal name. The raw countdown capture
-        // must not linger as a second, shippable copy.
-        if quarantined {
+    if pass.is_ok() {
+        // The save pass now owns the normal name. The raw capture must not
+        // linger as a second, shippable copy.
+        if file != output {
             paths::remove_quiet(&file);
         }
-        // The work file has been validated and renamed into place.
-        telemetry_saved = persist_telemetry(paths, &output, telemetry_ran);
-    } else if quarantined {
-        // The raw capture is already named `-untrimmed`, and the recent list
-        // skips that suffix. Point the user at it instead of offering it as a
-        // normal take.
+        // The work file has been validated and renamed into place. An explicit
+        // `--telemetry` file that is the runtime log is moved beside the take
+        // even when state no longer carries the listener flag.
+        let telemetry_recorded =
+            telemetry_ran || telemetry_file.as_deref() == Some(paths.session_telemetry.as_path());
+        telemetry_saved = persist_telemetry(paths, &output, telemetry_recorded);
+        // The project is written last: it points at the take and at the
+        // telemetry file that was just copied, and a failed save must not
+        // leave a project describing a take that was never produced.
+        if let Some(project) = &built_project {
+            write_project(paths, &output, project);
+        }
+    } else if file != output {
+        // The raw capture is hidden from history and the take name was never
+        // published. Keep it and point the user at it instead of losing the
+        // footage.
         saved = file.clone();
-        error = format!(
-            "The countdown could not be trimmed. Untrimmed footage is at {}.",
-            file.display()
-        );
+        error = if args.trim_start > 0.0 {
+            format!(
+                "The countdown could not be trimmed. Raw footage is at {}.",
+                file.display()
+            )
+        } else {
+            format!(
+                "The save pass failed. The raw capture is kept at {}.",
+                file.display()
+            )
+        };
     } else {
         error = "The take was saved, but the final pass failed.".into();
     }
@@ -790,6 +1074,222 @@ mod tests {
         ))
     }
 
+    fn telemetry_fixture() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/telemetry-basic.jsonl")
+    }
+
+    #[test]
+    fn a_telemetry_take_builds_a_project_in_saved_take_time() {
+        let root = temp_root("project");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-2.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        let options = TakeOptions {
+            enabled: true,
+            depth: 2.0,
+        };
+        let project = project_from_telemetry(
+            &telemetry_fixture(),
+            &take,
+            &take,
+            // One second of countdown was trimmed off the front.
+            1.0,
+            &options,
+            "monitor:DP-1",
+            "monitor",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(project.take, "reel-2.mp4");
+        assert_eq!(project.source.width, 2560);
+        assert_eq!(project.source.height, 1440);
+        assert_eq!(project.trim_start, 1.0);
+        assert_eq!(project.telemetry, "reel-2.telemetry.jsonl");
+        assert_eq!(project.capture.kind, "monitor");
+        assert_eq!(project.capture.target, "monitor:DP-1");
+        assert_eq!(project.camera.style, "auto");
+        assert_eq!(project.camera.depth, 2.0);
+
+        // The click at t=1.5 lands at 0.5 in the saved take, and the 2x
+        // viewport is clamped inside the 2560x1440 capture.
+        let peak = project
+            .camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom > 1.9)
+            .expect("a zoomed keyframe");
+        assert!((peak.t - 0.5).abs() < 1e-6);
+        assert!((peak.x - 640.0).abs() < 1e-6);
+        assert!((peak.y - 360.0).abs() < 1e-6);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn auto_zoom_off_still_records_the_project_without_keyframes() {
+        let root = temp_root("project-off");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-3.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        let project = project_from_telemetry(
+            &telemetry_fixture(),
+            &take,
+            &take,
+            0.0,
+            &TakeOptions {
+                enabled: false,
+                depth: 2.0,
+            },
+            "",
+            "",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(project.camera.style, "off");
+        assert!(project.camera.keyframes.is_empty());
+        assert!(!project.camera.needs_zoom());
+        // The project still carries the capture facts for a later re-render.
+        assert_eq!(project.source.width, 2560);
+        assert_eq!(project.capture.monitor, "DP-1");
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn telemetry_without_a_capture_size_has_no_project() {
+        let root = temp_root("project-nosize");
+        fs::create_dir_all(&root).unwrap();
+        let telemetry = root.join("take.telemetry.jsonl");
+        fs::write(
+            &telemetry,
+            b"{\"v\":1,\"type\":\"button\",\"t\":1.0,\"state\":\"down\",\"x\":5.0,\"y\":6.0}\n",
+        )
+        .unwrap();
+        let take = root.join("reel-4.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        let err = project_from_telemetry(
+            &telemetry,
+            &take,
+            &take,
+            0.0,
+            &TakeOptions {
+                enabled: true,
+                depth: 2.0,
+            },
+            "",
+            "",
+            None,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("capture size"));
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn the_project_file_is_written_next_to_the_take() {
+        let root = temp_root("project-write");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-5.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        let project = project_from_telemetry(
+            &telemetry_fixture(),
+            &take,
+            &take,
+            0.0,
+            &TakeOptions {
+                enabled: true,
+                depth: 1.5,
+            },
+            "",
+            "",
+            None,
+        )
+        .unwrap();
+        let written = write_project(&paths, &take, &project).expect("a project path");
+        assert_eq!(written, videos.join("reel-5.project.json"));
+
+        let reloaded = project::Project::load(&written).unwrap();
+        assert_eq!(reloaded.take, "reel-5.mp4");
+        assert_eq!(reloaded.camera.style, "auto");
+        assert_eq!(reloaded.camera.depth, 1.5);
+        assert!(reloaded.camera.needs_zoom());
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn window_and_region_telemetry_build_projects() {
+        let root = temp_root("project-targets");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-6.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        // A window and a region capture report the same three fields; the
+        // click is in encoded-frame pixels, so the camera only needs the frame.
+        for (kind, target, width, height) in [
+            ("window", "window:0x55", 1920, 1080),
+            ("region", "region:800x600+120+80", 800, 600),
+        ] {
+            let telemetry = root.join(format!("{kind}.telemetry.jsonl"));
+            let start = format!(
+                "{{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":\
+                 {{\"kind\":\"{kind}\",\"target\":\"{target}\",\"monitor\":\"DP-1\",\
+                 \"width\":{width},\"height\":{height}}},\"fps\":60}}\n"
+            );
+            let click = format!(
+                "{{\"v\":1,\"type\":\"button\",\"t\":1.0,\"state\":\"down\",\
+                 \"x\":{},\"y\":{}}}\n",
+                width - 5,
+                height - 5,
+            );
+            fs::write(&telemetry, start + &click).unwrap();
+
+            let project = project_from_telemetry(
+                &telemetry,
+                &take,
+                &take,
+                0.0,
+                &TakeOptions {
+                    enabled: true,
+                    depth: 2.0,
+                },
+                target,
+                kind,
+                None,
+            )
+            .unwrap();
+
+            assert_eq!(project.capture.kind, kind);
+            assert_eq!(project.capture.target, target);
+            assert_eq!(project.source.width, width);
+            assert_eq!(project.source.height, height);
+            // A click in the far corner still yields a viewport that sits
+            // inside the frame.
+            let peak = project
+                .camera
+                .keyframes
+                .iter()
+                .find(|frame| frame.zoom > 1.9)
+                .expect("a zoomed keyframe");
+            assert!(peak.x >= width as f64 / 4.0);
+            assert!(peak.y >= height as f64 / 4.0);
+            assert!(peak.x <= width as f64 * 3.0 / 4.0);
+            assert!(peak.y <= height as f64 * 3.0 / 4.0);
+        }
+
+        fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn telemetry_is_copied_for_a_successful_save() {
         let root = temp_root("telemetry-copy");
@@ -848,6 +1348,18 @@ mod tests {
         assert_eq!(trim_split(10.0, 0.1, &[0.0]), None);
         // The split is at the very end: nothing left to copy.
         assert_eq!(trim_split(2.02, 0.1, &keyframes), None);
+    }
+
+    #[test]
+    fn the_concat_list_uses_absolute_paths() {
+        // ffmpeg resolves list entries relative to the list file, which lives
+        // inside the parts directory, so a relative entry would be doubled.
+        let quoted = concat_quote(Path::new(".take-parts/head.mp4"));
+        assert!(
+            Path::new(&quoted).is_absolute(),
+            "the concat list must not depend on the working directory: {quoted}"
+        );
+        assert!(quoted.ends_with(".take-parts/head.mp4"));
     }
 
     #[test]

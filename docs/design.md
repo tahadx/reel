@@ -401,7 +401,7 @@ The four tabs are fixed. New settings must fit one of them.
 | Tab    | Belongs here                                                              | Does not belong                  |
 | :----- | :------------------------------------------------------------------------ | :------------------------------- |
 | Media  | Capture section: countdown, webcam corner, webcam device, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
-| Zoom   | Manual zoom, zoom depth, pan step                                         | Anything unrelated to zoom       |
+| Zoom   | Auto zoom, manual zoom                                                    | Anything unrelated to zoom       |
 | Output | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
 | Keys   | Read-only shortcut reference                                              | Editable key bindings            |
 
@@ -410,6 +410,9 @@ Rules:
 - No fifth tab. The `1`–`4` shortcuts are part of the interface contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab.
+- Auto zoom is a toggle row and sits first in Zoom; it is off by default.
+- Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
+  not add rows for them.
 - Media uses section labels so the capture, audio, and video groups still scan
   quickly.
 

@@ -152,6 +152,26 @@ pub fn untrimmed_path(file: &Path) -> PathBuf {
     }
 }
 
+/// Where the encoder writes before the save pass. The name keeps the raw file
+/// out of the recent list and off the ordinary take name, so a take is never
+/// visible without its camera (or countdown) pass applied.
+pub fn capture_path(file: &Path) -> PathBuf {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    if ext.is_empty() {
+        parent.join(format!("{stem}.capture"))
+    } else {
+        parent.join(format!("{stem}.capture.{ext}"))
+    }
+}
+
 /// `<take-stem>.telemetry.jsonl` next to a saved take.
 pub fn telemetry_path(file: &Path) -> PathBuf {
     let stem = file
@@ -233,13 +253,13 @@ pub fn is_untrimmed(file: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// True for a half-written save pass that died before the rename.
+/// True for a file that is not a finished take: either a save pass that died
+/// before the rename, or an encoder capture waiting for its save pass.
 pub fn is_partial(file: &Path) -> bool {
     file.file_name()
         .map(|name| {
-            name.to_string_lossy()
-                .to_ascii_lowercase()
-                .contains(".part.")
+            let name = name.to_string_lossy().to_ascii_lowercase();
+            name.contains(".part.") || name.contains(".capture.")
         })
         .unwrap_or(false)
 }
@@ -322,12 +342,14 @@ pub fn file_stamp() -> String {
 }
 
 pub fn log(paths: &Paths, message: &str) {
+    log_to(&paths.log, message);
+}
+
+/// Append a line to a log file. Split out for helpers that only carry the path
+/// and do not need the rest of the runtime layout.
+pub fn log_to(log: &Path, message: &str) {
     let line = format!("[{}] {}\n", log_stamp(), message);
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&paths.log)
-    {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
         let _ = file.write_all(line.as_bytes());
     }
 }
@@ -454,6 +476,20 @@ mod tests {
             "/home/a/Videos/Reel/reel-1.2.3-untrimmed.mp4"
         )));
         assert!(!is_untrimmed(file));
+    }
+
+    #[test]
+    fn capture_names_stay_out_of_history_and_keep_the_extension() {
+        let file = Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4");
+
+        assert_eq!(
+            capture_path(file),
+            Path::new("/home/a/Videos/Reel/reel-1.2.3.capture.mp4")
+        );
+        assert!(is_partial(Path::new(
+            "/home/a/Videos/Reel/reel-1.2.3.capture.mp4"
+        )));
+        assert!(!is_partial(file));
     }
 
     #[test]

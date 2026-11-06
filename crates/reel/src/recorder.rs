@@ -35,6 +35,8 @@ struct Settings {
     filename_prefix: String,
     manual_zoom: bool,
     zoom_max: f64,
+    auto_zoom: bool,
+    auto_zoom_depth: f64,
 }
 
 impl Settings {
@@ -56,6 +58,8 @@ impl Settings {
             "filenamePrefix": self.filename_prefix,
             "manualZoom": self.manual_zoom,
             "zoomMax": self.zoom_max,
+            "autoZoom": self.auto_zoom,
+            "autoZoomDepth": self.auto_zoom_depth,
         })
     }
 }
@@ -180,6 +184,11 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .or_else(|| config::zoom_max_value(stored.get("zoomMax")))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
+    // Auto zoom is a save-pass choice, but it is snapshotted with the take so
+    // changing the setting mid-recording cannot change this save.
+    let auto_zoom = config::auto_zoom(&stored);
+    let auto_zoom_depth = config::auto_zoom_depth(&stored);
+
     Ok(Settings {
         desktop,
         mic,
@@ -197,6 +206,8 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         filename_prefix,
         manual_zoom,
         zoom_max,
+        auto_zoom,
+        auto_zoom_depth,
     })
 }
 
@@ -485,7 +496,10 @@ fn unique_recording(dir: &str, container: &str, prefix: &str) -> String {
     let base = format!("{prefix}{}", paths::file_stamp());
     let mut candidate = format!("{dir}/{base}.{container}");
     let mut suffix = 2;
-    while Path::new(&candidate).exists() || paths::untrimmed_path(Path::new(&candidate)).exists() {
+    while Path::new(&candidate).exists()
+        || paths::untrimmed_path(Path::new(&candidate)).exists()
+        || paths::capture_path(Path::new(&candidate)).exists()
+    {
         candidate = format!("{dir}/{base}-{suffix}.{container}");
         suffix += 1;
     }
@@ -542,17 +556,10 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         &settings.container,
         &settings.filename_prefix,
     );
-    // A countdown is recorded into the same capture and trimmed off in the save
-    // pass. Give that raw file its own `-untrimmed` name so the recent list,
-    // and any share action built on it, never see overlay footage while the
-    // trim is pending or after it fails.
-    let capture_file = if settings.countdown > 0 {
-        paths::untrimmed_path(Path::new(&file))
-            .display()
-            .to_string()
-    } else {
-        file.clone()
-    };
+    // Always record into a hidden capture name. The save pass publishes the
+    // ordinary take name only after the camera and audio pass, so the take the
+    // user can see is never the raw, un-zoomed capture.
+    let capture_file = paths::capture_path(Path::new(&file)).display().to_string();
     let capture_fps = settings.fps;
 
     // A take's log always starts clean; telemetry resolves below and logs
@@ -685,11 +692,12 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} cursor={} telemetry={} output={}",
+            "capture: target={} fps={} cursor={} telemetry={} autoZoom={} output={}",
             target,
             capture_fps,
             if settings.cursor { "on" } else { "off" },
             if telemetry_ready { "on" } else { "off" },
+            if settings.auto_zoom { "on" } else { "off" },
             capture_file
         ),
     );
@@ -1188,6 +1196,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         target_label,
         trim_start,
         noise_cancellation,
+        telemetry_ran,
     );
     {
         let _lock = Lock::acquire(paths)?;
@@ -1218,6 +1227,12 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         let noise_on =
             enabled(&current, "noiseCancellation") || enabled(&take_settings, "noiseCancellation");
         noise_cancellation = mic_on && noise_on;
+        // Telemetry is the save pass's only pointer/click source. The flag is
+        // written by the recorder while the listener is live.
+        telemetry_ran = current
+            .get("telemetry")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
 
         if status == "starting" {
             let _ = paths::write_atomic(&paths.cancel, "");
@@ -1344,6 +1359,8 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         &target_kind,
         &target_label,
         noise_cancellation,
+        (telemetry_ran && paths.session_telemetry.is_file())
+            .then_some(paths.session_telemetry.as_path()),
     );
     match job {
         Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {output}")),
@@ -1461,6 +1478,8 @@ mod tests {
             filename_prefix: "reel-".into(),
             manual_zoom: true,
             zoom_max: 2.0,
+            auto_zoom: true,
+            auto_zoom_depth: 2.5,
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);

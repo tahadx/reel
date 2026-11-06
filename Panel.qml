@@ -81,8 +81,7 @@ Panel {
     "container": "mp4",
     "notifications": "off",
     "manualZoom": "on",
-    "zoomMax": "2.0",
-    "panStep": "60",
+    "autoZoom": "off",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -125,9 +124,8 @@ Panel {
   readonly property var settingsTabs: [
     { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
-      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
-      { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
-      { key: "panStep", label: "Pan step", glyph: "󰆞" }
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" },
+      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -168,7 +166,6 @@ Panel {
   property bool discardArmed: false
   property bool cancelling: false
   property string pendingConfig: ""
-  property string pushedSignature: ""
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
@@ -261,7 +258,8 @@ Panel {
 
   function isSwitch(key) {
     return key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-      || key === "notifications" || key === "manualZoom" || key === "noiseCancellation"
+      || key === "notifications" || key === "manualZoom" || key === "autoZoom"
+      || key === "noiseCancellation"
   }
 
   function optionList(key) {
@@ -280,8 +278,7 @@ Panel {
     case "container": return ["mp4", "mkv"]
     case "notifications": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
-    case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
-    case "panStep": return ["30", "60", "120"]
+    case "autoZoom": return ["off", "on"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -309,7 +306,7 @@ Panel {
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-        || key === "notifications" || key === "manualZoom")
+        || key === "notifications" || key === "manualZoom" || key === "autoZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -325,11 +322,8 @@ Panel {
     case "cursor":
     case "notifications":
     case "manualZoom":
+    case "autoZoom":
       return value === "on" ? "On" : "Off"
-    case "zoomMax":
-      return value + "x"
-    case "panStep":
-      return value + " px"
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "webcamDevice":
@@ -369,19 +363,28 @@ Panel {
     entry[key] = value
     root.settings = entry
 
-    var signatureEntries = ({})
-    for (var s in entry) if (s !== "id") signatureEntries[s] = entry[s]
-    root.pushedSignature = JSON.stringify(signatureEntries)
-
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
-    root.queueConfig(entry)
+
+    // Only send the key the user changed. Sending the whole settings object
+    // let a stale or default value for an unrelated key overwrite the engine
+    // config, which is how auto zoom kept turning itself off.
+    var patch = ({})
+    patch[key] = value
+    root.queueConfig(patch)
   }
 
-  function queueConfig(entry) {
-    var payload = ({})
-    for (var k in entry) if (k !== "id") payload[k] = entry[k]
-    root.pendingConfig = JSON.stringify(payload)
+  function queueConfig(patch) {
+    var merged = ({})
+    if (root.pendingConfig !== "") {
+      try {
+        merged = JSON.parse(root.pendingConfig)
+      } catch (e) {
+        merged = ({})
+      }
+    }
+    for (var k in patch) if (k !== "id") merged[k] = patch[k]
+    root.pendingConfig = JSON.stringify(merged)
     root.flushConfig()
   }
 
@@ -398,16 +401,6 @@ Panel {
     var next = Model.cycle(list, root.currentValue(key), direction)
     var value = (key === "countdown" || key === "fps") ? Number(next) : next
     root.writeSetting(key, value)
-  }
-
-  function syncConfig() {
-    var payload = ({})
-    var source = root.settings || ({})
-    for (var k in source) if (k !== "id") payload[k] = source[k]
-    var signature = JSON.stringify(payload)
-    if (signature === root.pushedSignature) return
-    root.pushedSignature = signature
-    root.queueConfig(source)
   }
 
   // ---------- labels ------------------------------------------------------
@@ -1246,7 +1239,6 @@ Panel {
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
-      root.syncConfig()
       root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)

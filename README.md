@@ -13,7 +13,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   after the countdown.
 - Pause and resume without ending the file.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
-  `Ctrl+Alt+Scroll`, capped by a configurable zoom depth.
+  `Ctrl+Alt+Scroll`, capped at 2× by default.
+- Optional auto zoom in the save pass: clicks become smooth camera blocks, and
+  every take with telemetry writes an editable `project.json` for re-rendering.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.
@@ -181,12 +183,12 @@ take is recording; pausing or stopping resets the view to 1×.
   detached, so the pointer stays where it really is instead of being pulled to
   the screen centre and out of a small capture. `Ctrl + Alt + ←/→/↑/↓` nudges a
   monitor take's view from the keyboard (hold to keep moving, `Shift` for a
-  longer step), and **Pan step** in Settings sets how far one nudge goes.
-  Panning never changes the zoom depth, and it stays inside the recorded
-  monitor.
+  longer step). A nudge moves 60 px by default (`reel config set panStep 30` or
+  `120` changes it). Panning never changes the zoom depth, and it stays inside
+  the recorded monitor.
 
-**Zoom depth** in Settings caps the maximum magnification (1.5×–3×, 2× by
-default). The keyboard and scroll controls come from the optional shortcut
+Zoom depth is 2× by default; `reel config set zoomMax 1.5`, `2.5`, or `3`
+changes it. The keyboard and scroll controls come from the optional shortcut
 block; touchpad pinch is registered by Reel when a take starts. If you already
 have your own two-finger pinch binding, Reel overrides it for the take and
 reloads your config afterwards so it comes back.
@@ -201,6 +203,22 @@ required.
 local pointer telemetry for later save-pass work. That needs read access to
 `/dev/input`; add your user to the `input` group and log in again. If the
 devices cannot be read, the take still records without pointer telemetry.
+
+**Auto zoom** is the first row in Settings → **Zoom**, a single on/off switch
+that is off by default. Turn it on and clicks (or touchpad taps, when
+tap-to-click is on) become short 2× zoom blocks in the saved file. When a
+click only focuses a window, the block follows the part of the screen that
+changes — the text you are typing and the caret next to it — instead of zooming
+into an empty area.
+The pointer is still recorded in this version and scales with the zoom. Reel
+needs read access to `/dev/input` to see the clicks; without it the take still
+saves, just without the automatic zoom.
+
+Every saved take with telemetry writes a `project.json` next to it, even when
+auto zoom is off. `reel render --project <path>` renders the take again with the
+camera path in that file. The default output is `<take-stem>.rendered.<ext>`,
+and the original take is never replaced. The project schema and the keyframe
+fields are in [docs/reference.md](docs/reference.md#re-rendering-a-take).
 
 The settings page covers all capture options and the filename prefix. History
 takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.

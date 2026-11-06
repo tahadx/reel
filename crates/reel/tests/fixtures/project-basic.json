@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "take": "reel-2026-11-03_12-00-00.mp4",
+  "createdAt": "2026-11-03T12:00:00Z",
+  "trimStart": 0.0,
+  "source": {
+    "width": 2560,
+    "height": 1440,
+    "fps": 60,
+    "duration": 12.345,
+    "frameCount": 741
+  },
+  "capture": {
+    "kind": "monitor",
+    "target": "monitor:DP-1",
+    "monitor": "DP-1"
+  },
+  "telemetry": "reel-2026-11-03_12-00-00.telemetry.jsonl",
+  "camera": {
+    "style": "auto",
+    "depth": 2.0,
+    "easing": "smoothstep",
+    "keyframes": [
+      { "t": 0.0, "zoom": 1.0, "x": 1280.0, "y": 720.0 },
+      { "t": 1.5, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
+      { "t": 3.2, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
+      { "t": 3.7, "zoom": 1.0, "x": 1280.0, "y": 720.0 }
+    ]
+  },
+  "cursor": {
+    "enabled": false,
+    "size": "medium",
+    "hideIdle": true,
+    "smooth": true
+  },
+  "ripples": { "enabled": false },
+  "canvas": {
+    "background": "theme",
+    "padding": "medium",
+    "radius": 24,
+    "shadow": "medium",
+    "image": ""
+  },
+  "webcam": {
+    "enabled": false,
+    "file": "",
+    "size": "medium",
+    "corner": "bottom_right",
+    "shape": "circle",
+    "mirror": false
+  },
+  "exports": [
+    { "aspect": "16:9", "width": 1920, "height": 1080 }
+  ]
+}

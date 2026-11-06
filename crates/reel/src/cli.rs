@@ -55,6 +55,8 @@ pub enum Command {
         #[arg(long = "note-only")]
         note_only: bool,
     },
+    /// Render a take again from its project file.
+    Render(RenderArgs),
     /// List the cameras available for the webcam corner.
     Webcams {
         #[arg(long)]
@@ -175,6 +177,16 @@ pub struct StartArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct RenderArgs {
+    /// Project file written next to the take.
+    #[arg(long)]
+    pub project: PathBuf,
+    /// Output path. Defaults to `<take-stem>.rendered.<ext>`.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct ConfigArgs {
     #[command(subcommand)]
     pub action: Option<ConfigAction>,
@@ -219,6 +231,14 @@ pub struct FinalizeArgs {
     /// Apply microphone noise reduction during the save pass.
     #[arg(long = "noise-cancellation")]
     pub noise_cancellation: bool,
+    /// Use a project contract for this save instead of the legacy trim.
+    #[arg(long)]
+    pub project: Option<PathBuf>,
+    /// Pointer telemetry for this take. The save pass reads it to build the
+    /// camera and writes `<take>.project.json`; without it the save is
+    /// unchanged and no project is written.
+    #[arg(long)]
+    pub telemetry: Option<PathBuf>,
 }
 
 #[derive(Args, Debug)]

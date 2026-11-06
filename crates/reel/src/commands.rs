@@ -862,12 +862,14 @@ mod tests {
         fs::write(videos.join("reel-1.mp4"), b"take").unwrap();
         fs::write(videos.join("reel-2-untrimmed.mp4"), b"raw").unwrap();
         fs::write(videos.join("reel-3.part.4242.mp4"), b"part").unwrap();
+        fs::write(videos.join("reel-4.capture.99.mp4"), b"capture").unwrap();
 
         let takes = recent_takes(&paths, 10);
         assert_eq!(takes.len(), 1);
         assert!(takes[0].path.ends_with("reel-1.mp4"));
         assert!(!paths::is_partial(Path::new("reel-1.mp4")));
         assert!(paths::is_partial(Path::new("reel-1.part.42.mp4")));
+        assert!(paths::is_partial(Path::new("reel-1.capture.mp4")));
         let _ = fs::remove_dir_all(root);
     }
 
