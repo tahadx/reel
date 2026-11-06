@@ -148,7 +148,10 @@ zoom:
   last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
   keyframe.
 - Blocks that overlap in time stay zoomed and pan between the two areas, so a
-  quick click somewhere else does not flash back to 1x for a millisecond.
+  quick click somewhere else does not flash back to 1x for a millisecond. The
+  pan takes about 450 ms and ends on the new click; a shift smaller than 12% of
+  the visible frame is ignored, so a click already inside the view cannot make
+  the camera twitch.
 - The viewport is clamped inside the capture, so a zoom never shows empty
   space.
 - Keyframe times are saved-take time: the countdown is subtracted, so a zoom

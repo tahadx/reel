@@ -24,6 +24,11 @@ pub const EASE_IN_SECS: f64 = 0.5;
 pub const HOLD_AFTER_LAST_SECS: f64 = 0.9;
 /// Time spent easing back to 1x after the hold.
 pub const EASE_OUT_SECS: f64 = 0.5;
+/// Time spent panning between overlapping zoom targets.
+pub const PAN_SECS: f64 = 0.45;
+/// Ignore pans smaller than this fraction of the visible frame. A click inside
+/// the current view does not need its own tiny camera move.
+pub const PAN_DEADBAND: f64 = 0.12;
 /// The zoom depths the contract allows.
 pub const DEPTHS: [f64; 3] = [1.5, 2.0, 2.5];
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -429,6 +434,13 @@ fn string(record: &Map<String, Value>, key: &str) -> String {
 /// replacement centre when the click landed somewhere quiet.
 pub type TargetRefiner<'a> = &'a dyn Fn(f64, f64, f64, f64) -> Option<(f64, f64)>;
 
+/// Clamp a camera centre the same way a keyframe would at this depth.
+fn clamped_center(x: f64, y: f64, width: f64, height: f64, depth: f64) -> (f64, f64) {
+    let mut frame = Keyframe::new(0.0, depth, x, y);
+    frame.clamp_center(width, height);
+    (frame.x, frame.y)
+}
+
 /// The camera for a project, built from clicks.
 ///
 /// The save pass feeds this from the take's telemetry; `reel render` then reads
@@ -528,6 +540,7 @@ pub fn build_camera(
     // again a millisecond later. Stay zoomed and pan between their centres
     // instead, then leave once when the last of them is done.
     let (centre_x, centre_y) = (width / 2.0, height / 2.0);
+    let deadband = width.min(height) / camera.depth * PAN_DEADBAND;
     let mut frames: Vec<Keyframe> = Vec::new();
     let mut index = 0;
     while index < blocks.len() {
@@ -537,27 +550,44 @@ pub fn build_camera(
             Keyframe::new(first.start, 1.0, centre_x, centre_y),
         );
         let mut enter = first.enter.max(first.start + 0.001);
+        let mut current = clamped_center(first.cx, first.cy, width, height, camera.depth);
         push_frame(
             &mut frames,
-            Keyframe::new(enter, camera.depth, first.cx, first.cy),
+            Keyframe::new(enter, camera.depth, current.0, current.1),
         );
 
         let mut last = index;
         while last + 1 < blocks.len() && blocks[last + 1].start <= blocks[last].end {
             last += 1;
             let next = &blocks[last];
-            enter = next.enter.max(enter + 0.001);
-            push_frame(
-                &mut frames,
-                Keyframe::new(enter, camera.depth, next.cx, next.cy),
-            );
+            let next_enter = next.enter.max(enter + 0.001);
+            let next_centre = clamped_center(next.cx, next.cy, width, height, camera.depth);
+            let dx = next_centre.0 - current.0;
+            let dy = next_centre.1 - current.1;
+            if (dx * dx + dy * dy).sqrt() > deadband {
+                let pan_start = next_enter - PAN_SECS;
+                if pan_start > enter + 0.001 {
+                    // Hold the old view until the pan begins, so the camera
+                    // does not drift across the whole block.
+                    push_frame(
+                        &mut frames,
+                        Keyframe::new(pan_start, camera.depth, current.0, current.1),
+                    );
+                }
+                push_frame(
+                    &mut frames,
+                    Keyframe::new(next_enter, camera.depth, next_centre.0, next_centre.1),
+                );
+                current = next_centre;
+                enter = next_enter;
+            }
         }
 
         let final_block = &blocks[last];
         let hold = final_block.hold.max(enter + 0.001);
         push_frame(
             &mut frames,
-            Keyframe::new(hold, camera.depth, final_block.cx, final_block.cy),
+            Keyframe::new(hold, camera.depth, current.0, current.1),
         );
         push_frame(
             &mut frames,
@@ -1204,6 +1234,56 @@ mod tests {
         // The pan goes from the first centre to the clamped second one.
         assert_eq!(camera.keyframes[1].x, 1800.0);
         assert_eq!(camera.keyframes[2].x, 640.0);
+    }
+
+    #[test]
+    fn overlapping_blocks_pan_over_a_short_window() {
+        // The pan must happen just before the second click, not drift from
+        // the first click's centre across the whole block.
+        let camera = build_camera(
+            &[click(5.0, 1800.0, 500.0), click(6.5, 300.0, 1200.0)],
+            true,
+            2.0,
+            2560.0,
+            1440.0,
+            0.0,
+            None,
+        );
+
+        let frames: Vec<(f64, f64, f64)> = camera
+            .keyframes
+            .iter()
+            .map(|frame| (frame.t, frame.zoom, frame.x))
+            .collect();
+        assert_eq!(frames[1], (5.0, 2.0, 1800.0));
+        assert_eq!(frames[2].0, 6.5 - PAN_SECS);
+        assert_eq!(frames[2].1, 2.0);
+        assert_eq!(frames[2].2, 1800.0);
+        assert_eq!(frames[3], (6.5, 2.0, 640.0));
+    }
+
+    #[test]
+    fn a_small_clamped_shift_does_not_move_the_camera() {
+        // Both clicks sit in the same clamped top-right corner: the raw click
+        // distance is large, but the camera would only twitch by a few pixels.
+        let camera = build_camera(
+            &[click(5.0, 2800.0, 100.0), click(6.5, 2114.0, 312.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            None,
+        );
+
+        for frame in camera.keyframes.iter().filter(|frame| frame.zoom > 1.0) {
+            assert_eq!(frame.x, 2160.0);
+            assert_eq!(frame.y, 405.0);
+        }
+        assert!(
+            camera.keyframes.iter().all(|frame| frame.t != 6.5),
+            "the suppressed block must not add a pan keyframe"
+        );
     }
 
     #[test]
