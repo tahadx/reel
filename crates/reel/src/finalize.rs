@@ -170,6 +170,10 @@ fn trim_split(source_end: f64, trim: f64, keyframes: &[f64]) -> Option<f64> {
 }
 
 fn concat_quote(path: &Path) -> String {
+    // The concat demuxer resolves each `file` relative to the list's own
+    // directory. A relative input would be looked up inside the parts
+    // directory a second time, so anchor the list to absolute paths.
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
     path.display().to_string().replace('\'', "'\\''")
 }
 
@@ -1309,6 +1313,18 @@ mod tests {
         assert_eq!(trim_split(10.0, 0.1, &[0.0]), None);
         // The split is at the very end: nothing left to copy.
         assert_eq!(trim_split(2.02, 0.1, &keyframes), None);
+    }
+
+    #[test]
+    fn the_concat_list_uses_absolute_paths() {
+        // ffmpeg resolves list entries relative to the list file, which lives
+        // inside the parts directory, so a relative entry would be doubled.
+        let quoted = concat_quote(Path::new(".take-parts/head.mp4"));
+        assert!(
+            Path::new(&quoted).is_absolute(),
+            "the concat list must not depend on the working directory: {quoted}"
+        );
+        assert!(quoted.ends_with(".take-parts/head.mp4"));
     }
 
     #[test]
