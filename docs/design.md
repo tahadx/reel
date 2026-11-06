@@ -308,18 +308,24 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 | Countdown        | Countdown number as the glyph                         |
 | Recording        | Dot + clock label; clock uses `urgent`                |
 | Paused           | Pause glyph, `dim`, no clock                          |
-| Saving           | Save glyph, `dim`, no label                           |
+| Saving           | Accent ring closes around the dot, then decays to `dim`; no label |
 | Disabled / error | Never render logs or error text in the bar            |
 
 Rules:
 
 - The mark is drawn, not a Nerd Font glyph: screen outline, center dot, stand.
+- The saving seal is drawn too: an `8.2`-unit ring at `2.2` units around the
+  take's `6`-unit dot, full canvas `Style.bar.iconCanvas`. It draws in one pass
+  and holds; it never loops.
 - The update dot is a badge, not a state: it shares the accent, sits clear of
   the mark's top-right corner so the screen outline stays legible, and
   disappears while a take owns the bar. The tooltip appends
   `update available`.
 - Recording width is the measured clock width + `Style.space(30)`.
 - The dot pulses only while recording or capturing. Pause stops the pulse.
+- The seal is the only accent in the bar while a take owns it, and only until
+  the ring closes; it then decays to `dim` so the resting slot stays
+  monochrome. `Style.reduceMotion` renders the closed ring immediately.
 - Hover uses one shared bar hover fill. No per-state hover color.
 - Click opens the panel. Right-click records or pauses. Middle-click opens the
   recordings folder. Tooltips spell this out.
@@ -694,6 +700,8 @@ Rules:
 | Countdown ring                          | `240` ms           | OutCubic           |
 | Status pill pulse                       | `900` ms each way  | InOutQuad          |
 | Bar recording dot                       | `1000` ms each way | InOutQuad          |
+| Bar saving seal (ring closes)           | `200` ms           | OutCubic           |
+| Bar saving seal (accent to muted)       | `260` ms, after 200 | OutCubic          |
 
 Rules:
 
@@ -725,8 +733,8 @@ If a fourth signature animation is proposed, remove one of these instead.
 ## 9. Iconography
 
 - Nerd Font glyphs only. No emoji, no mixed icon sets.
-- The bar mark is drawn geometry, not a font glyph. The hero leads with the
-  recording pill.
+- The bar mark and the saving seal are drawn geometry, not font glyphs. The
+  hero leads with the recording pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Glyph tiles are `24 × 24`, square, `restFill`, `hairline`.
 - A glyph never replaces a text label for a primary action.

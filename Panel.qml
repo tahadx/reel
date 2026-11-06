@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -483,9 +484,9 @@ Panel {
 
   function barGlyph() {
     // The bar answers "what is happening?" with a mark rather than a word:
-    // pause, save, target pick, or countdown. Recording speaks with the clock.
+    // pause, target pick, or countdown. Recording speaks with the clock, and
+    // saving draws its own seal. Pause and target pick stay glyphs for now.
     if (root.paused) return "󰏤"
-    if (root.finalizing) return "󰆓"
     if (root.starting) {
       var stage = String(root.state.stage || "select")
       if (stage === "countdown") {
@@ -1422,14 +1423,15 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(6)
 
-      // Pause, save, target pick, and countdown are marks, not words. The
-      // clock and the pulsing dot carry the recording state on their own.
+      // Pause, target pick, and countdown are marks, not words. The clock and
+      // the pulsing dot carry the recording state on their own, and saving
+      // draws the seal below.
       Text {
         visible: text !== ""
         anchors.verticalCenter: parent.verticalCenter
         textFormat: Text.PlainText
         text: root.barGlyph()
-        color: root.paused || root.finalizing ? root.dim : root.foreground
+        color: root.paused ? root.dim : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.bar.iconFont
       }
@@ -1449,6 +1451,114 @@ Panel {
           loops: Animation.Infinite
           NumberAnimation { to: 0.4; duration: 1000; easing.type: Easing.InOutQuad }
           NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
+        }
+      }
+
+
+      // Saving is a transition, not a condition, so it is drawn as one: the
+      // take's dot is sealed by an accent ring that draws itself in a single
+      // pass, then decays to muted. One shot, 200 ms, no loop. The ring is the
+      // only place the accent appears while a take owns the bar, and only for
+      // the closing beat.
+      Item {
+        id: sealMark
+        visible: root.finalizing
+        width: Style.bar.iconCanvas
+        height: width
+        anchors.verticalCenter: parent.verticalCenter
+        readonly property real unit: width / 24
+
+        property real sweep: 0
+        property color ringColor: root.accent
+        property color dotColor: root.foreground
+
+        function play() {
+          if (Style.reduceMotion) {
+            sealMark.sweep = 360
+            sealMark.ringColor = root.dim
+            sealMark.dotColor = root.dim
+            return
+          }
+          sealMark.sweep = 0
+          sealMark.ringColor = root.accent
+          sealMark.dotColor = root.foreground
+          sealAnimation.restart()
+        }
+
+        Component.onCompleted: if (root.finalizing) sealMark.play()
+
+        Connections {
+          target: root
+          function onFinalizingChanged() {
+            if (root.finalizing) sealMark.play()
+          }
+        }
+
+        Shape {
+          anchors.fill: parent
+          // A zero-length arc still paints its round cap as a stray dot.
+          opacity: sealMark.sweep > 0.5 ? 1 : 0
+
+          ShapePath {
+            strokeColor: sealMark.ringColor
+            strokeWidth: 2.2 * sealMark.unit
+            fillColor: "transparent"
+            capStyle: ShapePath.RoundCap
+
+            PathAngleArc {
+              centerX: 12 * sealMark.unit
+              centerY: 12 * sealMark.unit
+              radiusX: 8.2 * sealMark.unit
+              radiusY: 8.2 * sealMark.unit
+              startAngle: -90
+              sweepAngle: sealMark.sweep
+            }
+          }
+        }
+
+        Rectangle {
+          anchors.centerIn: parent
+          width: 6 * sealMark.unit
+          height: width
+          radius: width / 2
+          color: sealMark.dotColor
+        }
+
+        SequentialAnimation {
+          id: sealAnimation
+
+          ParallelAnimation {
+            NumberAnimation {
+              target: sealMark
+              property: "sweep"
+              from: 0
+              to: 360
+              duration: Style.duration(200)
+              easing.type: Easing.OutCubic
+            }
+
+            ColorAnimation {
+              target: sealMark
+              property: "dotColor"
+              from: root.foreground
+              to: root.dim
+              duration: Style.duration(200)
+            }
+
+            // The ring keeps the accent until it has closed, then settles so
+            // the resting bar stays monochrome.
+            SequentialAnimation {
+              PauseAnimation { duration: Style.duration(200) }
+
+              ColorAnimation {
+                target: sealMark
+                property: "ringColor"
+                from: root.accent
+                to: root.dim
+                duration: Style.duration(260)
+              }
+            }
+          }
         }
       }
 
