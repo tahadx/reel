@@ -335,6 +335,7 @@ a place for identity text or metadata.
   - Idle: dim dot + `Ready` in secondary.
   - Recording: accent dot + live clock, foreground.
   - Paused: secondary dot + frozen clock, no pulse.
+  - Saving: dim dot + `Saving` in secondary while the save pass runs.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
   - Fill `restFill`, hairline border.
 - Trailing control contains, in order:
@@ -476,6 +477,22 @@ Rules:
 - Folder glyph tile `24 × 24`, square.
 - Label `body`: `Open the recordings folder`.
 - Same cursor and accent edge as settings rows.
+
+**Saving row**
+
+Shown above the finished takes while the save pass runs, so a take is never
+missing from history between Stop and the saved file.
+
+- Height `56`, radius `Style.cornerRadius`, transparent fill, clipped.
+- Thumbnail slot `84 × 48`, square, `0.04` foreground fill and a hairline. Three
+  `3` px accent dots pulse inside it as the loading mark, on one shared 1050 ms
+  phase and frozen at `0.6` opacity when motion is reduced.
+- Title: the name the take will be published as (`.capture` dropped) in
+  secondary, `body`, `ElideMiddle`. Falls back to `Saving take`.
+- Meta: `Saving · trimming and normalizing audio`, `caption` + `dim`.
+- Placeholder only: no hover fill, no row cursor, no take menu, no drag, and no
+  key of its own. It is replaced in place by the finished take when the save
+  ends.
 
 **Take row**
 

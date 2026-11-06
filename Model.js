@@ -226,6 +226,15 @@ function takeTitle(row) {
   return name || "Recording"
 }
 
+// A take still in the save pass is listed before it has a final name: the state
+// points at the hidden capture file, so show the name it will be published as.
+function savingTitle(path) {
+  var name = baseName(path)
+  if (name === "") return "Saving take"
+  var published = name.replace(/\.capture(\.[^.]+)$/, "$1")
+  return published !== "" ? published : "Saving take"
+}
+
 function takeMeta(row) {
   var r = object(row)
   var parts = []
