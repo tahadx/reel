@@ -108,7 +108,7 @@ crates/reel/src/         Rust engine (cli.rs, config.rs, recorder.rs, finalize.r
 bin/                     lint-qml, test-qml, refresh-dist, check-release, stamp-version, reel
 docs/                    design.md (UI system) and reference.md (CLI/config)
 tests/                   shell and QML tests (install.test.sh)
-assets/, preview.png     marketplace assets (preview.png shows the panel only)
+preview.png              marketplace preview (shows the panel only)
 ```
 
 ## Ground rules & hard constraints

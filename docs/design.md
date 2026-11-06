@@ -298,49 +298,42 @@ Rules:
 
 ### 6.1 Bar widget
 
-The bar answers “what is happening?” with two marks: the resting screen, and
-the take.
+The bar answers “what is happening?” with one mark: the take's pill. It is
+there at rest too, parked at `0:00`, so the bar never swaps drawings as the
+state changes.
 
-| State            | Bar                                                   |
-| :--------------- | :---------------------------------------------------- |
-| Idle             | Drawn screen mark in `Style.bar.iconCanvas`, no label |
-| Update available | Idle mark plus a `3.8`-unit accent dot, clear of the outline corner |
-| Take             | Pill, as in the panel: dot + clock inside             |
-| Disabled / error | Never render logs or error text in the bar            |
+| State            | Bar                                        |
+| :--------------- | :----------------------------------------- |
+| Idle             | Pill parked at `0:00`; dot and clock `dim` |
+| Take             | The same pill: dot + clock inside          |
+| Disabled / error | Never render logs or error text in the bar |
 
 Rules:
 
-- Two marks, not seven. The take is one thing from the moment it starts until
-  the save lands: the panel's pill, `Style.space(20)` tall, radius
+- One mark, not seven. The pill is `Style.space(20)` tall, radius
   `height / 2`, `foreground` at 5% with a 14% hairline. Its width comes from
-  the clock's advance, so the timer never clips.
-- The pill's clock carries the state: `0:00` while the take is armed (the
+  the clock's advance, so the timer never clips; the same width is reserved at
+  rest, so starting a take does not move the bar.
+- The clock carries the state: `0:00` at rest and while the take is armed (the
   countdown is already on screen, so the bar does not echo it), the live time
-  while frames run, the frozen time while paused, and the take's last time
-  while it is written out.
+  while frames run, the frozen time while paused, the take's last time while it
+  is written out, and back to `0:00` when the save lands.
 - Accent belongs to frames running: the pill's dot is accent and pulses
-  between `0.55` and full while recording or capturing. Arming and saving are
-  `dim`, pause is `secondary`, and the clock stays `foreground` only while
+  between `0.55` and full while recording or capturing. Idle, arming and saving
+  are `dim`, pause is `secondary`, and the clock stays `foreground` only while
   live.
 - Saving is the same pill sinking into dim and breathing between `0.60` and
   `0.85` opacity until the save lands — dim enough to read as closing, bright
   enough to keep the last time legible. No ring, no second language for the
   same beat; reduce motion holds it at `0.72`.
-- The pill and the idle mark arrive the same way: one shot, no loop,
-  `160`–`180` ms `OutCubic`.
+- Nothing enters, so nothing needs an entrance: the pill is always present and
+  only the dot pulse and the saving breath move.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
-- The update dot is a badge, not a state: it shares the accent, sits clear of
-  the mark's top-right corner so the screen outline stays legible, and
-  disappears while a take owns the bar. The tooltip appends
-  `update available`.
-- The badge overhangs the screen, so it is the silhouette that must look
-  centred: while the badge shows, the idle mark drops `Style.space(1)` and
-  badge plus screen centre on the bar line. Without the badge the screen alone
-  is already centred, so the drop comes back out rather than leaving the mark
-  low.
-- `Style.reduceMotion` renders every entrance at its end state, and holds the
-  saving pill at a steady dim instead of pulsing.
+- Updates belong to the panel, not the bar: the header readout carries the
+  cue. The bar stays one mark with one meaning.
+- `Style.reduceMotion` disables the two loops rather than shortening them: the
+  dot holds full and the saving pill holds a steady dim.
 - Hover uses one shared bar hover fill. No per-state hover color.
 - Click opens the panel. Right-click records or pauses. Middle-click opens the
   recordings folder. Tooltips spell this out.
@@ -714,8 +707,6 @@ Rules:
 | Countdown pulse                         | `190` ms           | OutCubic           |
 | Countdown ring                          | `240` ms           | OutCubic           |
 | Status pill pulse                       | `900` ms each way  | InOutQuad          |
-| Bar mark entrance (pill, idle)          | `160`–`180` ms     | OutCubic           |
-| Bar pill clock                          | `140` ms           | OutCubic           |
 | Bar take dot pulse                      | `1000` ms each way | InOutQuad          |
 | Bar saving dim pulse                    | `1000` ms each way | InOutQuad          |
 
@@ -737,8 +728,7 @@ Rules:
 
 Spend polish only here:
 
-1. **Start.** The pill appears reading `0:00`, then the clock takes over as
-   frames run.
+1. **Start.** The parked `0:00` gives way to the live clock as frames run.
 2. **Open.** The panel fades and lifts once; nothing inside jumps.
 3. **Save.** The toast confirms the save and the new take appears at the top of
    history.
@@ -750,8 +740,8 @@ If a fourth signature animation is proposed, remove one of these instead.
 ## 9. Iconography
 
 - Nerd Font glyphs only in the panel. No emoji, no mixed icon sets.
-- The bar has two marks, both drawn: the idle screen and the take's pill. No
-  glyphs in the bar at all. The hero leads with the same pill.
+- The bar has one mark, drawn: the take's pill. No glyphs and no icons in the
+  bar at all. The hero leads with the same pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Glyph tiles are `24 × 24`, square, `restFill`, `hairline`.
 - A glyph never replaces a text label for a primary action.

@@ -1318,29 +1318,29 @@ Panel {
   readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
     + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
 
-  // The take's clock: 0:00 while a take is being armed (the countdown is on
-  // screen, so the bar does not echo it), the live time while frames run, and
-  // the take's last time while it is saved.
+  // The take's clock: 0:00 at rest and while a take is being armed (the
+  // countdown is on screen, so the bar does not echo it), the live time while
+  // frames run, and the take's last time while it is saved.
   property int savedElapsed: 0
 
   function barClockText() {
     if (root.finalizing) return Model.clock(root.savedElapsed)
-    if (root.starting) return Model.clock(0)
+    if (!root.busy || root.starting) return Model.clock(0)
     return Model.clock(root.elapsed)
   }
 
-  // The idle mark is drawn rather than borrowed from the icon font: a small
-  // screen outline with a record dot. It keeps its shape at every bar size and
-  // picks up the bar foreground plus the theme accent. While a take is
-  // running the mark gives way to the clock, and pause keeps the pause glyph,
-  // so the bar always answers "is it recording?" without opening the panel.
+  // The bar has one mark: the take's pill, for every state it can be in. It
+  // parks at 0:00 dim, carries the live clock and the accent dot while frames
+  // run, holds the frozen time when paused, and breathes dim while the take is
+  // written out. Nothing else competes with it, so the bar always answers
+  // "what is happening?" without being read as a cluster of icons.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.busy ? root.barPillWidth : Style.bar.iconSlot
+    fixedWidth: root.barPillWidth
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
     onPressed: function(button) {
@@ -1356,111 +1356,20 @@ Panel {
     }
 
     Item {
-      id: idleMark
-      visible: !root.busy
-      anchors.centerIn: parent
-      width: Style.bar.iconCanvas
-      height: Style.bar.iconCanvas
-      readonly property real unit: width / 24
-
-      // The corner badge reaches above the screen, so while it is showing the
-      // whole silhouette — badge plus screen — is dropped a pixel to sit on
-      // the bar's centre line. Without the badge the screen alone is already
-      // centred, so the drop must come back out or the mark reads low.
-      anchors.verticalCenterOffset: root.updateAvailable ? Style.space(1) : 0
-
-      // The resting mark comes back the same way every other mark arrives,
-      // so a saved take does not snap the bar back to its idle drawing.
-      property real appear: 1
-      opacity: appear
-      scale: 0.92 + 0.08 * appear
-
-      NumberAnimation {
-        id: idleAppear
-        target: idleMark
-        property: "appear"
-        from: 0
-        to: 1
-        duration: Style.duration(180)
-        easing.type: Easing.OutCubic
-      }
-
-      Connections {
-        target: root
-        function onBusyChanged() {
-          if (root.busy) {
-            idleMark.appear = 0
-            return
-          }
-          if (Style.reduceMotion) {
-            idleMark.appear = 1
-            return
-          }
-          idleMark.appear = 0
-          idleAppear.restart()
-        }
-      }
-
-      Rectangle {
-        id: screenOutline
-        x: 2.5 * parent.unit
-        // The screen fills the canvas with equal margins now that the stand
-        // is gone, so the mark sits on the bar's centre line.
-        y: 4.5 * parent.unit
-        width: 19 * parent.unit
-        height: 15 * parent.unit
-        radius: 4.5 * parent.unit
-        color: "transparent"
-        border.width: Math.max(1, Math.round(1.6 * parent.unit))
-        border.color: root.foreground
-        opacity: 0.9
-      }
-
-      Rectangle {
-        anchors.centerIn: screenOutline
-        width: 6.4 * parent.unit
-        height: 6.4 * parent.unit
-        radius: 3.2 * parent.unit
-        color: root.foreground
-      }
-
-      // An update waiting is actionable, so it earns a mark on the idle
-      // widget. A take keeps the bar for its clock; the badge comes back
-      // when the take is done. It sits clear of the screen outline so the
-      // mark still reads as one drawing rather than a blob on its corner.
-      Rectangle {
-        visible: root.updateAvailable
-        x: 17.7 * parent.unit
-        y: 1.3 * parent.unit
-        width: 3.8 * parent.unit
-        height: width
-        radius: width / 2
-        color: root.accent
-      }
-    }
-
-    // The bar has two marks, not seven: the resting screen, and the take.
-    // The take is one thing from the moment it starts until the save lands —
-    // the panel's pill, reading 0:00 until frames run, the live clock while
-    // they do, and the take's last time while it is written out.
-    Item {
       id: takePill
-      visible: root.busy
       anchors.centerIn: parent
       width: root.barPillWidth
       height: root.barPillHeight
 
-      property real appear: 0
       property real savingPulse: 0
 
       // Saving is the same pill sinking into dim and breathing there until
       // the save is done: no ring, no second language for the same beat. The
       // floor stays high enough that the clock is still readable — the dim is
       // the message, not a fade out.
-      opacity: appear * (root.finalizing
+      opacity: root.finalizing
         ? (Style.reduceMotion ? 0.72 : 0.6 + 0.25 * savingPulse)
-        : 1)
-      scale: 0.94 + 0.06 * appear
+        : 1
 
       SequentialAnimation on savingPulse {
         running: root.finalizing && !Style.reduceMotion
@@ -1481,8 +1390,8 @@ Panel {
         anchors.centerIn: parent
         spacing: root.barPillGap
 
-        // Accent belongs to frames running. Arming and saving are dim; pause
-        // is muted, as in the panel.
+        // Accent belongs to frames running. Idle, arming and saving are dim;
+        // pause is muted, as in the panel.
         Rectangle {
           id: takeDot
           width: root.barPillDot
@@ -1513,28 +1422,6 @@ Panel {
           anchors.verticalCenterOffset: root.barFigureOffset
         }
       }
-
-      function show() {
-        if (Style.reduceMotion) {
-          takePill.appear = 1
-          return
-        }
-        takePill.appear = 0
-        pillAppear.restart()
-      }
-
-      NumberAnimation {
-        id: pillAppear
-        target: takePill
-        property: "appear"
-        from: 0
-        to: 1
-        duration: Style.duration(160)
-        easing.type: Easing.OutCubic
-      }
-
-      Component.onCompleted: if (visible) show()
-      onVisibleChanged: if (visible) show()
     }
   }
 
