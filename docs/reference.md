@@ -127,9 +127,11 @@ read, the take still records and simply has no pointer telemetry.
 
 ## Auto zoom
 
-**Auto zoom** in Settings → **Zoom** → Saved take is off by default. When it is
-on, button presses during the take become short zoom blocks in the saved file.
-**Auto zoom depth** sets the magnification (1.5×, 2×, or 2.5×).
+**Auto zoom** in Settings → **Zoom** → Saved take is a single on/off switch,
+off by default. When it is on, clicks during the take become short zoom blocks
+in the saved file. A touchpad tap counts too when the compositor has
+tap-to-click on; a physical click always counts. The magnification is 2×; set
+another allowed depth with `reel config set autoZoomDepth 1.5` (or `2.5`).
 
 The save pass builds the camera from the take's telemetry, not from the live
 zoom:
@@ -169,13 +171,14 @@ reel render --project take.project.json --output take-wide.mp4
 The default output is `<take-stem>.rendered.<ext>`, next to the take. A
 re-render never replaces the original file.
 
-The `camera` object holds the zoom path. `style` is `off`, `subtle`,
-`cinematic`, or `close`; `depth` is the magnification (`1.5`, `2.0`, or `2.5`);
-and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
+The `camera` object holds the zoom path. `style` is `off` or `auto` (projects
+written before the modes were folded away may say `subtle`, `cinematic`, or
+`close`; they all read as `auto`). `depth` is the magnification (`1.5`, `2.0`,
+or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
 
 ```json
 "camera": {
-  "style": "cinematic",
+  "style": "auto",
   "depth": 2.0,
   "easing": "smoothstep",
   "keyframes": [

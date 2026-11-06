@@ -520,7 +520,7 @@ fn quarantine_before_save(
 /// The auto zoom choices for this take, read from its settings snapshot before
 /// the save pass touches state.
 struct TakeOptions {
-    style: &'static str,
+    enabled: bool,
     depth: f64,
 }
 
@@ -529,7 +529,7 @@ fn take_options(paths: &Paths) -> TakeOptions {
         .and_then(|state| state.get("settings").cloned())
         .unwrap_or(Value::Null);
     TakeOptions {
-        style: config::auto_zoom_style(&settings),
+        enabled: config::auto_zoom(&settings),
         depth: config::auto_zoom_depth(&settings),
     }
 }
@@ -537,7 +537,7 @@ fn take_options(paths: &Paths) -> TakeOptions {
 /// Build the project for a take from its telemetry.
 ///
 /// Every saved take with telemetry gets one, even when auto zoom is off: the
-/// file records the capture facts, the trim, and the camera style so a later
+/// file records the capture facts, the trim, and whether auto zoom was on so a later
 /// `reel render` does not need live settings. The keyframe times are saved-take
 /// time (`t - trimStart`, floored at 0).
 fn project_from_telemetry(
@@ -602,7 +602,7 @@ fn project_from_telemetry(
         .unwrap_or_default();
     project.camera = project::build_camera(
         &telemetry.clicks,
-        options.style,
+        options.enabled,
         options.depth,
         width as f64,
         height as f64,
@@ -814,8 +814,12 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                     paths::log(
                         paths,
                         &format!(
-                            "finalize: auto zoom style={} depth={} keyframes={}",
-                            project.camera.style,
+                            "finalize: auto zoom {} depth={} keyframes={}",
+                            if project.camera.style == "off" {
+                                "off"
+                            } else {
+                                "on"
+                            },
                             project.camera.depth,
                             project.camera.keyframes.len()
                         ),
@@ -1057,7 +1061,7 @@ mod tests {
         fs::write(&take, b"video").unwrap();
 
         let options = TakeOptions {
-            style: "cinematic",
+            enabled: true,
             depth: 2.0,
         };
         let project = project_from_telemetry(
@@ -1079,7 +1083,7 @@ mod tests {
         assert_eq!(project.telemetry, "reel-2.telemetry.jsonl");
         assert_eq!(project.capture.kind, "monitor");
         assert_eq!(project.capture.target, "monitor:DP-1");
-        assert_eq!(project.camera.style, "cinematic");
+        assert_eq!(project.camera.style, "auto");
         assert_eq!(project.camera.depth, 2.0);
 
         // The click at t=1.5 lands at 0.5 in the saved take, and the 2x
@@ -1111,7 +1115,7 @@ mod tests {
             &take,
             0.0,
             &TakeOptions {
-                style: "off",
+                enabled: false,
                 depth: 2.0,
             },
             "",
@@ -1148,7 +1152,7 @@ mod tests {
             &take,
             0.0,
             &TakeOptions {
-                style: "cinematic",
+                enabled: true,
                 depth: 2.0,
             },
             "",
@@ -1174,7 +1178,7 @@ mod tests {
             &take,
             0.0,
             &TakeOptions {
-                style: "subtle",
+                enabled: true,
                 depth: 1.5,
             },
             "",
@@ -1186,7 +1190,7 @@ mod tests {
 
         let reloaded = project::Project::load(&written).unwrap();
         assert_eq!(reloaded.take, "reel-5.mp4");
-        assert_eq!(reloaded.camera.style, "subtle");
+        assert_eq!(reloaded.camera.style, "auto");
         assert_eq!(reloaded.camera.depth, 1.5);
         assert!(reloaded.camera.needs_zoom());
         fs::remove_dir_all(&root).ok();
@@ -1226,7 +1230,7 @@ mod tests {
                 &take,
                 0.0,
                 &TakeOptions {
-                    style: "cinematic",
+                    enabled: true,
                     depth: 2.0,
                 },
                 target,

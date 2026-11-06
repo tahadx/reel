@@ -83,8 +83,7 @@ Panel {
     "manualZoom": "on",
     "zoomMax": "2.0",
     "panStep": "60",
-    "autoZoomStyle": "off",
-    "autoZoomDepth": "2.0",
+    "autoZoom": "off",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -130,8 +129,7 @@ Panel {
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
       { key: "panStep", label: "Pan step", glyph: "󰆞" },
-      { key: "autoZoomStyle", label: "Auto zoom", glyph: "󰍉", section: "Saved take" },
-      { key: "autoZoomDepth", label: "Auto zoom depth", glyph: "󰍉" }
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉", section: "Saved take" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -286,8 +284,7 @@ Panel {
     case "manualZoom": return ["off", "on"]
     case "zoomMax": return ["1.5", "2.0", "2.5", "3.0"]
     case "panStep": return ["30", "60", "120"]
-    case "autoZoomStyle": return ["off", "subtle", "cinematic", "close"]
-    case "autoZoomDepth": return ["1.5", "2.0", "2.5"]
+    case "autoZoom": return ["off", "on"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -315,7 +312,7 @@ Panel {
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-        || key === "notifications" || key === "manualZoom")
+        || key === "notifications" || key === "manualZoom" || key === "autoZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -331,13 +328,10 @@ Panel {
     case "cursor":
     case "notifications":
     case "manualZoom":
+    case "autoZoom":
       return value === "on" ? "On" : "Off"
     case "zoomMax":
       return value + "x"
-    case "autoZoomDepth":
-      return value + "x"
-    case "autoZoomStyle":
-      return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "panStep":
       return value + " px"
     case "webcam":

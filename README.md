@@ -204,12 +204,12 @@ local pointer telemetry for later save-pass work. That needs read access to
 `/dev/input`; add your user to the `input` group and log in again. If the
 devices cannot be read, the take still records without pointer telemetry.
 
-**Auto zoom** in Settings → **Zoom** → Saved take is off by default. When it is
-on, clicks during the take become short zoom blocks in the saved file. **Auto
-zoom depth** sets the magnification (1.5×, 2×, or 2.5×). The pointer is still
-recorded in this version and scales with the zoom. Reel needs read access to
-`/dev/input` to see the clicks; without it the take still saves, just without
-the automatic zoom.
+**Auto zoom** in Settings → **Zoom** → Saved take is one on/off switch, off by
+default. Turn it on and clicks (or touchpad taps, when tap-to-click is on)
+become short 2× zoom blocks in the saved file. The pointer is still recorded in
+this version and scales with the zoom. Reel needs read access to `/dev/input` to
+see the clicks; without it the take still saves, just without the automatic
+zoom.
 
 Every saved take with telemetry writes a `project.json` next to it, even when
 auto zoom is off. `reel render --project <path>` renders the take again with the

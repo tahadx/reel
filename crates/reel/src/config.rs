@@ -27,7 +27,7 @@ pub fn defaults() -> Value {
         "manualZoom": "on",
         "zoomMax": 2.0,
         "panStep": 60,
-        "autoZoomStyle": "off",
+        "autoZoom": false,
         "autoZoomDepth": 2.0
     })
 }
@@ -85,11 +85,19 @@ pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
         .map(|zoom| zoom.clamp(1.1, 4.0))
 }
 
-/// Auto zoom style for a take. Only the contract values are accepted; anything
-/// else is `off`, so a stale config cannot turn the save pass into an unknown
-/// mode.
-pub fn auto_zoom_style(settings: &Value) -> &'static str {
-    crate::project::valid_style(&cfg_in(settings, "autoZoomStyle", "off"))
+/// Auto zoom for a take: one on/off choice, no styles. Accepts the string
+/// form the panel writes (`"on"`/`"off"`) and real booleans/numbers from older
+/// or hand-written configs. Anything unrecognised is off.
+pub fn auto_zoom(settings: &Value) -> bool {
+    match settings.get("autoZoom") {
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(value)) => value.as_f64().unwrap_or(0.0) != 0.0,
+        Some(Value::String(value)) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "on" | "true" | "yes" | "1"
+        ),
+        _ => false,
+    }
 }
 
 /// Auto zoom depth for a take. Only the three contract depths are accepted;
@@ -198,21 +206,30 @@ mod tests {
     }
 
     #[test]
-    fn auto_zoom_style_accepts_the_contract_values_only() {
-        for style in ["off", "subtle", "cinematic", "close"] {
-            let settings = serde_json::json!({ "autoZoomStyle": style });
-            assert_eq!(auto_zoom_style(&settings), style);
+    fn auto_zoom_accepts_the_panel_and_legacy_shapes() {
+        for value in [
+            serde_json::json!("on"),
+            serde_json::json!("ON"),
+            serde_json::json!(" true "),
+            serde_json::json!(true),
+            serde_json::json!(1),
+        ] {
+            assert!(auto_zoom(&serde_json::json!({ "autoZoom": value })));
         }
-        assert_eq!(
-            auto_zoom_style(&serde_json::json!({ "autoZoomStyle": "dramatic" })),
-            "off"
-        );
-        assert_eq!(auto_zoom_style(&serde_json::json!({})), "off");
-        // The stale key from old configs must not be read.
-        assert_eq!(
-            auto_zoom_style(&serde_json::json!({ "autoZoom": "cinematic" })),
-            "off"
-        );
+        for value in [
+            serde_json::json!("off"),
+            serde_json::json!("no"),
+            serde_json::json!(false),
+            serde_json::json!(0),
+            serde_json::json!("cinematic"),
+        ] {
+            assert!(!auto_zoom(&serde_json::json!({ "autoZoom": value })));
+        }
+        assert!(!auto_zoom(&serde_json::json!({})));
+        // The old style key is gone; it must not switch auto zoom on.
+        assert!(!auto_zoom(
+            &serde_json::json!({ "autoZoomStyle": "cinematic" })
+        ));
     }
 
     #[test]

@@ -17,7 +17,7 @@
   },
   "telemetry": "reel-2026-11-03_12-00-00.telemetry.jsonl",
   "camera": {
-    "style": "cinematic",
+    "style": "auto",
     "depth": 2.0,
     "easing": "smoothstep",
     "keyframes": [

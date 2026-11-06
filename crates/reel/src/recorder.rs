@@ -35,7 +35,7 @@ struct Settings {
     filename_prefix: String,
     manual_zoom: bool,
     zoom_max: f64,
-    auto_zoom_style: String,
+    auto_zoom: bool,
     auto_zoom_depth: f64,
 }
 
@@ -58,7 +58,7 @@ impl Settings {
             "filenamePrefix": self.filename_prefix,
             "manualZoom": self.manual_zoom,
             "zoomMax": self.zoom_max,
-            "autoZoomStyle": self.auto_zoom_style,
+            "autoZoom": self.auto_zoom,
             "autoZoomDepth": self.auto_zoom_depth,
         })
     }
@@ -186,7 +186,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .clamp(1.1, 4.0);
     // Auto zoom is a save-pass choice, but it is snapshotted with the take so
     // changing the setting mid-recording cannot change this save.
-    let auto_zoom_style = config::auto_zoom_style(&stored).to_string();
+    let auto_zoom = config::auto_zoom(&stored);
     let auto_zoom_depth = config::auto_zoom_depth(&stored);
 
     Ok(Settings {
@@ -206,7 +206,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         filename_prefix,
         manual_zoom,
         zoom_max,
-        auto_zoom_style,
+        auto_zoom,
         auto_zoom_depth,
     })
 }
@@ -1481,7 +1481,7 @@ mod tests {
             filename_prefix: "reel-".into(),
             manual_zoom: true,
             zoom_max: 2.0,
-            auto_zoom_style: "cinematic".into(),
+            auto_zoom: true,
             auto_zoom_depth: 2.5,
         };
         let value = settings.to_json();

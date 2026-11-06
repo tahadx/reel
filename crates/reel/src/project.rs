@@ -25,9 +25,6 @@ pub const HOLD_AFTER_LAST_SECS: f64 = 0.9;
 pub const EASE_OUT_SECS: f64 = 0.5;
 /// The zoom depths the contract allows.
 pub const DEPTHS: [f64; 3] = [1.5, 2.0, 2.5];
-/// The camera styles the contract allows.
-pub const STYLES: [&str; 4] = ["off", "subtle", "cinematic", "close"];
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Project {
@@ -429,16 +426,17 @@ fn string(record: &Map<String, Value>, key: &str) -> String {
 /// The camera for a project, built from clicks.
 ///
 /// The save pass feeds this from the take's telemetry; `reel render` then reads
-/// the resulting keyframes from `project.json`.
+/// the resulting keyframes from `project.json`. Auto zoom is one on/off choice,
+/// so `enabled` is the only mode there is; `depth` is the magnification.
 pub fn build_camera(
     clicks: &[Click],
-    style: &str,
+    enabled: bool,
     depth: f64,
     width: f64,
     height: f64,
     trim_start: f64,
 ) -> Camera {
-    let style = valid_style(style);
+    let style = if enabled { "auto" } else { "off" };
     let mut camera = Camera {
         style: style.into(),
         depth: valid_depth(depth),
@@ -447,7 +445,7 @@ pub fn build_camera(
         extra: Map::new(),
     };
 
-    if style == "off" {
+    if !enabled {
         return camera;
     }
 
@@ -560,6 +558,7 @@ impl Camera {
 
     /// Sort keyframes, enforce zoom >= 1, and clamp every centre to the source.
     pub fn normalize(&mut self, width: f64, height: f64) {
+        self.style = valid_style(&self.style).to_string();
         self.depth = valid_depth(self.depth);
         self.easing = "smoothstep".into();
         let mut frames: Vec<Keyframe> = self
@@ -629,13 +628,14 @@ pub fn smoothstep(u: f64) -> f64 {
     u * u * (3.0 - 2.0 * u)
 }
 
-/// A camera style from the contract, or `off` for anything else.
+/// A camera style from the contract, or `off` for anything else. Projects
+/// written before the modes were folded away carry `subtle`, `cinematic`, or
+/// `close`; all of them mean the single automatic camera that is on.
 pub fn valid_style(style: &str) -> &'static str {
-    STYLES
-        .iter()
-        .copied()
-        .find(|allowed| *allowed == style)
-        .unwrap_or("off")
+    match style {
+        "auto" | "subtle" | "cinematic" | "close" => "auto",
+        _ => "off",
+    }
 }
 
 pub fn valid_depth(depth: f64) -> f64 {
@@ -994,16 +994,9 @@ mod tests {
     fn a_click_produces_a_zoom_block_centred_on_that_area() {
         let width = 2560.0;
         let height = 1440.0;
-        let camera = build_camera(
-            &[click(1.0, 1800.0, 500.0)],
-            "cinematic",
-            2.0,
-            width,
-            height,
-            0.0,
-        );
+        let camera = build_camera(&[click(1.0, 1800.0, 500.0)], true, 2.0, width, height, 0.0);
 
-        assert_eq!(camera.style, "cinematic");
+        assert_eq!(camera.style, "auto");
         assert!(camera.needs_zoom());
         let peak = camera
             .keyframes
@@ -1020,7 +1013,7 @@ mod tests {
     fn the_camera_uses_the_cluster_centroid() {
         let camera = build_camera(
             &[click(1.0, 1000.0, 400.0), click(1.2, 1200.0, 600.0)],
-            "close",
+            true,
             2.5,
             2560.0,
             1440.0,
@@ -1037,14 +1030,7 @@ mod tests {
 
     #[test]
     fn trim_start_moves_clicks_into_saved_take_time() {
-        let camera = build_camera(
-            &[click(1.0, 1280.0, 720.0)],
-            "cinematic",
-            2.0,
-            2560.0,
-            1440.0,
-            3.0,
-        );
+        let camera = build_camera(&[click(1.0, 1280.0, 720.0)], true, 2.0, 2560.0, 1440.0, 3.0);
         // The click happened before the saved part of the take, so it is
         // clamped to zero rather than producing a negative keyframe.
         assert!(camera.keyframes.iter().all(|frame| frame.t >= 0.0));
@@ -1059,7 +1045,7 @@ mod tests {
                 click(1.1, 3000.0, 100.0),
                 click(1.2, 100.0, -1.0),
             ],
-            "cinematic",
+            true,
             2.0,
             2560.0,
             1440.0,
@@ -1070,10 +1056,10 @@ mod tests {
     }
 
     #[test]
-    fn style_off_keeps_the_project_still() {
+    fn auto_zoom_off_keeps_the_project_still() {
         let camera = build_camera(
             &[click(1.0, 1280.0, 720.0)],
-            "off",
+            false,
             2.0,
             2560.0,
             1440.0,
@@ -1082,6 +1068,16 @@ mod tests {
         assert!(!camera.needs_zoom());
         assert!(camera.keyframes.is_empty());
         assert_eq!(camera.style, "off");
+    }
+
+    #[test]
+    fn legacy_styles_read_as_the_single_auto_mode() {
+        assert_eq!(valid_style("auto"), "auto");
+        assert_eq!(valid_style("subtle"), "auto");
+        assert_eq!(valid_style("cinematic"), "auto");
+        assert_eq!(valid_style("close"), "auto");
+        assert_eq!(valid_style("off"), "off");
+        assert_eq!(valid_style("dramatic"), "off");
     }
 
     #[test]
