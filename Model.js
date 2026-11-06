@@ -40,14 +40,19 @@ function parseVersion(text) {
   return match ? match[1] : ""
 }
 
-function updatePillLabel(info, version, checking) {
-  if (checking) return "Checking..."
+// The hero version slot is also the update action, so the label stays on a
+// version number and the arrow is drawn as a separate accent mark. A remote
+// that is ahead without a version bump keeps showing the running version, so
+// the slot never falls back to the word "Update". A failed check surfaces as
+// "Retry" instead of quietly falling back to the version.
+function updateCueLabel(info, version, checking) {
+  if (checking) return "Checking…"
   var update = object(info)
   var current = String(version || update.current || "")
-  if (update.available === true) {
-    var latest = String(update.latest || "")
-    return latest !== "" && latest !== current ? "↑ v" + latest : "↑ Update"
-  }
+  var latest = String(update.latest || "")
+  if (update.available === true && latest !== "" && latest !== current)
+    return "v" + latest
+  if (String(update.error || "") !== "" && update.available !== true) return "Retry"
   return current !== "" ? "v" + current : "v…"
 }
 
