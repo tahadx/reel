@@ -343,8 +343,10 @@ a place for identity text or metadata.
      state.
      - Rest: `vX.Y.Z` in secondary, regular weight. Hover or keyboard cursor
        raises it to foreground and draws a `1` px accent underline.
-     - Update waiting: the newer `vX.Y.Z` in bold foreground, an accent `↑`
-       after it, and a resting accent underline. Clicking updates.
+     - Update waiting: the newer `vX.Y.Z` in bold foreground with an accent `↑`
+       after it. When the remote is ahead without a version bump, the running
+       version stays and only the arrow changes. No resting underline; hover or
+       keyboard cursor draws it. Clicking updates.
      - Checking: `Checking…` in dim with a `1` px accent sweep travelling
        across the underline; the control does not respond until the check ends.
      - Failed check: `Retry` in urgent with an urgent underline. The tooltip

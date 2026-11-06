@@ -1545,7 +1545,7 @@ Panel {
                   }
 
                   Text {
-                    visible: root.updateAvailable
+                    visible: root.updateAvailable && !root.updateChecking
                     anchors.verticalCenter: parent.verticalCenter
                     textFormat: Text.PlainText
                     text: "↑"
@@ -1556,8 +1556,10 @@ Panel {
                   }
                 }
 
-                // Idle and hover keep a hairline; a waiting update holds the
-                // accent underline at rest. A check sweeps the same line.
+                // A quiet link: the underline appears on hover or the keyboard
+                // cursor, and stays only for a failed check, where "Retry" is
+                // the action. A waiting update is carried by the bold version
+                // and the accent arrow, not by a line.
                 Rectangle {
                   visible: !root.updateChecking
                   anchors.horizontalCenter: updateCueRow.horizontalCenter
@@ -1565,9 +1567,8 @@ Panel {
                   anchors.bottomMargin: 1
                   width: updateCueRow.width
                   height: 1
-                  color: root.updateAvailable ? root.accent
+                  color: updateCue.hot ? root.accent
                     : updateCue.failed ? Util.alpha(root.urgent, 0.55)
-                    : updateCue.hot ? root.accent
                     : "transparent"
                   Behavior on color {
                     ColorAnimation { duration: 120 }

@@ -46,7 +46,9 @@ TestCase {
     compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.0", available: false }, "0.3.0", false), "v0.3.0")
     compare(Model.updateCueLabel({}, "0.3.0", true), "Checking…")
     compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.1", available: true }, "0.3.0", false), "v0.3.1")
-    compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.0", available: true }, "0.3.0", false), "Update")
+    // A remote that is ahead without a version bump still reads as a version.
+    compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.0", available: true }, "0.3.0", false), "v0.3.0")
+    compare(Model.updateCueLabel({ current: "0.3.0", latest: "", available: true }, "0.3.0", false), "v0.3.0")
     compare(Model.updateCueLabel({ available: false, error: "offline" }, "0.3.0", false), "Retry")
     compare(Model.updateCueLabel({ current: "", latest: "", available: false }, "", false), "v…")
   }
