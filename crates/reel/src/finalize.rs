@@ -816,18 +816,35 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                             project.camera.keyframes.len()
                         ),
                     );
-                    let rendered = render::render_take(
-                        paths,
-                        &project,
-                        &file,
-                        &output,
-                        project.trim_start,
-                        args.noise_cancellation,
-                    );
-                    if rendered.is_ok() {
+                    // No zoom block means the camera would be a no-op. Use the
+                    // trim/loudness pass instead, which can stream-copy the
+                    // tail, and still write the project for a later re-render.
+                    let saved = if project.camera.needs_zoom() {
+                        render::render_take(
+                            paths,
+                            &project,
+                            &file,
+                            &output,
+                            project.trim_start,
+                            args.noise_cancellation,
+                        )
+                    } else {
+                        paths::log(
+                            paths,
+                            "finalize: auto zoom has no blocks; using the trim pass",
+                        );
+                        finalize_video(
+                            paths,
+                            &file,
+                            args.trim_start,
+                            &output,
+                            args.noise_cancellation,
+                        )
+                    };
+                    if saved.is_ok() {
                         built_project = Some(project);
                     }
-                    rendered
+                    saved
                 }
                 Err(err) => {
                     // Missing or unusable telemetry must never cost the take.
