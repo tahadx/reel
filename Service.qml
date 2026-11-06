@@ -24,6 +24,7 @@ Item {
   property string stateText: ""
   property var state: Model.emptyState()
   property var recents: []
+  property int recentVersion: 0
   property string outputDir: ""
   property string version: ""
   property string lastError: ""
@@ -129,6 +130,7 @@ Item {
 
   function applyRecent(text) {
     root.recents = Model.parseRecent(text)
+    root.recentVersion++
   }
 
   // First-run bootstrap: the plugin id is stable, so the installed path is

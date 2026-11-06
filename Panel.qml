@@ -43,12 +43,79 @@ Panel {
   readonly property bool finalizing: root.status === "finalizing"
   // A take in the save pass already belongs to the user, so history lists it
   // before it lands. The row is a placeholder: no pointer, no cursor, no
-  // actions, and it is replaced by the real take when the save ends.
-  readonly property bool savingTake: root.finalizing
-  readonly property string savingTakePath: root.savingTake
-    ? String(root.state.file || "") : ""
-  readonly property string savingTakeTitle: root.savingTake
-    ? Model.savingTitle(root.savingTakePath) : ""
+  // actions. It is held for the beat between "saving" ending and the refreshed
+  // history carrying the take, so the row swaps in place instead of blinking
+  // out and dropping back in a moment later.
+  property bool savingHold: false
+  property bool savingWasFinalizing: false
+  property int savingHoldVersion: 0
+  property int savingHoldCount: 0
+  property string savingHoldPath: ""
+  property string savingTitleCache: ""
+
+  readonly property bool savingTake: root.finalizing || root.savingHold
+  readonly property string savingTakePath: String(root.state.file || "")
+  readonly property int recentsVersion: root.service
+    ? root.service.recentVersion : 0
+  readonly property string savingTakeTitle: {
+    if (!root.savingTake) return ""
+    if (root.finalizing) return Model.savingTitle(root.savingTakePath)
+    return root.savingTitleCache !== ""
+      ? root.savingTitleCache : Model.savingTitle(root.savingTakePath)
+  }
+
+  function historyContains(path) {
+    var rows = root.visibleRecents || []
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].path || "") === path) return true
+    }
+    return false
+  }
+
+  function releaseSavingHold() {
+    root.savingHold = false
+    root.savingHoldPath = ""
+    root.savingTitleCache = ""
+  }
+
+  onSavingTakePathChanged: {
+    if (root.finalizing) root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+  }
+
+  onFinalizingChanged: {
+    if (root.finalizing) {
+      root.savingHold = false
+      root.savingWasFinalizing = true
+      root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+      return
+    }
+    if (!root.savingWasFinalizing) return
+    root.savingWasFinalizing = false
+    // A failed save publishes no take, so there is nothing to hand off to.
+    if (root.state.last && String(root.state.last.error || "") !== "") return
+    // Hold the row until the history refreshed for this take has landed: the
+    // saved path is in the list, or the list gained the take. The service bumps
+    // recentVersion on every refresh, so the placeholder and the real row then
+    // change within one frame instead of leaving a gap.
+    root.savingHold = true
+    root.savingHoldPath = Model.publishedPath(root.savingTakePath)
+    root.savingHoldCount = root.visibleRecents.length
+    root.savingHoldVersion = root.recentsVersion
+    savingHoldTimer.restart()
+  }
+
+  onRecentsVersionChanged: {
+    if (!root.savingHold || root.recentsVersion === root.savingHoldVersion) return
+    if ((root.savingHoldPath !== "" && root.historyContains(root.savingHoldPath))
+      || root.visibleRecents.length !== root.savingHoldCount)
+      root.releaseSavingHold()
+  }
+
+  Timer {
+    id: savingHoldTimer
+    interval: 2500
+    onTriggered: root.releaseSavingHold()
+  }
   readonly property bool busy: Model.isBusy(root.state)
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
@@ -2953,6 +3020,7 @@ Panel {
         // Plain Image keeps the panel working on Omarchy 4.0.x, where
         // qs.Ui.SizedImage does not exist yet.
         Image {
+          id: previewImage
           anchors.fill: parent
           visible: take.preview !== ""
           source: take.preview !== "" ? Util.fileUrl(take.preview) : ""
@@ -2960,11 +3028,18 @@ Panel {
           asynchronous: true
           sourceSize.width: Math.ceil(width * Screen.devicePixelRatio)
           sourceSize.height: Math.ceil(height * Screen.devicePixelRatio)
+          // A fresh take has an uncached preview. Keep the placeholder under it
+          // until the image is ready and fade it in, so the row never shows an
+          // empty slot or pops.
+          opacity: previewImage.status === Image.Ready ? 1 : 0
+          Behavior on opacity {
+            NumberAnimation { duration: 120 }
+          }
         }
 
         Rectangle {
           anchors.fill: parent
-          visible: take.preview === ""
+          visible: take.preview === "" || previewImage.status !== Image.Ready
           color: Util.alpha(root.foreground, 0.08)
           border.width: 0
 
@@ -3682,5 +3757,11 @@ Panel {
   Component.onCompleted: {
     if (root.service) root.service.refresh()
     if (!omacutProbe.running) omacutProbe.running = true
+    // A shell restart in the middle of a save must still catch the handoff to
+    // the finished take, so arm the hold as if finalizing had just started.
+    if (root.finalizing) {
+      root.savingWasFinalizing = true
+      root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+    }
   }
 }
