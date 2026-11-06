@@ -378,8 +378,24 @@ pub fn log_to(log: &Path, message: &str) {
     }
 }
 
+/// Start a new take's log without erasing the previous one. A failed save is
+/// often only investigated after the next take has started, and truncating
+/// here removed the only evidence. Keep appending until the file is large, then
+/// rotate it to `reel.log.1` so the runtime directory stays bounded.
 pub fn reset_log(paths: &Paths) {
-    let _ = File::create(&paths.log);
+    const LIMIT: u64 = 4 * 1024 * 1024;
+    if fs::metadata(&paths.log)
+        .map(|meta| meta.len() > LIMIT)
+        .unwrap_or(false)
+    {
+        let _ = fs::rename(&paths.log, paths.log.with_extension("log.1"));
+    }
+    // Re-create with append mode: the previous take's finalize child may still
+    // hold the old descriptor, and it must keep writing to that log safely.
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&paths.log);
 }
 
 pub fn write_atomic(path: &Path, body: &str) -> Result<()> {
@@ -468,6 +484,27 @@ impl Drop for Lock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn starting_a_take_keeps_the_previous_log() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-paths-log-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp root");
+        let paths = Paths::for_test(&root);
+
+        log(&paths, "the first take failed");
+        reset_log(&paths);
+        log(&paths, "the second take started");
+
+        let body = fs::read_to_string(&paths.log).expect("log");
+        assert!(body.contains("the first take failed"));
+        assert!(body.contains("the second take started"));
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn preview_names_are_stable_and_directory_specific() {

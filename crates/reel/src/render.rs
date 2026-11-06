@@ -15,10 +15,9 @@ use std::path::Path;
 /// `sendcmd` script, as the render contract requires.
 pub const EXPRESSION_LIMIT: usize = 64 * 1024;
 
-/// ffmpeg's expression parser nests `if()` calls and gives up somewhere around
-/// 500 levels. A dense hand-edited project can collapse many keyframes onto the
-/// same output frame, producing a short but deeply nested expression, so keep
-/// well clear of that limit and use the `sendcmd` path instead.
+/// A keyframe path this dense is cheaper to drive with `sendcmd` than with an
+/// expression evaluated per output frame. Correctness no longer depends on
+/// this limit; `piecewise` keeps the expression tree shallow.
 pub const EXPRESSION_KEYFRAME_LIMIT: usize = 128;
 
 #[derive(Debug)]
@@ -226,43 +225,59 @@ pub fn camera_filter(
 
 /// A smoothstep interpolation for one camera field over output frame numbers.
 ///
-/// The expression is a chain of `if(lt(on, frame), segment, ...)`, so its size
-/// grows with the number of keyframes rather than the take duration.
+/// The value is a flat sum of per-segment smoothsteps, summed as a balanced
+/// tree. The old chain of nested `if()` calls produced an expression tree as
+/// deep as the keyframe count, and ffmpeg 9 rejects anything deeper than
+/// `MAX_DEPTH` (100). That made the save pass fail on takes with around 48 zoom
+/// keyframes. A balanced sum has logarithmic depth, so long paths stay on the
+/// faster `zoompan` path; `EXPRESSION_LIMIT` still hands very large paths to
+/// `sendcmd`.
 fn piecewise(frames: &[Keyframe], fps: f64, value: impl Fn(&Keyframe) -> f64) -> String {
-    if frames.is_empty() {
+    let mut points: Vec<(f64, f64)> = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let mark = (frame.t * fps).round().max(0.0);
+        let sample = value(frame);
+        match points.last_mut() {
+            // Keyframes that land on the same output frame are an instant
+            // jump; keep the later value so the segment has no zero span.
+            Some(last) if (last.0 - mark).abs() < 0.5 => last.1 = sample,
+            _ => points.push((mark, sample)),
+        }
+    }
+    let Some(&(_, first)) = points.first() else {
         return "1".into();
+    };
+    let mut terms: Vec<String> = Vec::new();
+    for pair in points.windows(2) {
+        let (start, from) = pair[0];
+        let (end, to) = pair[1];
+        let span = end - start;
+        if span <= 0.0 || (to - from).abs() < 1e-9 {
+            continue;
+        }
+        let u = format!("max(0,min(1,(on-{})/{}))", number(start), number(span));
+        terms.push(format!(
+            "({}-{})*{u}*{u}*(3-2*{u})",
+            number(to),
+            number(from)
+        ));
     }
-    if frames.len() == 1 {
-        return number(value(&frames[0]));
+    if terms.is_empty() {
+        return number(first);
     }
-    let marks: Vec<f64> = frames
-        .iter()
-        .map(|frame| (frame.t * fps).round().max(0.0))
-        .collect();
-    let mut expr = number(value(frames.last().expect("not empty")));
-    for i in (0..frames.len() - 1).rev() {
-        let start = marks[i];
-        let end = marks[i + 1];
-        let segment = if end > start {
-            let from = value(&frames[i]);
-            let to = value(&frames[i + 1]);
-            let u = format!("(on-{})/{}", number(start), number(end - start));
-            format!(
-                "({}+({}-{})*{u}*{u}*(3-2*{u}))",
-                number(from),
-                number(to),
-                number(from)
-            )
-        } else {
-            number(value(&frames[i + 1]))
-        };
-        expr = format!("if(lt(on,{}),{segment},({expr}))", number(end));
+    let mut level = terms;
+    while level.len() > 1 {
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
+        let mut terms = level.into_iter();
+        while let Some(left) = terms.next() {
+            match terms.next() {
+                Some(right) => next.push(format!("({left}+{right})")),
+                None => next.push(left),
+            }
+        }
+        level = next;
     }
-    format!(
-        "if(lt(on,{}),{},({expr}))",
-        number(marks[0]),
-        number(value(&frames[0]))
-    )
+    format!("({}+{})", number(first), level.remove(0))
 }
 
 /// Per-frame crop commands for the large-path fallback. `sendcmd` runs before
@@ -385,6 +400,60 @@ mod tests {
         assert!(filter.graph.contains("fps=60"));
         assert!(filter.graph.contains("zoom"));
         assert!(filter.sendcmd.is_none());
+    }
+
+    fn max_nesting(expr: &str) -> usize {
+        let mut depth = 0usize;
+        let mut max = 0usize;
+        for ch in expr.chars() {
+            match ch {
+                '(' => {
+                    depth += 1;
+                    max = max.max(depth);
+                }
+                ')' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+        max
+    }
+
+    #[test]
+    fn a_dense_path_keeps_the_expression_shallow() {
+        // 128 keyframes is the expression limit. The old nested `if()` chain
+        // tripped ffmpeg's MAX_DEPTH (100) at about 48 keyframes and lost the
+        // take; the balanced sum must stay far below it.
+        let mut frames = Vec::new();
+        for step in 0..128 {
+            let zoom = if step % 2 == 0 { 1.0 } else { 2.0 };
+            frames.push(Keyframe::new(step as f64 * 0.25, zoom, 320.0, 180.0));
+        }
+        let filter = camera_filter(
+            &camera(frames),
+            640,
+            360,
+            60.0,
+            32.0,
+            Path::new("/tmp/never"),
+        )
+        .expect("a filter");
+
+        assert!(filter.sendcmd.is_none(), "128 keyframes stay on zoompan");
+        assert!(!filter.graph.contains("if("), "no nested if() chain");
+        assert!(
+            max_nesting(&filter.graph) <= 24,
+            "expression nesting {} is too deep",
+            max_nesting(&filter.graph)
+        );
+    }
+
+    #[test]
+    fn keyframes_on_the_same_frame_do_not_divide_by_zero() {
+        let frames = vec![
+            Keyframe::new(1.0, 1.0, 320.0, 180.0),
+            Keyframe::new(1.001, 2.0, 320.0, 180.0),
+        ];
+        assert_eq!(piecewise(&frames, 60.0, |frame| frame.zoom), "2");
     }
 
     #[test]

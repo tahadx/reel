@@ -852,32 +852,56 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                     // No zoom block means the camera would be a no-op. Use the
                     // trim/loudness pass instead, which can stream-copy the
                     // tail, and still write the project for a later re-render.
-                    let saved = if project.camera.needs_zoom() {
-                        render::render_take(
+                    if !project.camera.needs_zoom() {
+                        paths::log(
+                            paths,
+                            "finalize: auto zoom has no blocks; using the trim pass",
+                        );
+                        let saved = finalize_video(
+                            paths,
+                            &file,
+                            args.trim_start,
+                            &output,
+                            args.noise_cancellation,
+                        );
+                        if saved.is_ok() {
+                            built_project = Some(project);
+                        }
+                        saved
+                    } else {
+                        match render::render_take(
                             paths,
                             &project,
                             &file,
                             &output,
                             project.trim_start,
                             args.noise_cancellation,
-                        )
-                    } else {
-                        paths::log(
-                            paths,
-                            "finalize: auto zoom has no blocks; using the trim pass",
-                        );
-                        finalize_video(
-                            paths,
-                            &file,
-                            args.trim_start,
-                            &output,
-                            args.noise_cancellation,
-                        )
-                    };
-                    if saved.is_ok() {
-                        built_project = Some(project);
+                        ) {
+                            Ok(()) => {
+                                built_project = Some(project);
+                                Ok(())
+                            }
+                            Err(err) => {
+                                // A camera path must never cost the take. Fall
+                                // back to the trim/loudness pass and keep the
+                                // footage, but do not write a project that
+                                // describes a zoom the saved take never had.
+                                paths::log(
+                                    paths,
+                                    &format!(
+                                        "finalize: zoom pass failed, saving without it: {err:#}"
+                                    ),
+                                );
+                                finalize_video(
+                                    paths,
+                                    &file,
+                                    args.trim_start,
+                                    &output,
+                                    args.noise_cancellation,
+                                )
+                            }
+                        }
                     }
-                    saved
                 }
                 Err(err) => {
                     // Missing or unusable telemetry must never cost the take.

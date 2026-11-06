@@ -224,6 +224,8 @@ first frame is dropped (or the countdown is trimmed), the camera from auto zoom
 is applied, the PipeWire pop is muted, the audio is normalized, and noise
 reduction runs when it was on. The ordinary `<take>.<ext>` name is published
 only when that pass succeeds, so history never shows an un-zoomed capture.
+If the camera pass itself fails, Reel retries with the trim and loudness pass
+and still publishes the take without a zoom; the failure stays in the log.
 
 When the capture's first GOP is flagged for discard, only the head of the video
 is re-encoded, up to the next keyframe. Everything after that is stream-copied
@@ -237,7 +239,7 @@ whole file just to trim its head.
 | `~/.config/omarchy/reel.json` | Settings shared by the panel and CLI |
 | `$XDG_RUNTIME_DIR/reel/state.json` | Live state the bar watches |
 | `$XDG_RUNTIME_DIR/reel/last.json` | Metadata for the last completed take |
-| `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log |
+| `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log; kept across takes and rotated to `reel.log.1` at 4 MB |
 | `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |

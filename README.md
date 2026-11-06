@@ -213,7 +213,8 @@ changes — the text you are typing and the caret next to it — instead of zoom
 into an empty area.
 The pointer is still recorded in this version and scales with the zoom. Reel
 needs read access to `/dev/input` to see the clicks; without it the take still
-saves, just without the automatic zoom.
+saves, just without the automatic zoom. If the camera pass itself fails, the
+take is still saved without the zoom and the reason stays in the recorder log.
 
 Every saved take with telemetry writes a `project.json` into a hidden `.reel/`
 folder beside it, even when auto zoom is off. The folder is owner-only and its

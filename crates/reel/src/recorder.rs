@@ -563,8 +563,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     let capture_file = paths::capture_path(Path::new(&file)).display().to_string();
     let capture_fps = settings.fps;
 
-    // A take's log always starts clean; telemetry resolves below and logs
-    // into it.
+    // Keep the previous take's log instead of truncating it; a failed save is
+    // often investigated after the next take starts. This rotates only when
+    // the log grows large.
     paths::reset_log(paths);
 
     // Pointer telemetry follows the existing "Record the pointer" setting.
