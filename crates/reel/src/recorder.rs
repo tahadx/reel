@@ -106,6 +106,20 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
     Some(if codec == "av1" { qp * 4 } else { qp })
 }
 
+/// The take's auto zoom: the panel's per-take argument first, then reel.json.
+/// The panel passes what the user is looking at, so a stale `autoZoom` left in
+/// the file can never zoom a take the panel says is off.
+fn auto_zoom_choice(option: &Option<String>, stored: &Value) -> bool {
+    match option
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => config::auto_zoom(&json!({ "autoZoom": value })),
+        None => config::auto_zoom(stored),
+    }
+}
+
 fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     // Read reel.json once and resolve every option from it. The old path
     // reloaded and re-parsed the file for each option, which was wasteful even
@@ -187,7 +201,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .clamp(1.1, 4.0);
     // Auto zoom is a save-pass choice, but it is snapshotted with the take so
     // changing the setting mid-recording cannot change this save.
-    let auto_zoom = config::auto_zoom(&stored);
+    let auto_zoom = auto_zoom_choice(&options.auto_zoom, &stored);
     let auto_zoom_depth = config::auto_zoom_depth(&stored);
 
     Ok(Settings {
@@ -1463,6 +1477,15 @@ mod tests {
         assert_eq!(output, file.display().to_string());
         assert!(Path::new(&capture).is_file());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_auto_zoom_argument_wins_over_a_stale_config() {
+        let stored = json!({ "autoZoom": "on" });
+        assert!(!auto_zoom_choice(&Some("off".into()), &stored));
+        assert!(auto_zoom_choice(&Some("on".into()), &stored));
+        assert!(auto_zoom_choice(&Some("  ".into()), &stored));
+        assert!(auto_zoom_choice(&None, &stored));
     }
 
     #[test]

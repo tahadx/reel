@@ -423,7 +423,9 @@ Panel {
     // let a stale or default value for an unrelated key overwrite the engine
     // config, which is how auto zoom kept turning itself off.
     var patch = ({})
-    patch[key] = value
+    // Save-pass zoom has its own engine key. The retired live-zoom build used
+    // `autoZoom`, and that stale value is still in old config files.
+    patch[key === "autoZoom" ? "zoomOnClicks" : key] = value
     root.queueConfig(patch)
   }
 
@@ -554,7 +556,9 @@ Panel {
       "--resolution", root.currentValue("resolution"),
       "--container", root.currentValue("container"),
       "--output-dir", root.valueString("outputDir", ""),
-      "--filename-prefix", root.valueString("filenamePrefix", "")
+      "--filename-prefix", root.valueString("filenamePrefix", ""),
+      "--manual-zoom", root.currentValue("manualZoom"),
+      "--auto-zoom", root.currentValue("autoZoom")
     ]
   }
 

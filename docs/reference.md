@@ -50,6 +50,8 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--container` | `mp4`, `mkv` | `mp4` |
 | `--output-dir` | folder path; `~` expands | XDG Videos `/Reel` |
 | `--filename-prefix` | text prepended to the timestamp | empty (`reel-`) |
+| `--manual-zoom` | `on`, `off` | `on` |
+| `--auto-zoom` | `on`, `off` | `off` |
 
 `reel update` updates the installed Omarchy plugin, then runs the installer from
 the updated checkout. If the Hyprland shortcut block is missing, the installer
@@ -134,10 +136,13 @@ read, the take still records and simply has no pointer telemetry.
 ## Auto zoom
 
 **Auto zoom** sits below **Manual zoom** in Settings → **Zoom**, a single
-on/off switch that is off by default. When it is on, clicks during the take
-become short zoom blocks in the saved file. A touchpad tap counts too when the compositor has
+on/off switch that is off by default. The panel sends the switch with every
+take, so the take uses the setting you are looking at. When it is on, clicks
+during the take become short zoom blocks in the saved file. A touchpad tap counts too when the compositor has
 tap-to-click on; a physical click always counts. The magnification is 2×; set
-another allowed depth with `reel config set autoZoomDepth 1.5` (or `2.5`).
+another allowed depth with `reel config set autoZoomDepth 1.5` (or `2.5`). The
+switch itself is `reel config set zoomOnClicks on`; `autoZoom` in old files
+belongs to the retired live-zoom build and is ignored.
 
 The save pass builds the camera from the take's telemetry, not from the live
 zoom:

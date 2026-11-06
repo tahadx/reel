@@ -85,19 +85,50 @@ pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
         .map(|zoom| zoom.clamp(1.1, 4.0))
 }
 
-/// Auto zoom for a take: one on/off choice, no styles. Accepts the string
-/// form the panel writes (`"on"`/`"off"`) and real booleans/numbers from older
-/// or hand-written configs. Anything unrecognised is off.
-pub fn auto_zoom(settings: &Value) -> bool {
-    match settings.get("autoZoom") {
-        Some(Value::Bool(value)) => *value,
-        Some(Value::Number(value)) => value.as_f64().unwrap_or(0.0) != 0.0,
-        Some(Value::String(value)) => matches!(
+/// Keys the retired live-compositor zoom wrote beside `autoZoom`. A file that
+/// holds any of them predates the save-pass setting, so its `autoZoom` is
+/// stale data and must be ignored — the contract names these keys and says not
+/// to delete them, so the read is skipped rather than the file rewritten.
+fn stale_auto_zoom(settings: &Value) -> bool {
+    [
+        "autoZoomMode",
+        "autoZoomIdle",
+        "autoZoomMax",
+        "focusAutoZoom",
+    ]
+    .iter()
+    .any(|key| settings.get(*key).is_some())
+}
+
+/// The panel's save-pass zoom key. It is deliberately not `autoZoom`: the
+/// retired live-zoom build used that name, and its value still sits in old
+/// config files, so the two must never be confused.
+pub const SAVE_ZOOM_KEY: &str = "zoomOnClicks";
+
+fn switch_value(value: &Value) -> bool {
+    match value {
+        Value::Bool(value) => *value,
+        Value::Number(value) => value.as_f64().unwrap_or(0.0) != 0.0,
+        Value::String(value) => matches!(
             value.trim().to_ascii_lowercase().as_str(),
             "on" | "true" | "yes" | "1"
         ),
         _ => false,
     }
+}
+
+/// Auto zoom for a take: one on/off choice, no styles. `zoomOnClicks` is the
+/// panel's key. `autoZoom` is read only for a file that has no trace of the
+/// retired live-zoom build, so a stale value from that build cannot zoom a
+/// take the panel shows as off. Anything unrecognised is off.
+pub fn auto_zoom(settings: &Value) -> bool {
+    if let Some(value) = settings.get(SAVE_ZOOM_KEY) {
+        return switch_value(value);
+    }
+    if stale_auto_zoom(settings) {
+        return false;
+    }
+    settings.get("autoZoom").map(switch_value).unwrap_or(false)
 }
 
 /// Auto zoom depth for a take. Only the three contract depths are accepted;
@@ -230,6 +261,32 @@ mod tests {
         assert!(!auto_zoom(
             &serde_json::json!({ "autoZoomStyle": "cinematic" })
         ));
+    }
+
+    #[test]
+    fn auto_zoom_ignores_a_file_left_by_the_live_zoom_build() {
+        let stale = serde_json::json!({
+            "autoZoom": "on",
+            "autoZoomIdle": 3200,
+            "autoZoomMax": 2,
+            "autoZoomMode": "live_compositor",
+            "focusAutoZoom": true
+        });
+        assert!(!auto_zoom(&stale));
+        // A file without the retired keys still reads the old key.
+        assert!(auto_zoom(&serde_json::json!({ "autoZoom": "on" })));
+    }
+
+    #[test]
+    fn the_panel_key_beats_the_stale_one() {
+        let both = serde_json::json!({
+            "autoZoom": "on",
+            "autoZoomMode": "live_compositor",
+            "zoomOnClicks": "off"
+        });
+        assert!(!auto_zoom(&both));
+        let on = serde_json::json!({ "autoZoom": "off", "autoZoomMode": "live_compositor", "zoomOnClicks": "on" });
+        assert!(auto_zoom(&on));
     }
 
     #[test]

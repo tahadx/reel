@@ -174,6 +174,10 @@ pub struct StartArgs {
     pub manual_zoom: Option<String>,
     #[arg(long = "zoom-max")]
     pub zoom_max: Option<f64>,
+    /// Auto zoom the saved take toward clicks: on or off. Overrides reel.json
+    /// so the settings the user just looked at are the settings the take gets.
+    #[arg(long = "auto-zoom")]
+    pub auto_zoom: Option<String>,
 }
 
 #[derive(Args, Debug)]
