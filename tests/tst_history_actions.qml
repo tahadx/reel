@@ -33,6 +33,9 @@ TestCase {
       "reel-2026-11-06_17-00-00.mp4")
     compare(Model.savingTitle("/videos/reel-2026-11-06_17-00-00.mp4"),
       "reel-2026-11-06_17-00-00.mp4")
+    compare(Model.publishedPath("/videos/reel-2026-11-06_17-00-00.capture.mp4"),
+      "/videos/reel-2026-11-06_17-00-00.mp4")
+    compare(Model.publishedPath(""), "")
     compare(Model.savingTitle(""), "Saving take")
     compare(Model.savingTitle(null), "Saving take")
   }

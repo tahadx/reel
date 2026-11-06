@@ -492,7 +492,8 @@ missing from history between Stop and the saved file.
 - Meta: `Saving · trimming and normalizing audio`, `caption` + `dim`.
 - Placeholder only: no hover fill, no row cursor, no take menu, no drag, and no
   key of its own. It is replaced in place by the finished take when the save
-  ends.
+  ends: the row is held until the refreshed history carries the take, so the
+  swap has no gap and nothing jumps.
 
 **Take row**
 
