@@ -298,40 +298,45 @@ Rules:
 
 ### 6.1 Bar widget
 
-The bar answers “what is happening?” with one mark: the take's pill. It is
-there at rest too, parked at `0:00`, so the bar never swaps drawings as the
-state changes.
+The bar answers “what is happening?” with the take's pill. It is there at
+rest too, parked at `0:00`, so the bar never swaps drawings as the state
+changes.
 
-| State            | Bar                                        |
-| :--------------- | :----------------------------------------- |
-| Idle             | Pill parked at `0:00`; dot and clock `dim` |
-| Take             | The same pill: dot + clock inside          |
-| Disabled / error | Never render logs or error text in the bar |
+| State            | Bar                                                    |
+| :--------------- | :----------------------------------------------------- |
+| Idle             | Pill parked at `0:00`; dot and clock in the bar ink   |
+| Take             | The same pill, counting                                |
+| Disabled / error | Never render logs or error text in the bar             |
 
 Rules:
 
 - One mark, not seven. The pill is `Style.space(20)` tall, radius
-  `height / 2`, `foreground` at 5% with a 14% hairline on a dark bar. Its width
-  comes from the clock's advance, so the timer never clips; the same width is
-  reserved at rest, so starting a take does not move the bar.
-- A light bar gets a stronger capsule — `foreground` at 10% with a 30%
-  hairline — because the same wash reads as nothing on a bright surface. The
-  quiet dot and clock switch from the theme's `muted` to the foreground at
-  62%, since `muted` is a light grey on light themes. The choice follows the
-  bar's own background luminance, so a theme with a light bar and dark popups
-  still gets it right.
+  `height / 2`, drawn from the bar's ink at 5% with a 14% hairline on a dark
+  strip. Its width comes from the clock's advance, so the timer never clips;
+  the same width is reserved at rest, so starting a take does not move the bar.
+- The bar can be transparent, so it has no surface colour of its own. The pill
+  is built from `bar.barForeground` — the ink Omarchy picks against the
+  wallpaper strip behind the bar (`omarchy-bar-text-color`) — never from the
+  theme's raw foreground, which knows nothing about the wallpaper.
+- Dark ink means a light strip: the capsule goes to 10% fill and a 30%
+  hairline. Light ink means a dark strip and keeps 5% / 14%. The split is 0.5
+  raw luminance; theme inks sit well clear of it on either side.
+- A single translucent line cannot hold an edge on a mid-tone wallpaper, so a
+  dark strip adds a one-pixel counter edge just outside the ink line in the
+  palette colour furthest from the ink. On the theme's own wallpaper it lands
+  on a neighbouring tone and disappears; on a mismatched one it is what makes
+  the capsule legible.
 - The clock carries the state: `0:00` at rest and while the take is armed (the
   countdown is already on screen, so the bar does not echo it), the live time
   while frames run, the frozen time while paused, the take's last time while it
   is written out, and back to `0:00` when the save lands.
-- Accent belongs to frames running: the pill's dot is accent and pulses
-  between `0.55` and full while recording or capturing. Idle, arming and saving
-  are the quiet tone, pause is `secondary`, and the clock stays `foreground`
-  only while live.
+- The clock and the dot read exactly like the hour label: full
+  `bar.barForeground`, never `muted` or an alpha of the ink. Accent belongs to
+  frames running: the dot turns accent and pulses between `0.55` and full while
+  recording or capturing.
 - Saving is the same pill sinking into dim and breathing between `0.60` and
   `0.85` opacity until the save lands — dim enough to read as closing, bright
-  enough to keep the last time legible. No ring, no second language for the
-  same beat; reduce motion holds it at `0.72`.
+  enough to keep the last time legible. Reduce motion holds it at `0.72`.
 - Nothing enters, so nothing needs an entrance: the pill is always present and
   only the dot pulse and the saving breath move.
 - Bar text centres on the figure height, not the line box, which keeps room

@@ -1300,6 +1300,17 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // The take's clock: 0:00 at rest and while a take is being armed (the
+  // countdown is on screen, so the bar does not echo it), the live time while
+  // frames run, and the take's last time while it is saved.
+  property int savedElapsed: 0
+
+  function barClockText() {
+    if (root.finalizing) return Model.clock(root.savedElapsed)
+    if (!root.busy || root.starting) return Model.clock(0)
+    return Model.clock(root.elapsed)
+  }
+
   FontMetrics {
     id: barLabelMetrics
     font.family: root.fontFamily
@@ -1313,8 +1324,8 @@ Panel {
     - barLabelMetrics.ascent
     + barLabelMetrics.tightBoundingRect("0").height) / 2
 
-  // The recording mark is the panel's pill, carried into the bar: a capsule
-  // with the live clock inside it and the accent kept for its dot.
+  // The take's pill: the panel's capsule, carried into the bar, with the live
+  // clock inside and the accent kept for its dot.
   readonly property real barPillHeight: Style.space(20)
   readonly property real barPillPad: Style.space(9)
   readonly property real barPillDot: Style.space(6)
@@ -1322,44 +1333,35 @@ Panel {
   readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
     + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
 
-  // The bar's own surface decides how much tint the pill needs. On a light bar
-  // a 5% foreground wash and the theme's muted both vanish, so the capsule
-  // steps up and the quiet state leans on the foreground rather than on the
-  // muted role. Dark bars keep the values the pill was designed with.
-  readonly property color barSurface: Commons.Color.bar.background
-  readonly property real barSurfaceLuminance: {
-    var base = Commons.Color.background
-    var surface = root.barSurface
-    var a = surface.a
-    var r = surface.r * a + base.r * (1 - a)
-    var g = surface.g * a + base.g * (1 - a)
-    var b = surface.b * a + base.b * (1 - a)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  // The colour the bar itself writes in. A transparent bar has no surface of
+  // its own: Omarchy samples the strip behind it (omarchy-bar-text-color) and
+  // hands the widgets a foreground that contrasts with that strip. The pill
+  // is built from that ink, never from the theme's raw foreground.
+  readonly property color barInk: root.bar && root.bar.barForeground
+    ? root.bar.barForeground : root.foreground
+  readonly property real barInkLuminance: 0.2126 * root.barInk.r
+    + 0.7152 * root.barInk.g + 0.0722 * root.barInk.b
+  // Dark ink means a light strip, light ink means a dark one. Theme inks sit
+  // at roughly 0.05–0.35 raw luminance for light strips and 0.6–0.95 for dark
+  // ones, so the midpoint separates them cleanly.
+  readonly property bool barOnLight: root.barInkLuminance < 0.5
+  // The counter edge takes the palette colour furthest from the ink, so it is
+  // the one that can actually separate the capsule from a mid-tone wallpaper.
+  readonly property color barCounterInk: {
+    var bg = Commons.Color.background
+    var fg = Commons.Color.foreground
+    var ink = root.barInkLuminance
+    var bgDistance = Math.abs(0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b - ink)
+    var fgDistance = Math.abs(0.2126 * fg.r + 0.7152 * fg.g + 0.0722 * fg.b - ink)
+    return bgDistance >= fgDistance ? bg : fg
   }
-  readonly property bool barOnLight: root.barSurfaceLuminance > 0.5
-  readonly property color barPillQuiet: root.barOnLight
-    ? Util.alpha(root.foreground, 0.62) : root.dim
   readonly property real barPillFillAlpha: root.barOnLight ? 0.10 : 0.05
   readonly property real barPillLineAlpha: root.barOnLight ? 0.30 : 0.14
   readonly property real barPillSavingFillAlpha: root.barOnLight ? 0.10 : 0.04
   readonly property real barPillSavingLineAlpha: root.barOnLight ? 0.30 : 0.12
 
-  // The take's clock: 0:00 at rest and while a take is being armed (the
-  // countdown is on screen, so the bar does not echo it), the live time while
-  // frames run, and the take's last time while it is saved.
-  property int savedElapsed: 0
-
-  function barClockText() {
-    if (root.finalizing) return Model.clock(root.savedElapsed)
-    if (!root.busy || root.starting) return Model.clock(0)
-    return Model.clock(root.elapsed)
-  }
-
-  // The bar has one mark: the take's pill, for every state it can be in. It
-  // parks at 0:00 dim, carries the live clock and the accent dot while frames
-  // run, holds the frozen time when paused, and breathes dim while the take is
-  // written out. Nothing else competes with it, so the bar always answers
-  // "what is happening?" without being read as a cluster of icons.
+  // The take's pill, for every state it can be in: parked at 0:00, counting
+  // while frames run, frozen when paused, dimmed while the save lands.
   WidgetButton {
     id: button
     anchors.fill: parent
@@ -1390,9 +1392,8 @@ Panel {
       property real savingPulse: 0
 
       // Saving is the same pill sinking into dim and breathing there until
-      // the save is done: no ring, no second language for the same beat. The
-      // floor stays high enough that the clock is still readable — the dim is
-      // the message, not a fade out.
+      // the save is done. The floor stays high enough that the clock is still
+      // readable — the dim is the message, not a fade out.
       opacity: root.finalizing
         ? (Style.reduceMotion ? 0.72 : 0.6 + 0.25 * savingPulse)
         : 1
@@ -1407,19 +1408,34 @@ Panel {
       Rectangle {
         anchors.fill: parent
         radius: height / 2
-        color: Util.alpha(root.foreground,
+        color: Util.alpha(root.barInk,
           root.finalizing ? root.barPillSavingFillAlpha : root.barPillFillAlpha)
         border.width: 1
-        border.color: Util.alpha(root.foreground,
+        border.color: Util.alpha(root.barInk,
           root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
+      }
+
+      // A translucent line alone cannot hold an edge on a mid-tone wallpaper,
+      // so a dark strip gets a counter edge just outside the ink line in the
+      // palette colour furthest from the ink. On the theme's own wallpaper it
+      // lands on a neighbouring tone and disappears; on a mismatched one it is
+      // what makes the capsule legible.
+      Rectangle {
+        visible: !root.barOnLight
+        anchors.fill: parent
+        anchors.margins: -1
+        radius: height / 2
+        color: "transparent"
+        border.width: 1
+        border.color: Util.alpha(root.barCounterInk, 0.5)
       }
 
       Row {
         anchors.centerIn: parent
         spacing: root.barPillGap
 
-        // Accent belongs to frames running. Idle, arming and saving are quiet;
-        // pause is secondary, as in the panel.
+        // The dot is bar ink at rest, exactly like the hour label; accent
+        // belongs to frames running.
         Rectangle {
           id: takeDot
           width: root.barPillDot
@@ -1427,7 +1443,7 @@ Panel {
           radius: width / 2
           anchors.verticalCenter: parent.verticalCenter
           color: root.status === "recording" || root.capturing
-            ? root.accent : root.paused ? root.secondary : root.barPillQuiet
+            ? root.accent : root.barInk
 
           SequentialAnimation on opacity {
             running: (root.status === "recording" || root.capturing)
@@ -1441,8 +1457,7 @@ Panel {
         Text {
           textFormat: Text.PlainText
           text: root.barClockText()
-          color: root.status === "recording" || root.capturing
-            ? root.foreground : root.paused ? root.secondary : root.barPillQuiet
+          color: root.barInk
           font.family: root.fontFamily
           font.pixelSize: Style.bar.iconFont
           font.bold: root.status === "recording" || root.capturing
