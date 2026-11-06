@@ -57,6 +57,11 @@ asks before adding it. `--binds` adds or refreshes it without prompting. From an
 open panel, `Shift+U` runs the same command in a floating terminal so the
 updater and its prompt stay visible while the plugin reloads.
 
+Stop an active take before installing or updating. The plugin reload removes the
+shell process that keeps the recorder's telemetry listener alive, so the take
+would keep recording without pointer data and auto zoom would stop for the rest
+of it. The installer refuses while Reel is recording or saving.
+
 `reel update --check` compares the installed checkout with the remote head and
 reports whether an update is waiting. It contacts the plugin's git origin, so it
 is the only network access Reel makes. The shell service runs it once when it

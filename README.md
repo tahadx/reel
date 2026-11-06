@@ -58,6 +58,11 @@ The installer checks the core dependencies, links the `reel` command into
 `~/.local/bin`, and enables the widget. It asks before adding optional
 Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 
+Stop an active take before installing or updating. A plugin reload tears down
+the panel process that keeps the recorder's telemetry listener alive; the take
+would keep recording without pointer data, so auto zoom would drop out for the
+rest of it. The installer refuses while Reel is recording or saving.
+
 ### Updating
 
 ```sh

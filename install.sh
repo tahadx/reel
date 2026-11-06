@@ -2,7 +2,8 @@
 # Reel installer: verifies the recorder dependencies, self-configures the
 # shipped engine, and enables the bar widget. Shortcuts are optional and never
 # added unless you explicitly accept them. Idempotent; safe to re-run, including
-# from the installed plugin directory.
+# from the installed plugin directory. It refuses while a take is recording,
+# because the plugin reload stops the recorder's telemetry listener.
 #
 # Usage: ./install.sh [--yes] [--no-binds]
 set -euo pipefail
@@ -58,6 +59,19 @@ for tool in slurp mpv grim omarchy-capture-region omacut; do
   have "$tool" || echo "  optional tool missing: $tool"
 done
 echo "  ok"
+
+# A plugin reload unloads the panel process that keeps `reel start` and its
+# telemetry listener alive. The encoder would keep recording without pointer
+# data, so auto zoom would stop for the rest of the take. Refuse instead.
+if have reel; then
+  current="$(reel status 2>/dev/null | head -n 1 || true)"
+  case "$current" in
+  Recording* | Paused* | Saving* | Starting*)
+    echo "install.sh: Reel is ${current}. Stop the take before installing." >&2
+    exit 1
+    ;;
+  esac
+fi
 
 echo "== Reel: command line =="
 "$HERE/bin/configure"
