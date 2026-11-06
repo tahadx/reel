@@ -127,9 +127,9 @@ read, the take still records and simply has no pointer telemetry.
 
 ## Auto zoom
 
-**Auto zoom** in Settings → **Zoom** → Saved take is a single on/off switch,
-off by default. When it is on, clicks during the take become short zoom blocks
-in the saved file. A touchpad tap counts too when the compositor has
+**Auto zoom** is the first row in Settings → **Zoom**, a single on/off switch
+that is off by default. When it is on, clicks during the take become short zoom
+blocks in the saved file. A touchpad tap counts too when the compositor has
 tap-to-click on; a physical click always counts. The magnification is 2×; set
 another allowed depth with `reel config set autoZoomDepth 1.5` (or `2.5`).
 

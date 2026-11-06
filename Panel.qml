@@ -126,10 +126,10 @@ Panel {
   readonly property var settingsTabs: [
     { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" },
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "zoomMax", label: "Zoom depth", glyph: "󰍉" },
-      { key: "panStep", label: "Pan step", glyph: "󰆞" },
-      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉", section: "Saved take" }
+      { key: "panStep", label: "Pan step", glyph: "󰆞" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -262,7 +262,8 @@ Panel {
 
   function isSwitch(key) {
     return key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
-      || key === "notifications" || key === "manualZoom" || key === "noiseCancellation"
+      || key === "notifications" || key === "manualZoom" || key === "autoZoom"
+      || key === "noiseCancellation"
   }
 
   function optionList(key) {
