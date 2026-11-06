@@ -474,30 +474,76 @@ pub fn build_camera(
         return camera;
     }
 
+    // One block per click cluster. A block is active from its ease-in until
+    // its ease-out finishes.
+    struct Block {
+        start: f64,
+        enter: f64,
+        hold: f64,
+        end: f64,
+        cx: f64,
+        cy: f64,
+    }
+
+    let blocks: Vec<Block> = cluster_clicks(&clicks)
+        .iter()
+        .map(|cluster| {
+            let first = cluster[0];
+            let last = *cluster.last().unwrap();
+            let count = cluster.len() as f64;
+            let enter = first.t.max(0.0);
+            let hold = (last.t + HOLD_AFTER_LAST_SECS).max(enter);
+            Block {
+                start: (enter - EASE_IN_SECS).max(0.0),
+                enter,
+                hold,
+                end: hold + EASE_OUT_SECS,
+                cx: cluster.iter().map(|click| click.x).sum::<f64>() / count,
+                cy: cluster.iter().map(|click| click.y).sum::<f64>() / count,
+            }
+        })
+        .collect();
+
+    // Blocks whose eased windows overlap would cut back to 1x and snap in
+    // again a millisecond later. Stay zoomed and pan between their centres
+    // instead, then leave once when the last of them is done.
+    let (centre_x, centre_y) = (width / 2.0, height / 2.0);
     let mut frames: Vec<Keyframe> = Vec::new();
-    for cluster in cluster_clicks(&clicks) {
-        let first = cluster[0];
-        let last = *cluster.last().unwrap();
-        let count = cluster.len() as f64;
-        let cx = cluster.iter().map(|click| click.x).sum::<f64>() / count;
-        let cy = cluster.iter().map(|click| click.y).sum::<f64>() / count;
-
-        let previous = frames.last().map(|frame| frame.t).unwrap_or(-1.0);
-        let ease_in = (first.t - EASE_IN_SECS).max(previous + 0.001).max(0.0);
-        let enter = first.t.max(ease_in + 0.001);
-        let hold = (last.t + HOLD_AFTER_LAST_SECS).max(enter + 0.001);
-        let leave = hold + EASE_OUT_SECS;
-
+    let mut index = 0;
+    while index < blocks.len() {
+        let first = &blocks[index];
         push_frame(
             &mut frames,
-            Keyframe::new(ease_in, 1.0, width / 2.0, height / 2.0),
+            Keyframe::new(first.start, 1.0, centre_x, centre_y),
         );
-        push_frame(&mut frames, Keyframe::new(enter, camera.depth, cx, cy));
-        push_frame(&mut frames, Keyframe::new(hold, camera.depth, cx, cy));
+        let mut enter = first.enter.max(first.start + 0.001);
         push_frame(
             &mut frames,
-            Keyframe::new(leave, 1.0, width / 2.0, height / 2.0),
+            Keyframe::new(enter, camera.depth, first.cx, first.cy),
         );
+
+        let mut last = index;
+        while last + 1 < blocks.len() && blocks[last + 1].start <= blocks[last].end {
+            last += 1;
+            let next = &blocks[last];
+            enter = next.enter.max(enter + 0.001);
+            push_frame(
+                &mut frames,
+                Keyframe::new(enter, camera.depth, next.cx, next.cy),
+            );
+        }
+
+        let final_block = &blocks[last];
+        let hold = final_block.hold.max(enter + 0.001);
+        push_frame(
+            &mut frames,
+            Keyframe::new(hold, camera.depth, final_block.cx, final_block.cy),
+        );
+        push_frame(
+            &mut frames,
+            Keyframe::new(hold + EASE_OUT_SECS, 1.0, centre_x, centre_y),
+        );
+        index = last + 1;
     }
 
     camera.keyframes = frames;
@@ -1026,6 +1072,44 @@ mod tests {
             .unwrap();
         assert_eq!(peak.x, 1100.0);
         assert_eq!(peak.y, 500.0);
+    }
+
+    #[test]
+    fn overlapping_blocks_pan_instead_of_cutting_back_to_one() {
+        // Two clicks too far apart to cluster, but close enough in time that
+        // their eased windows overlap. The camera must stay zoomed and pan.
+        let camera = build_camera(
+            &[click(1.0, 1800.0, 500.0), click(1.3, 300.0, 1200.0)],
+            true,
+            2.0,
+            2560.0,
+            1440.0,
+            0.0,
+        );
+
+        let zooms: Vec<f64> = camera.keyframes.iter().map(|frame| frame.zoom).collect();
+        assert_eq!(zooms, vec![1.0, 2.0, 2.0, 2.0, 1.0]);
+        assert!(camera
+            .keyframes
+            .windows(2)
+            .all(|pair| pair[0].t < pair[1].t));
+        // The pan goes from the first centre to the clamped second one.
+        assert_eq!(camera.keyframes[1].x, 1800.0);
+        assert_eq!(camera.keyframes[2].x, 640.0);
+    }
+
+    #[test]
+    fn separate_blocks_return_to_one_between_clicks() {
+        let camera = build_camera(
+            &[click(1.0, 1280.0, 720.0), click(6.0, 1280.0, 720.0)],
+            true,
+            2.0,
+            2560.0,
+            1440.0,
+            0.0,
+        );
+        let zooms: Vec<f64> = camera.keyframes.iter().map(|frame| frame.zoom).collect();
+        assert_eq!(zooms, vec![1.0, 2.0, 2.0, 1.0, 1.0, 2.0, 2.0, 1.0]);
     }
 
     #[test]

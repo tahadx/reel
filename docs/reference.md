@@ -141,6 +141,8 @@ zoom:
 - Each block eases in over 500 ms before the first click, holds through the
   last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
   keyframe.
+- Blocks that overlap in time stay zoomed and pan between the two areas, so a
+  quick click somewhere else does not flash back to 1x for a millisecond.
 - The viewport is clamped inside the capture, so a zoom never shows empty
   space.
 - Keyframe times are saved-take time: the countdown is subtracted, so a zoom
