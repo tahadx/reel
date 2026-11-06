@@ -27,4 +27,13 @@ TestCase {
     compare(Model.cutCommand("", true), [])
     compare(Model.cutCommand(null, true), [])
   }
+
+  function test_savingRowShowsThePublishedName() {
+    compare(Model.savingTitle("/videos/reel-2026-11-06_17-00-00.capture.mp4"),
+      "reel-2026-11-06_17-00-00.mp4")
+    compare(Model.savingTitle("/videos/reel-2026-11-06_17-00-00.mp4"),
+      "reel-2026-11-06_17-00-00.mp4")
+    compare(Model.savingTitle(""), "Saving take")
+    compare(Model.savingTitle(null), "Saving take")
+  }
 }

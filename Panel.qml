@@ -41,6 +41,14 @@ Panel {
     && String(root.state.stage || "") === "capture"
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
+  // A take in the save pass already belongs to the user, so history lists it
+  // before it lands. The row is a placeholder: no pointer, no cursor, no
+  // actions, and it is replaced by the real take when the save ends.
+  readonly property bool savingTake: root.finalizing
+  readonly property string savingTakePath: root.savingTake
+    ? String(root.state.file || "") : ""
+  readonly property string savingTakeTitle: root.savingTake
+    ? Model.savingTitle(root.savingTakePath) : ""
   readonly property bool busy: Model.isBusy(root.state)
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
@@ -1488,7 +1496,8 @@ Panel {
 
                   Text {
                     textFormat: Text.PlainText
-                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "Ready"
+                    text: root.active || root.capturing ? Model.clock(root.elapsed)
+                      : root.finalizing ? "Saving" : "Ready"
                     color: root.active
                       ? root.paused ? root.secondary : root.foreground
                       : root.secondary
@@ -1947,7 +1956,8 @@ Panel {
 
             Column {
               width: parent.width
-              visible: root.page === "history" && root.visibleRecents.length > 0
+              visible: root.page === "history"
+                && (root.visibleRecents.length > 0 || root.savingTake)
               spacing: Style.space(8)
 
               Item {
@@ -1956,11 +1966,13 @@ Panel {
 
                 PanelSectionHeader {
                   id: takesHeader
-                  text: root.visibleRecents.length === 0
-                    ? "No takes yet"
-                    : root.visibleRecents.length === 1
-                      ? "1 take"
-                      : root.visibleRecents.length + " takes"
+                  text: root.savingTake && root.visibleRecents.length === 0
+                    ? "Saving the take"
+                    : root.visibleRecents.length === 0
+                      ? "No takes yet"
+                      : root.visibleRecents.length === 1
+                        ? "1 take"
+                        : root.visibleRecents.length + " takes"
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   anchors.left: parent.left
@@ -1970,9 +1982,11 @@ Panel {
                 Text {
                   id: takesHint
                   textFormat: Text.PlainText
-                  text: root.visibleRecents.length > 0
-                    ? "enter opens · t cuts · a actions · x trashes"
-                    : "takes appear here after the first recording"
+                  text: root.savingTake && root.visibleRecents.length === 0
+                    ? "it appears here when the save ends"
+                    : root.visibleRecents.length > 0
+                      ? "enter opens · t cuts · a actions · x trashes"
+                      : "takes appear here after the first recording"
                   color: root.secondary
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
@@ -1984,6 +1998,12 @@ Panel {
               OpenFolderRow {
                 width: parent.width
                 rowIndex: 0
+              }
+
+              SavingRow {
+                width: parent.width
+                visible: root.savingTake
+                title: root.savingTakeTitle
               }
 
               Repeater {
@@ -2008,6 +2028,7 @@ Panel {
         anchors.fill: parent
         anchors.topMargin: scrollArea.y
         visible: root.page === "history" && root.visibleRecents.length === 0
+          && !root.savingTake
         z: 20
 
         Column {
@@ -2741,6 +2762,92 @@ Panel {
       onClicked: {
         root.takeMenuIndex = menuItem.itemIndex
         root.activateTakeMenu()
+      }
+    }
+  }
+
+  // A take in the save pass. It reads like a history row so the save is
+  // visible, but the row is a placeholder: no hover, no cursor, no menu, no
+  // drag, and no key of its own.
+  component SavingRow: Rectangle {
+    id: saving
+    property string title: ""
+
+    implicitHeight: Style.space(56)
+    radius: Style.cornerRadius
+    color: "transparent"
+    clip: true
+
+    // One shared phase drives the three dots, so they pulse in sequence
+    // without three separate animations drifting apart.
+    property real phase: 0
+
+    NumberAnimation on phase {
+      running: saving.visible && !Style.reduceMotion
+      from: 0
+      to: 1
+      duration: 1050
+      loops: Animation.Infinite
+    }
+
+    Row {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(9)
+
+      Rectangle {
+        width: Style.space(84)
+        height: Style.space(48)
+        anchors.verticalCenter: parent.verticalCenter
+        color: Util.alpha(root.foreground, 0.04)
+        border.width: 1
+        border.color: root.hairline
+
+        Row {
+          anchors.centerIn: parent
+          spacing: Style.space(3)
+
+          Repeater {
+            model: 3
+
+            Rectangle {
+              required property int index
+              width: Style.space(3)
+              height: width
+              radius: width / 2
+              color: root.accent
+              opacity: Style.reduceMotion ? 0.6
+                : 0.22 + 0.78 * (1 - Math.abs(2 * (((saving.phase + index / 3) % 1)) - 1))
+            }
+          }
+        }
+      }
+
+      Column {
+        width: parent.width - Style.space(84) - parent.spacing
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(2)
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: saving.title !== "" ? saving.title : "Saving take"
+          color: root.secondary
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideMiddle
+        }
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: "Saving · trimming and normalizing audio"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
       }
     }
   }
