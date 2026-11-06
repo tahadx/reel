@@ -3,11 +3,13 @@ use crate::config;
 use crate::paths::{self, Lock, Paths};
 use crate::state;
 use crate::target;
+use crate::telemetry;
 use crate::util;
 use crate::webcam;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
+use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
@@ -178,7 +180,6 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         .or_else(|| config::zoom_max_value(stored.get("zoomMax")))
         .unwrap_or(2.0)
         .clamp(1.1, 4.0);
-
     Ok(Settings {
         desktop,
         mic,
@@ -554,6 +555,63 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     };
     let capture_fps = settings.fps;
 
+    // A take's log always starts clean; telemetry resolves below and logs
+    // into it.
+    paths::reset_log(paths);
+
+    // Pointer telemetry follows the existing "Record the pointer" setting.
+    let capture_space = if settings.cursor {
+        match telemetry::CaptureSpace::resolve(
+            target,
+            &choice.kind,
+            &choice.monitor,
+            &settings.resolution,
+        ) {
+            Ok(space) => Some(space),
+            Err(err) => {
+                paths::log(
+                    paths,
+                    &format!(
+                        "telemetry: cannot map {target} ({}); the take continues without pointer data",
+                        err.code()
+                    ),
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+    // A new take always starts with an empty runtime file, so a failed save
+    // from the previous take cannot be mistaken for this one.
+    telemetry::clear(paths);
+    let mut prepared = capture_space
+        .as_ref()
+        .map(|space| telemetry::Prepared::new(paths, space));
+    let telemetry_ready = prepared
+        .as_ref()
+        .map(telemetry::Prepared::available)
+        .unwrap_or(false);
+    if settings.cursor && !telemetry_ready {
+        let code = prepared
+            .as_ref()
+            .and_then(telemetry::Prepared::error)
+            .or(capture_space
+                .as_ref()
+                .map(|_| telemetry::SourceError::NoDevice))
+            .unwrap_or(telemetry::SourceError::UnsupportedTarget);
+        paths::log(
+            paths,
+            &format!(
+                "telemetry: unavailable ({}); the take continues without pointer data{}",
+                code.code(),
+                code.hint()
+                    .map(|hint| format!(" — {hint}"))
+                    .unwrap_or_default()
+            ),
+        );
+    }
+
     let mut capture: Vec<String> = vec![
         "-w".into(),
         String::new(),
@@ -624,14 +682,14 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     ));
     paths::remove_quiet(&paths.socket);
     paths::remove_quiet(&paths.pid_file);
-    paths::reset_log(paths);
     paths::log(
         paths,
         &format!(
-            "capture: target={} fps={} cursor={} output={}",
+            "capture: target={} fps={} cursor={} telemetry={} output={}",
             target,
             capture_fps,
             if settings.cursor { "on" } else { "off" },
+            if telemetry_ready { "on" } else { "off" },
             capture_file
         ),
     );
@@ -648,6 +706,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         .open(&paths.log)
         .context("cannot open the Reel log")?;
     let err = log.try_clone()?;
+    // T0 is the moment the encoder launches. Both T0 and every event use
+    // CLOCK_MONOTONIC through `Instant`.
+    let (t0, t0_ns) = telemetry::clock_start();
     let child = Command::new("gpu-screen-recorder")
         .args(&capture)
         .stdin(Stdio::null())
@@ -675,6 +736,42 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     util::debug(&format!("capture: recorder pid {pid}"));
     let _ = paths::write_pid(&paths.pid_file, pid);
 
+    // The encoder is live. Start the listener when the pointer setting is on;
+    // otherwise leave the take exactly as it is today.
+    let mut listener = None;
+    if settings.cursor {
+        match (prepared.take(), capture_space.as_ref()) {
+            (Some(prepared), Some(space)) if telemetry_ready => {
+                listener = prepared.start(space.clone(), capture_fps, t0, t0_ns);
+                if listener.is_none() {
+                    paths::log(
+                        paths,
+                        "telemetry: listener did not start; the take has no pointer data",
+                    );
+                }
+            }
+            (Some(prepared), Some(space)) => {
+                let code = prepared.error().unwrap_or(telemetry::SourceError::NoDevice);
+                prepared.record_failure(space, capture_fps, code);
+            }
+            (_, Some(space)) => {
+                let code = telemetry::SourceError::UnsupportedTarget;
+                telemetry::record_unavailable(paths, space, capture_fps, code);
+            }
+            (_, None) => {
+                let space =
+                    telemetry::CaptureSpace::unsupported(&choice.kind, target, &choice.monitor);
+                telemetry::record_unavailable(
+                    paths,
+                    &space,
+                    capture_fps,
+                    telemetry::SourceError::UnsupportedTarget,
+                );
+            }
+        }
+    }
+    let telemetry_on = listener.is_some();
+
     // The encoder is running now, so the take has started even though its
     // first file can take a moment to appear (a cold GPU can need a second or
     // more). Announce the capture stage and start the clock here instead of
@@ -695,6 +792,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "targetLabel": &choice.label,
                 "targetWarning": &choice.warning,
                 "monitor": &choice.monitor,
+                "telemetry": telemetry_on,
                 "settings": settings.to_json(),
                 "startedAt": started_at,
             }),
@@ -712,6 +810,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // going, so tear it down quietly instead of reporting a start failure.
     if cancelled(paths) {
         stop_child(&mut child, Duration::from_secs(4));
+        stop_listener(&mut listener, "cancelled", None);
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
         }
@@ -728,6 +827,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
 
     if !ready_file {
         stop_child(&mut child, Duration::from_secs(2));
+        stop_listener(&mut listener, "error", Some("encoder-failed"));
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
         }
@@ -772,6 +872,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                     "targetLabel": &choice.label,
                     "targetWarning": &choice.warning,
                     "monitor": &choice.monitor,
+                    "telemetry": telemetry_on,
                     "settings": settings.to_json(),
                     "startedAt": paths::now_secs(),
                 }),
@@ -789,6 +890,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
 
         if cancelled(paths) {
             stop_child(&mut child, Duration::from_secs(4));
+            stop_listener(&mut listener, "cancelled", None);
             if let Some(cursor) = hardware_cursor {
                 cursor.restore(paths);
             }
@@ -825,6 +927,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
                 "targetLabel": &choice.label,
                 "targetWarning": &choice.warning,
                 "monitor": &choice.monitor,
+                "telemetry": telemetry_on,
                 "quality": settings.quality,
                 "codec": settings.codec,
                 "desktopAudio": settings.desktop,
@@ -848,7 +951,39 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         crate::zoom::enable_recording_zoom(paths, settings.zoom_max, choice.kind == "monitor");
     }
     println!("{file}");
+
+    // When telemetry is running, keep this process alive so the listener can
+    // watch the encoder's lifetime and close the telemetry file. Otherwise
+    // return now, exactly as before.
+    if let Some(listener) = listener {
+        let reason = match child.wait() {
+            Ok(status)
+                if status.success()
+                    || matches!(status.signal(), Some(libc::SIGINT) | Some(libc::SIGTERM)) =>
+            {
+                "stopped"
+            }
+            _ => "error",
+        };
+        listener.stop(reason, None);
+        // `stop` normally restored these already. If the encoder exited on its
+        // own, the supervisor is the last one that can put the desktop back.
+        if hardware_cursor_marker(paths).exists() {
+            if let Some(cursor) = hardware_cursor {
+                cursor.restore(paths);
+            }
+        }
+        webcam::cleanup(paths);
+    }
     Ok(true)
+}
+
+/// Close the telemetry file on an early exit. Dropping the listener also
+/// writes a terminal line, but naming the reason is more useful.
+fn stop_listener(listener: &mut Option<telemetry::Listener>, reason: &str, error: Option<&str>) {
+    if let Some(listener) = listener.take() {
+        listener.stop(reason, error);
+    }
 }
 
 /// Select a target, then count down and record without an intermediate step.
@@ -998,6 +1133,7 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
     paths::remove_quiet(path);
+    paths::remove_quiet(&paths::telemetry_path(path));
     paths::remove_quiet(&path.with_extension("zoom.json"));
     paths::remove_quiet(&paths.preview_path(path));
     paths::remove_quiet(&paths::legacy_preview_path(path));
@@ -1423,6 +1559,31 @@ mod tests {
                 "/videos/take.mp4".into()
             )
         );
+    }
+
+    #[test]
+    fn removing_a_take_also_removes_its_telemetry_sidecar() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-recorder-discard-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = Paths::for_test(&root);
+        let take = videos.join("reel-1.mp4");
+        fs::write(&take, b"video").unwrap();
+        let sidecar = paths::telemetry_path(&take);
+        fs::write(&sidecar, b"{}\n").unwrap();
+
+        remove_take_artifacts(&paths, &take);
+
+        assert!(!take.exists());
+        assert!(!sidecar.exists());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
