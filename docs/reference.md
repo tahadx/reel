@@ -63,8 +63,9 @@ is the only network access Reel makes. The shell service runs it once when it
 starts and then once an hour; a result is cached for the hour, so a restart
 inside that window reads the cache instead of fetching again. `--force` ignores
 the cache, and `--json` prints the result for the panel. An update waiting shows
-as an accent dot on the bar mark and a version pill in the panel header that
-turns accent; the pill checks again when the install is current.
+as an accent dot on the bar mark and a newer version with an accent arrow in the
+panel header; that readout checks again when the install is current, and reads
+`Retry` when the last check failed.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.

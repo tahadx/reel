@@ -466,17 +466,17 @@ Panel {
     return text
   }
 
-  // The header button is both the manual refresh and the update cue: a quiet
-  // dot when the install is current, the same dot in accent when a newer
-  // commit is waiting.
+  // The header readout is both the manual refresh and the update cue: the
+  // running version at rest, and the newer version plus an accent arrow when
+  // one is waiting.
   function currentVersion() {
     var value = root.service && root.service.version ? String(root.service.version) : ""
     if (value === "") value = String(root.updateInfo.current || "")
     return value
   }
 
-  function updatePillLabel() {
-    return Model.updatePillLabel(root.updateInfo, root.currentVersion(), root.updateChecking)
+  function updateCueLabel() {
+    return Model.updateCueLabel(root.updateInfo, root.currentVersion(), root.updateChecking)
   }
 
   function updateVersionLabel() {
@@ -1332,12 +1332,13 @@ Panel {
 
       // An update waiting is actionable, so it earns a mark on the idle
       // widget. A take keeps the bar for its clock; the badge comes back
-      // when the take is done.
+      // when the take is done. It sits clear of the screen outline so the
+      // mark still reads as one drawing rather than a blob on its corner.
       Rectangle {
         visible: root.updateAvailable
-        x: 18.5 * parent.unit
-        y: 0.5 * parent.unit
-        width: 4.5 * parent.unit
+        x: 17.7 * parent.unit
+        y: 1.3 * parent.unit
+        width: 3.8 * parent.unit
         height: width
         radius: width / 2
         color: root.accent
@@ -1505,51 +1506,115 @@ Panel {
           fontFamily: root.fontFamily
           trailingControl: Component {
             Row {
-              spacing: Style.space(2)
+              spacing: Style.space(4)
 
-              // The version pill is the update control: low-contrast at rest,
-              // accent when an update is waiting, and "Checking..." on a
-              // manual check.
-              Rectangle {
-                id: versionPill
+              // The version is the update control. It stays a text slot, not a
+              // badge: a hairline underline answers the pointer, and accent is
+              // reserved for a waiting update or a failed check.
+              Item {
+                id: updateCue
                 anchors.verticalCenter: parent.verticalCenter
-                implicitWidth: Math.max(Style.space(52),
-                  versionLabel.implicitWidth + Style.space(16))
-                width: implicitWidth
+                width: Math.max(Style.space(64), updateCueRow.width)
                 height: Style.space(22)
-                radius: height / 2
-                color: root.updateAvailable
-                  ? Util.alpha(root.accent, 0.16)
-                  : versionPill.hot ? root.hoverFill : root.restFill
-                border.width: 1
-                border.color: root.updateAvailable ? root.accent
-                  : versionPill.hot ? root.accent : root.hairline
 
                 readonly property bool hot: (root.hoverSection === "header" && root.hoverIndex === 0)
                   || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
                     && root.hoverSection === "")
+                readonly property bool failed: !root.updateChecking && !root.updateAvailable
+                  && String(root.updateInfo.error || "") !== ""
 
-                Behavior on color {
-                  ColorAnimation { duration: 120 }
-                }
-                Behavior on border.color {
-                  ColorAnimation { duration: 120 }
-                }
-
-                Text {
-                  id: versionLabel
+                Row {
+                  id: updateCueRow
                   anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: root.updatePillLabel()
+                  spacing: Style.space(4)
+
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: root.updateCueLabel()
+                    color: root.updateAvailable ? root.foreground
+                      : updateCue.failed ? root.urgent
+                      : root.updateChecking ? root.dim
+                      : updateCue.hot ? root.foreground : root.secondary
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: root.updateAvailable
+                    Behavior on color {
+                      ColorAnimation { duration: 120 }
+                    }
+                  }
+
+                  Text {
+                    visible: root.updateAvailable
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: "↑"
+                    color: root.accent
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                  }
+                }
+
+                // Idle and hover keep a hairline; a waiting update holds the
+                // accent underline at rest. A check sweeps the same line.
+                Rectangle {
+                  visible: !root.updateChecking
+                  anchors.horizontalCenter: updateCueRow.horizontalCenter
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 1
+                  width: updateCueRow.width
+                  height: 1
                   color: root.updateAvailable ? root.accent
-                    : versionPill.hot ? root.foreground : root.secondary
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
-                  font.bold: true
+                    : updateCue.failed ? Util.alpha(root.urgent, 0.55)
+                    : updateCue.hot ? root.accent
+                    : "transparent"
+                  Behavior on color {
+                    ColorAnimation { duration: 120 }
+                  }
+                }
+
+                Item {
+                  visible: root.updateChecking
+                  anchors.horizontalCenter: updateCueRow.horizontalCenter
+                  anchors.bottom: parent.bottom
+                  anchors.bottomMargin: 1
+                  width: updateCueRow.width
+                  height: 1
+                  clip: true
+
+                  Rectangle {
+                    anchors.fill: parent
+                    color: root.hairline
+                  }
+
+                  Rectangle {
+                    id: updateSweep
+                    width: Math.max(2, Math.round(parent.width * 0.32))
+                    height: parent.height
+                    color: root.accent
+
+                    SequentialAnimation on x {
+                      running: root.updateChecking && !Style.reduceMotion
+                      loops: Animation.Infinite
+                      NumberAnimation {
+                        from: 0
+                        to: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                        duration: 850
+                        easing.type: Easing.InOutQuad
+                      }
+                      NumberAnimation {
+                        from: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                        to: 0
+                        duration: 850
+                        easing.type: Easing.InOutQuad
+                      }
+                    }
+                  }
                 }
 
                 MouseArea {
-                  id: versionMouse
+                  id: updateCueMouse
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
@@ -1564,7 +1629,7 @@ Panel {
                 }
 
                 PanelToolTip {
-                  visible: versionMouse.containsMouse
+                  visible: updateCueMouse.containsMouse
                   text: root.updateTooltip()
                   fontFamily: root.fontFamily
                 }

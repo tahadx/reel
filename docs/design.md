@@ -303,7 +303,7 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 | State            | Bar                                                   |
 | :--------------- | :---------------------------------------------------- |
 | Idle             | Drawn screen mark in `Style.bar.iconCanvas`, no label |
-| Update available | Idle mark plus a `4.5`-unit accent dot, top-right     |
+| Update available | Idle mark plus a `3.8`-unit accent dot, clear of the outline corner |
 | Selecting target | Target glyph `󰒉`, no label                            |
 | Countdown        | Countdown number as the glyph                         |
 | Recording        | Dot + clock label; clock uses `urgent`                |
@@ -314,8 +314,9 @@ The bar answers “what is happening?” with a mark and, while recording, a clo
 Rules:
 
 - The mark is drawn, not a Nerd Font glyph: screen outline, center dot, stand.
-- The update dot is a badge, not a state: it shares the accent, sits inside the
-  idle mark, and disappears while a take owns the bar. The tooltip appends
+- The update dot is a badge, not a state: it shares the accent, sits clear of
+  the mark's top-right corner so the screen outline stays legible, and
+  disappears while a take owns the bar. The tooltip appends
   `update available`.
 - Recording width is the measured clock width + `Style.space(30)`.
 - The dot pulses only while recording or capturing. Pause stops the pulse.
@@ -337,11 +338,18 @@ a place for identity text or metadata.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
   - Fill `restFill`, hairline border.
 - Trailing control contains, in order:
-  1. **Version pill** — `bodySmall` bold in a `22`-high pill next to history.
-     Rest: `vX.Y.Z`, `restFill` + `hairline`, secondary ink. Checking:
-     `Checking...`. Update waiting: `↑ vX.Y.Z` (or `↑ Update`), accent ink,
-     `0.16` accent fill, accent border. Clicking checks when current and
-     updates when one is waiting.
+  1. **Version cue** — `bodySmall` in a reserved `64`-wide, `22`-high slot next
+     to history. It is a text link, not a pill: no fill and no border in any
+     state.
+     - Rest: `vX.Y.Z` in secondary, regular weight. Hover or keyboard cursor
+       raises it to foreground and draws a `1` px accent underline.
+     - Update waiting: the newer `vX.Y.Z` in bold foreground, an accent `↑`
+       after it, and a resting accent underline. Clicking updates.
+     - Checking: `Checking…` in dim with a `1` px accent sweep travelling
+       across the underline; the control does not respond until the check ends.
+     - Failed check: `Retry` in urgent with an urgent underline. The tooltip
+       carries the cause; clicking checks again.
+     - The slot width is reserved so the history button never moves.
   2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
      history page is active, tooltip `History (Shift+H)` / `Back from history`.
 - There is no Reel mark or title in the hero. The bar keeps the drawn mark.

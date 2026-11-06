@@ -42,11 +42,12 @@ TestCase {
     compare(Model.parseVersion(""), "")
   }
 
-  function test_updatePillShowsVersionCheckingAndUpdate() {
-    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.0", available: false }, "0.3.0", false), "v0.3.0")
-    compare(Model.updatePillLabel({}, "0.3.0", true), "Checking...")
-    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.1", available: true }, "0.3.0", false), "↑ v0.3.1")
-    compare(Model.updatePillLabel({ current: "0.3.0", latest: "0.3.0", available: true }, "0.3.0", false), "↑ Update")
-    compare(Model.updatePillLabel({ current: "", latest: "", available: false }, "", false), "v…")
+  function test_updateCueShowsVersionCheckingUpdateAndRetry() {
+    compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.0", available: false }, "0.3.0", false), "v0.3.0")
+    compare(Model.updateCueLabel({}, "0.3.0", true), "Checking…")
+    compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.1", available: true }, "0.3.0", false), "v0.3.1")
+    compare(Model.updateCueLabel({ current: "0.3.0", latest: "0.3.0", available: true }, "0.3.0", false), "Update")
+    compare(Model.updateCueLabel({ available: false, error: "offline" }, "0.3.0", false), "Retry")
+    compare(Model.updateCueLabel({ current: "", latest: "", available: false }, "", false), "v…")
   }
 }
