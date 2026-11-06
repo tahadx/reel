@@ -342,12 +342,14 @@ pub fn file_stamp() -> String {
 }
 
 pub fn log(paths: &Paths, message: &str) {
+    log_to(&paths.log, message);
+}
+
+/// Append a line to a log file. Split out for helpers that only carry the path
+/// and do not need the rest of the runtime layout.
+pub fn log_to(log: &Path, message: &str) {
     let line = format!("[{}] {}\n", log_stamp(), message);
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&paths.log)
-    {
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(log) {
         let _ = file.write_all(line.as_bytes());
     }
 }

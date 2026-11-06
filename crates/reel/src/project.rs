@@ -423,11 +423,20 @@ fn string(record: &Map<String, Value>, key: &str) -> String {
         .to_string()
 }
 
+/// Optional hook that may move a block's centre. It receives the block's
+/// saved-take window (`enter`, `hold`) and the click centroid, and returns a
+/// replacement centre when the click landed somewhere quiet.
+pub type TargetRefiner<'a> = &'a dyn Fn(f64, f64, f64, f64) -> Option<(f64, f64)>;
+
 /// The camera for a project, built from clicks.
 ///
 /// The save pass feeds this from the take's telemetry; `reel render` then reads
 /// the resulting keyframes from `project.json`. Auto zoom is one on/off choice,
 /// so `enabled` is the only mode there is; `depth` is the magnification.
+///
+/// `refine` can re-aim a block at the part of the picture that actually
+/// changed. The save pass uses it to follow the caret when a click lands on an
+/// empty area; callers that only have clicks pass `None`.
 pub fn build_camera(
     clicks: &[Click],
     enabled: bool,
@@ -435,6 +444,7 @@ pub fn build_camera(
     width: f64,
     height: f64,
     trim_start: f64,
+    refine: Option<TargetRefiner>,
 ) -> Camera {
     let style = if enabled { "auto" } else { "off" };
     let mut camera = Camera {
@@ -493,13 +503,22 @@ pub fn build_camera(
             let count = cluster.len() as f64;
             let enter = first.t.max(0.0);
             let hold = (last.t + HOLD_AFTER_LAST_SECS).max(enter);
+            let click_x = cluster.iter().map(|click| click.x).sum::<f64>() / count;
+            let click_y = cluster.iter().map(|click| click.y).sum::<f64>() / count;
+            // The pointer is not always where the work is: a tap that only
+            // focuses a window lands wherever the pointer was parked. If the
+            // block's own window shows more change somewhere else, follow it.
+            let (cx, cy) = refine
+                .and_then(|refine| refine(enter, hold, click_x, click_y))
+                .filter(|(x, y)| x.is_finite() && y.is_finite())
+                .unwrap_or((click_x, click_y));
             Block {
                 start: (enter - EASE_IN_SECS).max(0.0),
                 enter,
                 hold,
                 end: hold + EASE_OUT_SECS,
-                cx: cluster.iter().map(|click| click.x).sum::<f64>() / count,
-                cy: cluster.iter().map(|click| click.y).sum::<f64>() / count,
+                cx,
+                cy,
             }
         })
         .collect();
@@ -1040,7 +1059,15 @@ mod tests {
     fn a_click_produces_a_zoom_block_centred_on_that_area() {
         let width = 2560.0;
         let height = 1440.0;
-        let camera = build_camera(&[click(1.0, 1800.0, 500.0)], true, 2.0, width, height, 0.0);
+        let camera = build_camera(
+            &[click(1.0, 1800.0, 500.0)],
+            true,
+            2.0,
+            width,
+            height,
+            0.0,
+            None,
+        );
 
         assert_eq!(camera.style, "auto");
         assert!(camera.needs_zoom());
@@ -1064,6 +1091,7 @@ mod tests {
             2560.0,
             1440.0,
             0.0,
+            None,
         );
         let peak = camera
             .keyframes
@@ -1072,6 +1100,50 @@ mod tests {
             .unwrap();
         assert_eq!(peak.x, 1100.0);
         assert_eq!(peak.y, 500.0);
+    }
+
+    #[test]
+    fn a_refiner_can_aim_a_block_at_the_work() {
+        // A tap that only focused the window lands in an empty area; the screen
+        // changed at the prompt instead, so the block follows the change.
+        let refine = |_enter: f64, _hold: f64, _x: f64, _y: f64| Some((2000.0, 600.0));
+        let camera = build_camera(
+            &[click(2.0, 1000.0, 1200.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            Some(&refine),
+        );
+        let peak = camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        assert_eq!(peak.x, 2000.0);
+        assert_eq!(peak.y, 600.0);
+    }
+
+    #[test]
+    fn a_refiner_that_declines_keeps_the_click() {
+        let refine = |_enter: f64, _hold: f64, _x: f64, _y: f64| None;
+        let camera = build_camera(
+            &[click(2.0, 1000.0, 1200.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            Some(&refine),
+        );
+        let peak = camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        assert_eq!(peak.x, 1000.0);
+        assert_eq!(peak.y, 1200.0);
     }
 
     #[test]
@@ -1085,6 +1157,7 @@ mod tests {
             2560.0,
             1440.0,
             0.0,
+            None,
         );
 
         let zooms: Vec<f64> = camera.keyframes.iter().map(|frame| frame.zoom).collect();
@@ -1107,6 +1180,7 @@ mod tests {
             2560.0,
             1440.0,
             0.0,
+            None,
         );
         let zooms: Vec<f64> = camera.keyframes.iter().map(|frame| frame.zoom).collect();
         assert_eq!(zooms, vec![1.0, 2.0, 2.0, 1.0, 1.0, 2.0, 2.0, 1.0]);
@@ -1114,7 +1188,15 @@ mod tests {
 
     #[test]
     fn trim_start_moves_clicks_into_saved_take_time() {
-        let camera = build_camera(&[click(1.0, 1280.0, 720.0)], true, 2.0, 2560.0, 1440.0, 3.0);
+        let camera = build_camera(
+            &[click(1.0, 1280.0, 720.0)],
+            true,
+            2.0,
+            2560.0,
+            1440.0,
+            3.0,
+            None,
+        );
         // The click happened before the saved part of the take, so it is
         // clamped to zero rather than producing a negative keyframe.
         assert!(camera.keyframes.iter().all(|frame| frame.t >= 0.0));
@@ -1134,6 +1216,7 @@ mod tests {
             2560.0,
             1440.0,
             0.0,
+            None,
         );
         assert!(camera.keyframes.is_empty());
         assert!(!camera.needs_zoom());
@@ -1148,6 +1231,7 @@ mod tests {
             2560.0,
             1440.0,
             0.0,
+            None,
         );
         assert!(!camera.needs_zoom());
         assert!(camera.keyframes.is_empty());

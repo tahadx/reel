@@ -1,3 +1,4 @@
+use crate::activity;
 use crate::cli::FinalizeArgs;
 use crate::config;
 use crate::paths::{self, Paths};
@@ -544,6 +545,7 @@ fn take_options(paths: &Paths) -> TakeOptions {
 /// file records the capture facts, the trim, and whether auto zoom was on so a later
 /// `reel render` does not need live settings. The keyframe times are saved-take
 /// time (`t - trimStart`, floored at 0).
+#[allow(clippy::too_many_arguments)]
 fn project_from_telemetry(
     telemetry_file: &Path,
     input: &Path,
@@ -552,6 +554,7 @@ fn project_from_telemetry(
     options: &TakeOptions,
     target: &str,
     target_kind: &str,
+    refiner: Option<&activity::Refiner>,
 ) -> Result<project::Project> {
     let telemetry = project::read_telemetry(telemetry_file)?;
     let width = telemetry.width;
@@ -604,6 +607,9 @@ fn project_from_telemetry(
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
+    let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<(f64, f64)> {
+        refiner?.target(enter, hold, cx, cy, width as f64, height as f64)
+    };
     project.camera = project::build_camera(
         &telemetry.clicks,
         options.enabled,
@@ -611,6 +617,7 @@ fn project_from_telemetry(
         width as f64,
         height as f64,
         trim,
+        Some(&refine),
     );
     Ok(project)
 }
@@ -769,6 +776,10 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let mut error = String::new();
     let mut saved = output.clone();
     let mut built_project: Option<project::Project> = None;
+    // Where the pointer is at click time is not always where the work is: a
+    // tap that only focuses a window lands wherever the pointer was parked.
+    // The refiner samples the capture so such a block can follow the caret.
+    let refiner = activity::Refiner::new(paths, &file, args.trim_start);
     let pass = match args.project.as_ref() {
         Some(project_file) => match project::Project::load(project_file) {
             Ok(mut project) => {
@@ -776,14 +787,17 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                 // camera from `--telemetry` when it has none of its own.
                 if let Some(telemetry_file) = telemetry_file.as_deref() {
                     if project.camera.keyframes.is_empty() && project.camera.style != "off" {
+                        let trim = project.trim_start;
+                        let refiner = activity::Refiner::new(paths, &file, trim);
                         match project_from_telemetry(
                             telemetry_file,
                             &file,
                             &output,
-                            project.trim_start,
+                            trim,
                             &options,
                             &args.target,
                             &args.target_kind,
+                            Some(&refiner),
                         ) {
                             Ok(built) => project.camera = built.camera,
                             Err(err) => paths::log(
@@ -813,6 +827,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                 &options,
                 &args.target,
                 &args.target_kind,
+                Some(&refiner),
             ) {
                 Ok(project) => {
                     paths::log(
@@ -1084,6 +1099,7 @@ mod tests {
             &options,
             "monitor:DP-1",
             "monitor",
+            None,
         )
         .unwrap();
 
@@ -1131,6 +1147,7 @@ mod tests {
             },
             "",
             "",
+            None,
         )
         .unwrap();
 
@@ -1168,6 +1185,7 @@ mod tests {
             },
             "",
             "",
+            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("capture size"));
@@ -1194,6 +1212,7 @@ mod tests {
             },
             "",
             "",
+            None,
         )
         .unwrap();
         let written = write_project(&paths, &take, &project).expect("a project path");
@@ -1246,6 +1265,7 @@ mod tests {
                 },
                 target,
                 kind,
+                None,
             )
             .unwrap();
 

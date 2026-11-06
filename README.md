@@ -206,10 +206,12 @@ devices cannot be read, the take still records without pointer telemetry.
 
 **Auto zoom** in Settings → **Zoom** → Saved take is one on/off switch, off by
 default. Turn it on and clicks (or touchpad taps, when tap-to-click is on)
-become short 2× zoom blocks in the saved file. The pointer is still recorded in
-this version and scales with the zoom. Reel needs read access to `/dev/input` to
-see the clicks; without it the take still saves, just without the automatic
-zoom.
+become short 2× zoom blocks in the saved file. When a click only focuses a
+window, the block follows the part of the screen that changes — the text you
+are typing and the caret next to it — instead of zooming into an empty area.
+The pointer is still recorded in this version and scales with the zoom. Reel
+needs read access to `/dev/input` to see the clicks; without it the take still
+saves, just without the automatic zoom.
 
 Every saved take with telemetry writes a `project.json` next to it, even when
 auto zoom is off. `reel render --project <path>` renders the take again with the

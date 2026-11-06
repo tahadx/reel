@@ -138,6 +138,12 @@ zoom:
 
 - Clicks within 2.5 seconds and 350 pixels of each other become one block, and
   the block aims at their centroid.
+- If the click landed on a quiet patch while the screen changed in one compact
+  place during the block — the text you were typing, the caret blinking next to
+  it, a panel that opened — the block follows the change instead. A tap that
+  only focuses a window clicks wherever the pointer was parked, so this keeps
+  the zoom on the work rather than on an empty area. A click that changes the
+  picture where it landed keeps its place.
 - Each block eases in over 500 ms before the first click, holds through the
   last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
   keyframe.
