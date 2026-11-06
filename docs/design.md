@@ -321,11 +321,6 @@ Rules:
 - Dark ink means a light strip: the capsule goes to 10% fill and a 30%
   hairline. Light ink means a dark strip and keeps 5% / 14%. The split is 0.5
   raw luminance; theme inks sit well clear of it on either side.
-- A single translucent line cannot hold an edge on a mid-tone wallpaper, so a
-  dark strip adds a one-pixel counter edge just outside the ink line in the
-  palette colour furthest from the ink. On the theme's own wallpaper it lands
-  on a neighbouring tone and disappears; on a mismatched one it is what makes
-  the capsule legible.
 - The clock carries the state: `0:00` at rest and while the take is armed (the
   countdown is already on screen, so the bar does not echo it), the live time
   while frames run, the frozen time while paused, the take's last time while it

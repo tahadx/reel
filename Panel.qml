@@ -1345,16 +1345,6 @@ Panel {
   // at roughly 0.05–0.35 raw luminance for light strips and 0.6–0.95 for dark
   // ones, so the midpoint separates them cleanly.
   readonly property bool barOnLight: root.barInkLuminance < 0.5
-  // The counter edge takes the palette colour furthest from the ink, so it is
-  // the one that can actually separate the capsule from a mid-tone wallpaper.
-  readonly property color barCounterInk: {
-    var bg = Commons.Color.background
-    var fg = Commons.Color.foreground
-    var ink = root.barInkLuminance
-    var bgDistance = Math.abs(0.2126 * bg.r + 0.7152 * bg.g + 0.0722 * bg.b - ink)
-    var fgDistance = Math.abs(0.2126 * fg.r + 0.7152 * fg.g + 0.0722 * fg.b - ink)
-    return bgDistance >= fgDistance ? bg : fg
-  }
   readonly property real barPillFillAlpha: root.barOnLight ? 0.10 : 0.05
   readonly property real barPillLineAlpha: root.barOnLight ? 0.30 : 0.14
   readonly property real barPillSavingFillAlpha: root.barOnLight ? 0.10 : 0.04
@@ -1413,21 +1403,6 @@ Panel {
         border.width: 1
         border.color: Util.alpha(root.barInk,
           root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
-      }
-
-      // A translucent line alone cannot hold an edge on a mid-tone wallpaper,
-      // so a dark strip gets a counter edge just outside the ink line in the
-      // palette colour furthest from the ink. On the theme's own wallpaper it
-      // lands on a neighbouring tone and disappears; on a mismatched one it is
-      // what makes the capsule legible.
-      Rectangle {
-        visible: !root.barOnLight
-        anchors.fill: parent
-        anchors.margins: -1
-        radius: height / 2
-        color: "transparent"
-        border.width: 1
-        border.color: Util.alpha(root.barCounterInk, 0.5)
       }
 
       Row {
