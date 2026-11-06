@@ -1,15 +1,16 @@
 //! The `project.json` v1 contract.
 //!
-//! A save writes this file next to the take when the take has telemetry.
-//! `reel render` reads it and never re-derives the look from live settings, so
-//! a project can be edited by hand and rendered again without opening the
-//! panel. Unknown fields are kept when a project is loaded and written back.
+//! A save writes this file in the hidden `.reel` folder beside the take when
+//! the take has telemetry. `reel render` reads it and never re-derives the look
+//! from live settings, so a project can be edited by hand and rendered again
+//! without opening the panel. Unknown fields are kept when a project is loaded
+//! and written back.
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 pub const PROJECT_VERSION: u32 = 1;
 
@@ -711,14 +712,49 @@ pub fn valid_depth(depth: f64) -> f64 {
         .unwrap_or(2.0)
 }
 
-/// `<take-stem>.project.json`, next to the take.
+/// `<take-stem>.project.json` in the hidden sidecar folder.
 pub fn project_path(take: &Path) -> PathBuf {
+    let stem = take
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    crate::paths::sidecar_dir(take).join(format!("{stem}.project.json"))
+}
+
+/// Old visible project path, beside the take. Only used for cleanup.
+pub fn legacy_project_path(take: &Path) -> PathBuf {
     let parent = take.parent().unwrap_or_else(|| Path::new(""));
     let stem = take
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
         .unwrap_or_default();
     parent.join(format!("{stem}.project.json"))
+}
+
+/// The take name as stored in a project that lives one level below it.
+fn relative_take(take: &Path) -> String {
+    take.file_name()
+        .map(|name| format!("../{}", name.to_string_lossy()))
+        .unwrap_or_default()
+}
+
+/// Resolve `.` and `..` without touching the filesystem.
+fn lexical_normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if out.file_name().is_some() {
+                    out.pop();
+                } else if !out.has_root() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
 }
 
 /// `<take-stem>.rendered.<ext>`, next to the take.
@@ -776,10 +812,12 @@ impl Project {
         if take.is_absolute() {
             take.to_path_buf()
         } else {
-            project_path
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .join(take)
+            lexical_normalize(
+                &project_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new(""))
+                    .join(take),
+            )
         }
     }
 
@@ -787,10 +825,7 @@ impl Project {
     /// block, the telemetry name, and the camera.
     pub fn for_take(take: &Path, width: u32, height: u32, fps: f64, duration: f64) -> Project {
         Project {
-            take: take
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default(),
+            take: relative_take(take),
             created_at: iso8601_now(),
             source: Source {
                 width,
@@ -1291,7 +1326,7 @@ mod tests {
         let take = Path::new("/videos/Reel/reel-2026-11-03_12-00-00.mp4");
         assert_eq!(
             project_path(take),
-            Path::new("/videos/Reel/reel-2026-11-03_12-00-00.project.json")
+            Path::new("/videos/Reel/.reel/reel-2026-11-03_12-00-00.project.json")
         );
         assert_eq!(
             rendered_path(take),
@@ -1299,16 +1334,16 @@ mod tests {
         );
 
         let mut project = Project {
-            take: "reel-1.mp4".into(),
+            take: "../reel-1.mp4".into(),
             ..Project::default()
         };
         assert_eq!(
-            project.take_path(Path::new("/videos/Reel/reel-1.project.json")),
+            project.take_path(Path::new("/videos/Reel/.reel/reel-1.project.json")),
             Path::new("/videos/Reel/reel-1.mp4")
         );
         project.take = "/elsewhere/reel-2.mp4".into();
         assert_eq!(
-            project.take_path(Path::new("/videos/Reel/reel-1.project.json")),
+            project.take_path(Path::new("/videos/Reel/.reel/reel-1.project.json")),
             Path::new("/elsewhere/reel-2.mp4")
         );
     }

@@ -158,22 +158,24 @@ Only takes recorded with **Record the pointer** on have telemetry, so a take
 started with the pointer off never zooms. If the telemetry is missing or
 unreadable the take saves normally, without a zoom and without a project file.
 
-Every saved take with telemetry writes `<take-stem>.project.json` next to the
-video, even when auto zoom is off; that file holds the capture facts and the
-camera path. The raw log is kept beside it as
-`<take-stem>.telemetry.jsonl`. Edit the project and run
+Every saved take with telemetry writes `<take-stem>.project.json` into a hidden
+`.reel/` folder beside the video, even when auto zoom is off; that file holds
+the capture facts and the camera path. The raw log is kept beside it as
+`<take-stem>.telemetry.jsonl`. The folder is owner-only and both files are
+removed when the take is trashed. Edit the project and run
 `reel render --project <path>` to change the zoom without recording again; see
 [Re-rendering a take](#re-rendering-a-take).
 
 ## Re-rendering a take
 
-A saved take with pointer telemetry carries a `project.json` next to the video.
-It is the render contract: `reel render` reads it instead of the live settings,
-so a hand edit is all it takes to change the camera and render again.
+A saved take with pointer telemetry carries a `project.json` in the hidden
+`.reel/` folder beside the video. It is the render contract: `reel render` reads
+it instead of the live settings, so a hand edit is all it takes to change the
+camera and render again.
 
 ```sh
-reel render --project ~/Videos/Reel/reel-2026-11-03_12-00-00.project.json
-reel render --project take.project.json --output take-wide.mp4
+reel render --project ~/Videos/Reel/.reel/reel-2026-11-03_12-00-00.project.json
+reel render --project .reel/take.project.json --output take-wide.mp4
 ```
 
 The default output is `<take-stem>.rendered.<ext>`, next to the take. A
@@ -240,6 +242,7 @@ whole file just to trim its head.
 | `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
 | `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
 | `~/Videos/Reel` | Default recordings folder |
+| `~/Videos/Reel/.reel` | Hidden project and telemetry sidecars for saved takes |
 
 If `XDG_RUNTIME_DIR` is unset, the runtime files live under
 `~/.local/state/omarchy/reel/run` instead. The default output folder follows
@@ -249,9 +252,9 @@ Takes are named `<prefix>-YYYY-MM-DD_HH-MM-SS.<container>`. While a take is
 being recorded and saved, its raw file is `<prefix>-YYYY-MM-DD_HH-MM-SS.capture.<container>`
 and the ordinary name appears at the end of the save pass. An empty prefix
 uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
-is on, Reel records it in the runtime folder and copies it next to the saved
-video as `<take-stem>.telemetry.jsonl`, with the render contract beside it as
-`<take-stem>.project.json`. JPEG previews are kept
+is on, Reel records it in the runtime folder and copies it into the hidden
+`.reel` folder beside the saved video as `<take-stem>.telemetry.jsonl`, with the
+render contract beside it as `<take-stem>.project.json`. JPEG previews are kept
 in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
 by older Reel versions are moved into the cache when history is first read.
 

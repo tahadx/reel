@@ -622,12 +622,18 @@ fn project_from_telemetry(
     Ok(project)
 }
 
-/// Write `<take>.project.json`. A write failure is logged and never fails the
-/// save: the take is already valid and a project is only useful for re-renders.
+/// Write `<take>.project.json` into the hidden sidecar folder. A write failure
+/// is logged and never fails the save: the take is already valid and a project
+/// is only useful for re-renders.
 fn write_project(paths: &Paths, take: &Path, project: &project::Project) -> Option<PathBuf> {
     let path = project::project_path(take);
+    if let Err(error) = paths::ensure_sidecar_dir(take) {
+        paths::log(paths, &format!("finalize: no project written: {error:#}"));
+        return None;
+    }
     match project::Project::save(&path, project) {
         Ok(()) => {
+            paths::remove_quiet(&project::legacy_project_path(take));
             paths::log(
                 paths,
                 &format!(
@@ -1103,7 +1109,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(project.take, "reel-2.mp4");
+        assert_eq!(project.take, "../reel-2.mp4");
         assert_eq!(project.source.width, 2560);
         assert_eq!(project.source.height, 1440);
         assert_eq!(project.trim_start, 1.0);
@@ -1200,6 +1206,8 @@ mod tests {
         let paths = Paths::for_test(&root);
         let take = videos.join("reel-5.mp4");
         fs::write(&take, b"video").unwrap();
+        let legacy = videos.join("reel-5.project.json");
+        fs::write(&legacy, b"old\n").unwrap();
 
         let project = project_from_telemetry(
             &telemetry_fixture(),
@@ -1216,10 +1224,11 @@ mod tests {
         )
         .unwrap();
         let written = write_project(&paths, &take, &project).expect("a project path");
-        assert_eq!(written, videos.join("reel-5.project.json"));
+        assert_eq!(written, videos.join(".reel/reel-5.project.json"));
+        assert!(!legacy.exists(), "old visible project is cleaned up");
 
         let reloaded = project::Project::load(&written).unwrap();
-        assert_eq!(reloaded.take, "reel-5.mp4");
+        assert_eq!(reloaded.take, "../reel-5.mp4");
         assert_eq!(reloaded.camera.style, "auto");
         assert_eq!(reloaded.camera.depth, 1.5);
         assert!(reloaded.camera.needs_zoom());

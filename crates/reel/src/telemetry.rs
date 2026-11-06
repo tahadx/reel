@@ -16,7 +16,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -551,21 +551,20 @@ impl Drop for Listener {
     }
 }
 
-/// Copy the runtime file next to a saved take. The runtime copy is kept for
-/// debugging and cleared by the next take. The finalize pass calls this after
-/// a successful save.
+/// Copy the runtime file into the take's hidden sidecar folder. The runtime
+/// copy is kept for debugging and cleared by the next take. The finalize pass
+/// calls this after a successful save.
 pub fn persist(paths: &Paths, take: &Path) -> Result<PathBuf> {
     let source = &paths.session_telemetry;
     if !source.is_file() {
         anyhow::bail!("no telemetry was recorded for this take");
     }
+    paths::ensure_sidecar_dir(take)?;
     let target = paths::telemetry_path(take);
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("cannot create {}", parent.display()))?;
-    }
     std::fs::copy(source, &target)
         .with_context(|| format!("cannot copy telemetry to {}", target.display()))?;
+    let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600));
+    paths::remove_quiet(&paths::legacy_telemetry_path(take));
     Ok(target)
 }
 
@@ -1718,8 +1717,11 @@ mod tests {
         std::fs::create_dir_all(&videos).unwrap();
         std::fs::write(&paths.session_telemetry, b"{}\n").unwrap();
         let take = videos.join("reel-1.mp4");
+        let legacy = paths::legacy_telemetry_path(&take);
+        std::fs::write(&legacy, b"old\n").unwrap();
         let saved = persist(&paths, &take).unwrap();
-        assert_eq!(saved, videos.join("reel-1.telemetry.jsonl"));
+        assert_eq!(saved, videos.join(".reel/reel-1.telemetry.jsonl"));
+        assert!(!legacy.exists(), "old visible sidecar is cleaned up");
         assert!(saved.is_file());
         assert!(
             paths.session_telemetry.is_file(),

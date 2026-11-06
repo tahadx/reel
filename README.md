@@ -15,7 +15,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Alt+Scroll`, capped at 2× by default.
 - Optional auto zoom in the save pass: clicks become smooth camera blocks, and
-  every take with telemetry writes an editable `project.json` for re-rendering.
+  every take with telemetry writes an editable `project.json` into a hidden
+  `.reel/` folder for re-rendering.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.
@@ -214,11 +215,13 @@ The pointer is still recorded in this version and scales with the zoom. Reel
 needs read access to `/dev/input` to see the clicks; without it the take still
 saves, just without the automatic zoom.
 
-Every saved take with telemetry writes a `project.json` next to it, even when
-auto zoom is off. `reel render --project <path>` renders the take again with the
-camera path in that file. The default output is `<take-stem>.rendered.<ext>`,
-and the original take is never replaced. The project schema and the keyframe
-fields are in [docs/reference.md](docs/reference.md#re-rendering-a-take).
+Every saved take with telemetry writes a `project.json` into a hidden `.reel/`
+folder beside it, even when auto zoom is off. The folder is owner-only and its
+files are removed when the take is trashed. `reel render --project <path>`
+renders the take again with the camera path in that file. The default output is
+`<take-stem>.rendered.<ext>`, and the original take is never replaced. The
+project schema and the keyframe fields are in
+[docs/reference.md](docs/reference.md#re-rendering-a-take).
 
 The settings page covers all capture options and the filename prefix. History
 takes open in `mpv`; **Cut** sends the selected take to Omacut for trimming.

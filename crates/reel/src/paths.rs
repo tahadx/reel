@@ -172,8 +172,32 @@ pub fn capture_path(file: &Path) -> PathBuf {
     }
 }
 
-/// `<take-stem>.telemetry.jsonl` next to a saved take.
+/// Hidden folder beside a saved take for its project and telemetry sidecars.
+/// Kept out of the recordings list and restricted to the owner.
+pub fn sidecar_dir(file: &Path) -> PathBuf {
+    let parent = file.parent().unwrap_or_else(|| Path::new(""));
+    parent.join(".reel")
+}
+
+/// Create the hidden sidecar folder and keep it owner-only.
+pub fn ensure_sidecar_dir(file: &Path) -> Result<PathBuf> {
+    let dir = sidecar_dir(file);
+    fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+    Ok(dir)
+}
+
+/// `<take-stem>.telemetry.jsonl` in the hidden sidecar folder.
 pub fn telemetry_path(file: &Path) -> PathBuf {
+    let stem = file
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
+    sidecar_dir(file).join(format!("{stem}.telemetry.jsonl"))
+}
+
+/// Old visible telemetry path, beside the take. Only used for cleanup.
+pub fn legacy_telemetry_path(file: &Path) -> PathBuf {
     let stem = file
         .file_stem()
         .map(|stem| stem.to_string_lossy().to_string())
@@ -460,6 +484,10 @@ mod tests {
         let file = Path::new("/home/a/Videos/Reel/reel-1.2.3.mp4");
         assert_eq!(
             telemetry_path(file),
+            Path::new("/home/a/Videos/Reel/.reel/reel-1.2.3.telemetry.jsonl")
+        );
+        assert_eq!(
+            legacy_telemetry_path(file),
             Path::new("/home/a/Videos/Reel/reel-1.2.3.telemetry.jsonl")
         );
     }

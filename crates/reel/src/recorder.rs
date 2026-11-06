@@ -1,6 +1,7 @@
 use crate::cli::StartArgs;
 use crate::config;
 use crate::paths::{self, Lock, Paths};
+use crate::project;
 use crate::state;
 use crate::target;
 use crate::telemetry;
@@ -1142,10 +1143,14 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
         .unwrap_or_default();
     paths::remove_quiet(path);
     paths::remove_quiet(&paths::telemetry_path(path));
+    paths::remove_quiet(&project::project_path(path));
+    paths::remove_quiet(&paths::legacy_telemetry_path(path));
+    paths::remove_quiet(&project::legacy_project_path(path));
     paths::remove_quiet(&path.with_extension("zoom.json"));
     paths::remove_quiet(&paths.preview_path(path));
     paths::remove_quiet(&paths::legacy_preview_path(path));
     paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
+    fs::remove_dir(paths::sidecar_dir(path)).ok();
 }
 
 /// Resolve the raw capture and final output for a take stopped by possibly
@@ -1596,12 +1601,23 @@ mod tests {
         let take = videos.join("reel-1.mp4");
         fs::write(&take, b"video").unwrap();
         let sidecar = paths::telemetry_path(&take);
+        paths::ensure_sidecar_dir(&take).unwrap();
         fs::write(&sidecar, b"{}\n").unwrap();
+        let project = project::project_path(&take);
+        fs::write(&project, b"{}\n").unwrap();
+        let legacy_telemetry = paths::legacy_telemetry_path(&take);
+        fs::write(&legacy_telemetry, b"{}\n").unwrap();
+        let legacy_project = project::legacy_project_path(&take);
+        fs::write(&legacy_project, b"{}\n").unwrap();
 
         remove_take_artifacts(&paths, &take);
 
         assert!(!take.exists());
         assert!(!sidecar.exists());
+        assert!(!project.exists());
+        assert!(!legacy_telemetry.exists());
+        assert!(!legacy_project.exists());
+        assert!(!paths::sidecar_dir(&take).exists());
         let _ = fs::remove_dir_all(root);
     }
 
