@@ -204,9 +204,9 @@ local pointer telemetry for later save-pass work. That needs read access to
 `/dev/input`; add your user to the `input` group and log in again. If the
 devices cannot be read, the take still records without pointer telemetry.
 
-**Auto zoom** is the first row in Settings → **Zoom**, a single on/off switch
-that is off by default. Turn it on and clicks (or touchpad taps, when
-tap-to-click is on) become short 2× zoom blocks in the saved file. When a
+**Auto zoom** sits below **Manual zoom** in Settings → **Zoom**, a single
+on/off switch that is off by default. Turn it on and clicks (or touchpad taps,
+when tap-to-click is on) become short 2× zoom blocks in the saved file. When a
 click only focuses a window, the block follows the part of the screen that
 changes — the text you are typing and the caret next to it — instead of zooming
 into an empty area.

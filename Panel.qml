@@ -124,8 +124,8 @@ Panel {
   readonly property var settingsTabs: [
     { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
-      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" },
-      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" }
+      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
