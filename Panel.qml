@@ -565,6 +565,10 @@ Panel {
   // Open the picker, then count down and record. The panel closes first so the
   // picker owns the screen; it stays closed while the take runs.
   function start() {
+    if (root.finalizing) {
+      root.setNotice("Saving the last take. Recording opens when it lands.")
+      return
+    }
     if (controlProc.running) {
       root.setNotice("Reel is still finishing the last command.")
       return
@@ -574,7 +578,7 @@ Panel {
 
   // The IPC path goes through the same picker without a panel press.
   function startImmediate() {
-    if (controlProc.running) return
+    if (root.finalizing || controlProc.running) return
     root.cancelling = false
     root.controlAction = "start"
     root.lastActionArgs = root.startArgs()
@@ -1722,7 +1726,10 @@ Panel {
             glyph: root.primaryGlyph()
             tone: root.active || root.starting ? "urgent" : "accent"
             primary: true
-            enabled: true
+            // The last take owns the engine until its save lands: no second
+            // take, no picker, no shortcut can slip in front of it. The button
+            // stays legible and says why if pressed.
+            subdued: root.finalizing
             hint: "r"
           }
 
@@ -2578,6 +2585,9 @@ Panel {
     property string tone: "neutral"
     property bool primary: false
     property string hint: ""
+    // Blocked but not disabled: the button keeps its fill and label, and only
+    // sits back. Used while the previous take is still being saved.
+    property bool subdued: false
 
     readonly property color toneColor: tone === "urgent" ? root.urgent : tone === "accent" ? root.accent : root.foreground
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
@@ -2603,7 +2613,7 @@ Panel {
           keyboardCursor ? 1 : 0)
       : Border.flat(hasCursor ? root.accent : root.hairline, 1)
     implicitHeight: Style.space(38)
-    opacity: enabled ? 1.0 : 0.35
+    opacity: !enabled ? 0.35 : subdued ? 0.55 : 1.0
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
       NumberAnimation { duration: 90; easing.type: Easing.OutCubic }

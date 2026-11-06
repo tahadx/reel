@@ -29,6 +29,12 @@ its own:
 | `reel update [--binds]` | Update the plugin and rerun its installer |
 | `reel update --check [--json] [--force]` | Check whether a newer commit is available |
 
+A take cannot start until the previous take has finished saving: while the
+save pass runs, `reel start` and `reel toggle` refuse with a message, the
+panel's record button sits dimmed, and every shortcut that would record is
+held. A crashed save job is released by the usual reconcile, so the gate never
+sticks.
+
 `reel toggle` accepts the same options as `reel start`. `reel stop` fails when
 no take is active. `reel trash` accepts only files inside the recordings folder.
 

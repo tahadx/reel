@@ -451,9 +451,18 @@ fn fail_start(paths: &Paths, message: &str) {
 
 fn start_guard(paths: &Paths) -> Result<String> {
     let _lock = Lock::acquire(paths)?;
+    // A finished take still owns the engine until its save pass lands. Clear a
+    // dead job first so a crashed finalize cannot block recording forever.
+    state::reconcile(paths);
     let current = state::status(paths);
-    if matches!(current.as_str(), "recording" | "paused" | "starting") {
-        anyhow::bail!("Reel is already busy. Stop the current take first.");
+    match current.as_str() {
+        "recording" | "paused" | "starting" => {
+            anyhow::bail!("Reel is already busy. Stop the current take first.")
+        }
+        "finalizing" => {
+            anyhow::bail!("Reel is still saving the last take. Try again in a moment.")
+        }
+        _ => {}
     }
     paths::remove_quiet(&paths.cancel);
     Ok(current)
@@ -1476,6 +1485,27 @@ mod tests {
         assert!(capture.ends_with("-untrimmed.mp4"));
         assert_eq!(output, file.display().to_string());
         assert!(Path::new(&capture).is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_take_waits_for_the_previous_save() {
+        let root = temp_root("finalizing");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        let alive = std::process::id() as i64;
+        state::write(
+            &paths,
+            &json!({
+                "status": "finalizing",
+                "finalizePid": alive,
+                "finalizeAt": paths::now_secs(),
+            }),
+        )
+        .unwrap();
+
+        let error = start_guard(&paths).unwrap_err().to_string();
+        assert!(error.contains("still saving"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
 
