@@ -143,16 +143,16 @@ Panel {
   readonly property var mediaSettingRows: [
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
-    { key: "webcamDevice", label: "Webcam device", glyph: "󰄀" },
+    { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
     { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
-    { key: "noiseCancellation", label: "Noise reduction", glyph: "󰍬" },
-    { key: "fps", label: "Frame rate", glyph: "󰈫", section: "Video" },
+    { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
+    { key: "fps", label: "Frame rate", glyph: "󰈰", section: "Video" },
     { key: "quality", label: "Quality", glyph: "󰓅" },
-    { key: "codec", label: "Video codec", glyph: "󰈙" },
+    { key: "codec", label: "Video codec", glyph: "󰅴" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
-    { key: "container", label: "Container", glyph: "󰉋" }
+    { key: "container", label: "Container", glyph: "󰏗" }
   ]
   readonly property var shortcutRows: [
     { keys: "Shift+U", what: "update Reel" },
@@ -179,7 +179,7 @@ Panel {
     { id: "media", label: "Media", rows: root.mediaSettingRows },
     { id: "zoom", label: "Zoom", rows: [
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
-      { key: "autoZoom", label: "Auto zoom", glyph: "󰍉" }
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
@@ -286,7 +286,7 @@ Panel {
   readonly property real takeMenuPadding: Style.space(5)
   readonly property var takeMenuBorderSpec: Border.flat(root.hairline, 1)
   readonly property var takeMenuItems: [
-    { key: "open", label: "Open", glyph: "󰐊", shortcut: "Enter" },
+    { key: "open", label: "Open", glyph: "󰏌", shortcut: "Enter" },
     { key: "cut", label: "Cut in Omacut", glyph: "󰆐", shortcut: "t" },
     { key: "share", label: "Share", glyph: "󰒗", shortcut: "u" },
     {
@@ -294,7 +294,7 @@ Panel {
       label: root.trashArmedPath !== "" && root.takeMenuRow
         && root.trashArmedPath === String(root.takeMenuRow.path || "")
         ? "Confirm delete" : "Delete",
-      glyph: "󰆴",
+      glyph: "󰩹",
       shortcut: "x",
       urgent: root.trashArmedPath !== "" && root.takeMenuRow
         && root.trashArmedPath === String(root.takeMenuRow.path || "")
@@ -583,7 +583,7 @@ Panel {
   }
 
   function primaryGlyph() {
-    if (root.starting) return "󰅖"
+    if (root.starting) return "󰜺"
     if (root.active) return "󰓛"
     return "󰻂"
   }

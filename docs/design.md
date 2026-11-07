@@ -763,6 +763,9 @@ If a fourth signature animation is proposed, remove one of these instead.
 - The bar has one mark, drawn: the take's pill. No glyphs and no icons in the
   bar at all. The hero leads with the same pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
+- Every row and action gets its own glyph. Never reuse one glyph for two
+  different meanings, even across tabs: a camera is not a camera device, a
+  microphone is not noise reduction, and manual zoom is not auto zoom.
 - Glyph tiles are `24 × 24`, square, `restFill`, `hairline`.
 - A glyph never replaces a text label for a primary action.
 - Icon-only buttons are allowed for history, overflow, and tooltip-backed
