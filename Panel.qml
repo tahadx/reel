@@ -186,6 +186,39 @@ Panel {
     ] },
     { id: "keys", label: "Keys", rows: root.shortcutRows }
   ]
+  // The strip is navigation, not settings: the four settings tabs plus History,
+  // which is a page beside them. Keeping the same strip on both pages is what
+  // makes History a destination rather than a mode with its own frame.
+  readonly property var navDestinations: {
+    var list = []
+    for (var i = 0; i < root.settingsTabs.length; i++) {
+      var tab = root.settingsTabs[i]
+      list.push({ id: tab.id, label: tab.label, key: String(i + 1) })
+    }
+    list.push({ id: "history", label: "History", key: "H", modifier: "⇧", separated: true })
+    return list
+  }
+
+  function isNavActive(id) {
+    if (id === "history") return root.page === "history"
+    return root.page === "home" && root.settingsTab === id
+  }
+
+  function selectNav(id) {
+    root.typingPrefix = false
+    root.cursorActive = true
+    if (id === "history") {
+      root.openHistory()
+      return
+    }
+    root.clearHover()
+    if (root.page === "history") root.closeHistory()
+    root.settingsTab = id
+    root.settingsIndex = 0
+    root.focusSection = "settings"
+    root.beginKeyboardScroll()
+    Qt.callLater(root.resetScroll)
+  }
 
   // ---------- panel state -------------------------------------------------
 
@@ -900,12 +933,12 @@ Panel {
   // ---------- cursor ------------------------------------------------------
 
   readonly property var sections: root.page === "history"
-    ? ["header", "recents"]
+    ? ["header", "primary", "recents"]
     : ["header", "primary", "settings"]
 
   function sectionCount(section) {
     switch (section) {
-    case "header": return 2
+    case "header": return 1
     case "primary": return 3
     case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
@@ -1025,8 +1058,7 @@ Panel {
     root.clearHover()
     switch (root.focusSection) {
     case "header":
-      if (root.selectedIndex === 0) root.handleUpdate()
-      else root.toggleHistory()
+      root.handleUpdate()
       break
     case "primary":
       root.primaryAction(root.selectedIndex)
@@ -1058,15 +1090,17 @@ Panel {
       return
     }
     var key = raw.toLowerCase()
-    if (root.page === "home" && key.length === 1 && key >= "1" && key <= "4") {
+    if (key.length === 1 && key >= "1" && key <= "4") {
       var tab = Number(key) - 1
       if (tab >= 0 && tab < root.settingsTabs.length) {
         root.clearHover()
+        if (root.page === "history") root.closeHistory()
         root.settingsTab = root.settingsTabs[tab].id
         root.settingsIndex = 0
         root.focusSection = "settings"
         root.cursorActive = true
         root.beginKeyboardScroll()
+        Qt.callLater(root.resetScroll)
       }
       return
     }
@@ -1734,25 +1768,6 @@ Panel {
                   fontFamily: root.fontFamily
                 }
               }
-
-              PanelActionButton {
-                iconText: "󰋚"
-                tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
-                foreground: root.page === "history" ? root.accent : root.foreground
-                fontFamily: root.fontFamily
-                hasCursor: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 1)
-                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 1
-                    && !root.hoverPainted)
-                onHovered: function(on) {
-                  root.setRowHover("header", 1, on)
-                }
-                onClicked: {
-                  root.cursorActive = true
-                  root.focusSection = "header"
-                  root.selectedIndex = 1
-                  root.toggleHistory()
-                }
-              }
             }
           }
         }
@@ -1761,7 +1776,6 @@ Panel {
 
         Row {
           Layout.fillWidth: true
-          visible: root.page === "home"
           spacing: Style.space(8)
 
           ActionButton {
@@ -1799,14 +1813,14 @@ Panel {
           }
         }
 
-        // The tab strip stays above the scroll area so it is always reachable
-        // while the settings body scrolls underneath it.
+        // The strip is the panel's navigation: four settings tabs and History.
+        // It stays fixed on both pages so History is reachable from the panel
+        // itself, not only from a shortcut.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
           Layout.topMargin: Style.space(8)
           Layout.bottomMargin: Style.space(2)
-          visible: root.page === "home"
 
           Row {
             id: settingsTabRow
@@ -1814,16 +1828,21 @@ Panel {
             spacing: 0
 
             Repeater {
-              model: root.settingsTabs
+              model: root.navDestinations
 
               delegate: Item {
                 id: settingsTabItem
                 required property var modelData
-                required property int index
-                width: settingsTabRow.width / root.settingsTabs.length
+                // The four settings tabs share the strip; History takes a wider
+                // slot so its longer label and hint keep their air, and the
+                // extra width itself separates it from the settings run.
+                readonly property real historyShare: 0.24
+                width: modelData.separated === true
+                  ? settingsTabRow.width * historyShare
+                  : settingsTabRow.width * (1 - historyShare) / (root.navDestinations.length - 1)
                 height: settingsTabRow.height
 
-                readonly property bool active: root.settingsTab === modelData.id
+                readonly property bool active: root.isNavActive(modelData.id)
                 readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
 
                 Row {
@@ -1847,7 +1866,10 @@ Panel {
                   }
 
                   KeyHintChip {
-                    label: String(settingsTabItem.index + 1)
+                    label: settingsTabItem.modelData.key
+                    modifier: settingsTabItem.modelData.modifier || ""
+                    horizontalPadding: settingsTabItem.modelData.separated === true
+                      ? Style.space(15) : Style.space(10)
                     active: settingsTabItem.active
                     anchors.verticalCenter: parent.verticalCenter
                   }
@@ -1889,12 +1911,7 @@ Panel {
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
                   onPositionChanged: function(mouse) { root.notePointerMotion(settingsTabMouse, mouse) }
-                  onClicked: {
-                    root.settingsTab = settingsTabItem.modelData.id
-                    root.settingsIndex = 0
-                    root.cursorActive = true
-                    root.typingPrefix = false
-                  }
+                  onClicked: root.selectNav(settingsTabItem.modelData.id)
                 }
               }
             }
@@ -2642,7 +2659,7 @@ Panel {
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
 
     readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "primary" && root.hoverIndex === rowIndex
-    readonly property bool keyboardCursor: root.cursorActive && root.page === "home"
+    readonly property bool keyboardCursor: root.cursorActive
       && root.focusSection === "primary" && root.selectedIndex === rowIndex
 
     hasCursor: pointerHovered || (keyboardCursor && !root.hoverPainted)
@@ -3275,10 +3292,15 @@ Panel {
   component KeyHintChip: Item {
     id: keyHint
     property string label: ""
+    // A modifier drawn before the label, subordinate to it: the shift glyph sits
+    // lighter next to the letter instead of competing with it.
+    property string modifier: ""
     property bool onAccent: false
     property color ink: root.foreground
     property bool active: false
     property real minimumWidth: 0
+    // A two-character hint (⇧H) needs more air than a single digit.
+    property real horizontalPadding: Style.space(10)
 
     width: implicitWidth
     height: implicitHeight
@@ -3307,7 +3329,7 @@ Panel {
 
     Rectangle {
       id: chip
-      width: Math.max(keyHint.minimumWidth, labelText.implicitWidth + Style.space(10))
+      width: Math.max(keyHint.minimumWidth, contentRow.implicitWidth + keyHint.horizontalPadding)
       height: Style.space(18)
       radius: Style.space(4)
       // Opaque base: the keycap shadow sits underneath, and a translucent
@@ -3326,16 +3348,33 @@ Panel {
           : Util.alpha(root.foreground, 0.08)
       }
 
-      Text {
-        id: labelText
+      Row {
+        id: contentRow
         anchors.centerIn: parent
-        textFormat: Text.PlainText
-        text: keyHint.label
-        color: keyHint.onAccent ? keyHint.ink
-          : keyHint.active ? root.foreground : Util.alpha(root.foreground, 0.82)
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        font.bold: true
+        spacing: Style.space(1)
+
+        Text {
+          visible: keyHint.modifier !== ""
+          textFormat: Text.PlainText
+          text: keyHint.modifier
+          color: keyHint.onAccent ? keyHint.ink
+            : keyHint.active ? root.foreground : Util.alpha(root.foreground, 0.62)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          anchors.verticalCenter: parent.verticalCenter
+        }
+
+        Text {
+          id: labelText
+          anchors.verticalCenter: parent.verticalCenter
+          textFormat: Text.PlainText
+          text: keyHint.label
+          color: keyHint.onAccent ? keyHint.ink
+            : keyHint.active ? root.foreground : Util.alpha(root.foreground, 0.82)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+        }
       }
     }
   }

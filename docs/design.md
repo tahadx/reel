@@ -38,7 +38,7 @@ should restyle the entire plugin.
    active tab, or focus. It may appear in several roles at once, but never
    twice for the same role, and never as decoration.
 3. **Fixed frame, moving content.** The identity, status, history control,
-   primary actions, and settings tabs never scroll. Only the page body scrolls.
+   primary actions, and navigation strip never scroll. Only the page body scrolls.
 4. **Density is respect.** A recorder is a tool. Show more, scroll less, and
    use `Style.space()` for every gap.
 5. **Motion explains.** Transitions are short, one-shot, and quiet. Motion
@@ -213,7 +213,8 @@ here.`
 - Content: **440 × 410** logical pixels (`fittedContentWidth(Style.space(440))`,
   `Style.space(410)`).
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
-  settings tabs (30 high, `8` above, `2` below) + `1` px hairline.
+  settings tabs (30 high, `8` above, `2` below) + `1` px hairline. The strip is
+  navigation: four settings tabs and History.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
@@ -235,7 +236,7 @@ ColumnLayout {
 
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
-  Item { Layout.fillWidth: true /* fixed settings tabs */ }
+  Item { Layout.fillWidth: true /* fixed navigation strip */ }
 
   ScrollView {
     Layout.fillWidth: true
@@ -358,10 +359,10 @@ a place for identity text or metadata.
   - Saving: dim dot + `Saving` in secondary while the save pass runs.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
   - Fill `restFill`, hairline border.
-- Trailing control contains, in order:
-  1. **Version cue** — `bodySmall` in a reserved `64`-wide, `22`-high slot next
-     to history. It is a text link, not a pill: no fill and no border in any
-     state.
+- Trailing control:
+  1. **Version cue** — `bodySmall` in a reserved `64`-wide, `22`-high slot at
+     the trailing edge. It is a text link, not a pill: no fill and no border in
+     any state.
      - Rest: `vX.Y.Z` in secondary, regular weight. Hover or keyboard cursor
        raises it to foreground and draws a `1` px accent underline.
      - Update waiting: the newer `vX.Y.Z` in bold foreground with an accent `↑`
@@ -372,9 +373,9 @@ a place for identity text or metadata.
        across the underline; the control does not respond until the check ends.
      - Failed check: `Retry` in urgent with an urgent underline. The tooltip
        carries the cause; clicking checks again.
-     - The slot width is reserved so the history button never moves.
-  2. **History button** — `PanelActionButton`, glyph `󰋚`, accent when the
-     history page is active, tooltip `History (Shift+H)` / `Back from history`.
+     - The slot width is reserved so the trailing edge never moves.
+- There is no history button in the hero: History is a destination in the
+  navigation strip (§6.5).
 - There is no Reel mark or title in the hero. The bar keeps the drawn mark.
 - Do not let the clock label change the pill width. The `60` slot is reserved.
 
@@ -399,46 +400,59 @@ Rules:
 - Pressed state scales to `0.985` over `90` ms.
 - Discard is a two-step action: first press arms and relabels, second press
   discards. The warning is the relabel, plus a toast if needed.
-- Buttons are hidden as a row on the history page, but the hero stays fixed.
+- The row stays visible on every destination, History included. It is part of
+  the fixed frame, so hiding it on one page would move the navigation strip
+  under the pointer.
 
 ### 6.4 Separator
 
 - `1` px, `0.12` foreground, full content width.
-- On home, the only divider is the hairline at the bottom of the fixed tab
-  strip. It separates the fixed actions and tabs from the scrolling body.
-- There is no second separator between the action row and the tabs.
-- Hidden on history, where the section header provides the break.
+- The only divider is the hairline at the bottom of the fixed navigation strip.
+  It separates the fixed actions and strip from the scrolling body, on every
+  destination.
+- There is no second separator between the action row and the strip.
 
-### 6.5 Settings tabs
+### 6.5 Navigation strip
 
-The tab strip sits above the scroll area and stays fixed while the settings body
-scrolls underneath it.
+The strip sits above the scroll area and stays fixed on **every** destination,
+History included, while the body scrolls underneath it. It is the panel's only
+navigation.
 
-- Height `30`; four equal tabs: Media, Zoom, Output, Keys. The strip keeps
-  `Style.space(8)` above and `Style.space(2)` below.
+- Height `30`; four settings destinations share the strip, then History takes a
+  wider slot whose extra width is the separation — no rule between them. The
+  strip keeps `Style.space(8)` above and `Style.space(2)` below.
 - Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(16)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- Every tab carries a numeric `KeyHintChip` (`1`–`4`).
+- Every destination carries a `KeyHintChip`: `1`–`4` for settings, and `H` with a
+  subordinate `⇧` modifier for History (the shift glyph is lighter than the
+  letter, so it reads as one key, not two).
 - No pills, no icons, no counters, no badges.
-- Each panel open returns to Media; the selected tab is not persisted.
-- Switching is instant. The underline and label colors animate, and the body
-  returns to the top of the selected tab.
+- Each panel open returns to Media; the selected destination is not persisted.
+- Switching is instant. The underline and label colors animate, the body returns
+  to the top, and the settings cursor returns to the first row.
+- Clicking History opens it; clicking a settings tab leaves History and shows
+  that tab. `1`–`4` work from History as well, and `Shift+H` toggles it.
+- The strip is pointer-only, like the old tab strip; the keyboard reaches the
+  same destinations through `1`–`4` and `Shift+H`.
 
 ### 6.5.1 Settings taxonomy
 
-The four tabs are fixed. New settings must fit one of them.
+The four settings tabs are fixed. New settings must fit one of them; History
+is not a setting.
 
-| Tab    | Belongs here                                                              | Does not belong                  |
-| :----- | :------------------------------------------------------------------------ | :------------------------------- |
-| Media  | Capture section: countdown, webcam corner, webcam device, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
-| Zoom   | Manual zoom, auto zoom                                                    | Anything unrelated to zoom       |
-| Output | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
-| Keys   | Read-only shortcut reference                                              | Editable key bindings            |
+| Tab     | Belongs here                                                              | Does not belong                  |
+| :------ | :------------------------------------------------------------------------ | :------------------------------- |
+| Media   | Capture section: countdown, webcam corner, webcam device, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
+| Zoom    | Manual zoom, auto zoom                                                    | Anything unrelated to zoom       |
+| Output  | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
+| Keys    | Read-only shortcut reference                                              | Editable key bindings            |
+| History | Takes, the recordings folder, take actions                                | Settings of any kind             |
 
 Rules:
 
-- No fifth tab. The `1`–`4` shortcuts are part of the interface contract.
+- No sixth destination. The `1`–`4` and `Shift+H` shortcuts are part of the
+  interface contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab.
 - Manual zoom comes first: it is the live, on-by-default control. Auto zoom is
@@ -691,7 +705,7 @@ Rules:
   line**.
 - Auto-scroll runs on a `16` ms timer and accelerates from `3` to `7` px per
   tick. It stops at the content bounds.
-- The hero, actions, and tab strip are not part of the scroll region.
+- The hero, actions, and navigation strip are not part of the scroll region.
 - Opening the panel, entering history, and switching settings tabs reset the
   scroll to the top.
 

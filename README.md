@@ -146,8 +146,8 @@ right-click starts or pauses, and middle-click opens the recordings folder.
    does not appear in the take.
 
 Pause or resume from the panel, the bar's right-click action, or `p`. Open
-history from the clock icon in the header or with `Shift+H`. Drag a take row
-into another app to copy the video file there.
+history from the **History** tab in the panel's navigation strip, or with
+`Shift+H`. Drag a take row into another app to copy the video file there.
 
 A window is recorded as its **visible screen rectangle**, not an isolated
 toplevel surface. Overlapping windows and window movement can appear in the
