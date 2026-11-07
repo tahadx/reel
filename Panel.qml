@@ -195,12 +195,28 @@ Panel {
   property int selectedIndex: 0
   property string hoverSection: ""
   property int hoverIndex: -1
+  // Hyprland hides the pointer on a key press (hide_on_key_press) and, when
+  // configured, after its inactive timeout. Qt never reports that the pointer
+  // is gone, and an item under a hidden pointer keeps reporting containsMouse.
+  // Hover state is still tracked, but only painted while the pointer is known
+  // to be active: any key stops it, real pointer movement restores it.
+  property bool pointerActive: true
+  readonly property bool hoverPainted: root.pointerActive && root.hoverSection !== ""
+  // Scene point of the last real pointer movement. A MouseArea also emits
+  // positionChanged when its row scrolls under a still pointer, so movement
+  // only counts when this point actually changed.
+  property point lastPointerScene: Qt.point(-100000, -100000)
   property bool cursorActive: false
   property bool keyboardScroll: false
   property bool carryingFile: false
   property int settingsIndex: 0
   property string settingsTab: "media"
-  onSettingsTabChanged: Qt.callLater(root.resetScroll)
+  // A tab is a different page, so it starts at its first row. Setting this on
+  // the tab itself keeps every caller honest (tab click, number keys, Tab).
+  onSettingsTabChanged: {
+    root.settingsIndex = 0
+    Qt.callLater(root.resetScroll)
+  }
   property bool hasOmacut: false
   // Cameras for the Webcam device row, from `reel webcams --json`.
   property var cameras: []
@@ -908,6 +924,9 @@ Panel {
     if (index < 0) index = 0
     index = (index + delta + root.sections.length) % root.sections.length
     root.focusSection = root.sections[index]
+    // Settings keep a second cursor index. Re-entering the section from another
+    // one has to start at the top of the page, never at the row it was left on.
+    if (root.focusSection === "settings") root.settingsIndex = 0
     root.selectedIndex = delta > 0 ? 0 : root.sectionCount(root.focusSection) - 1
   }
 
@@ -952,6 +971,27 @@ Panel {
     root.hoverIndex = -1
   }
 
+  function notePointerMotion(item, mouse) {
+    if (!item || !mouse) return false
+    var scene = item.mapToItem(null, mouse.x, mouse.y)
+    var last = root.lastPointerScene
+    if (Math.abs(scene.x - last.x) < 0.5 && Math.abs(scene.y - last.y) < 0.5) return false
+    root.lastPointerScene = Qt.point(scene.x, scene.y)
+    root.pointerActive = true
+    return true
+  }
+
+  // Re-assert the row under the pointer on real motion: switching a tab or page
+  // clears hover, and a pointer that never left its row gets no new
+  // containsMouse change, so without this it would stay dark until it crossed a
+  // row boundary.
+  function pointerMoved(section, index, item, mouse) {
+    if (!root.notePointerMotion(item, mouse)) return
+    if (root.hoverSection === section && root.hoverIndex === index) return
+    root.hoverSection = section
+    root.hoverIndex = index
+  }
+
   function setRowHover(section, index, on) {
     if (on) {
       root.hoverSection = section
@@ -961,7 +1001,9 @@ Panel {
     if (root.hoverSection === section && root.hoverIndex === index) {
       root.hoverSection = ""
       root.hoverIndex = -1
-      root.cursorActive = false
+      // A row that scrolls out from under a hidden pointer has not been left by
+      // the user, so it must not drop the keyboard cursor.
+      if (root.pointerActive) root.cursorActive = false
     }
   }
 
@@ -1270,6 +1312,8 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       root.clearHover()
+      // A new window placement makes the last scene point meaningless.
+      root.lastPointerScene = Qt.point(-100000, -100000)
       root.page = "home"
       root.focusSection = "primary"
       root.selectedIndex = 0
@@ -1571,9 +1615,9 @@ Panel {
                 width: Math.max(Style.space(64), updateCueRow.width)
                 height: Style.space(22)
 
-                readonly property bool hot: (root.hoverSection === "header" && root.hoverIndex === 0)
+                readonly property bool hot: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 0)
                   || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
-                    && root.hoverSection === "")
+                    && !root.hoverPainted)
                 readonly property bool failed: !root.updateChecking && !root.updateAvailable
                   && String(root.updateInfo.error || "") !== ""
 
@@ -1675,6 +1719,7 @@ Panel {
                   cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
                   enabled: !root.updateChecking
                   onContainsMouseChanged: root.setRowHover("header", 0, containsMouse)
+                  onPositionChanged: function(mouse) { root.pointerMoved("header", 0, updateCue, mouse) }
                   onClicked: {
                     root.cursorActive = true
                     root.focusSection = "header"
@@ -1684,7 +1729,7 @@ Panel {
                 }
 
                 PanelToolTip {
-                  visible: updateCueMouse.containsMouse
+                  visible: updateCueMouse.containsMouse && root.pointerActive
                   text: root.updateTooltip()
                   fontFamily: root.fontFamily
                 }
@@ -1695,9 +1740,9 @@ Panel {
                 tooltipText: root.page === "history" ? "Back from history (Shift+H)" : "History (Shift+H)"
                 foreground: root.page === "history" ? root.accent : root.foreground
                 fontFamily: root.fontFamily
-                hasCursor: (root.hoverSection === "header" && root.hoverIndex === 1)
+                hasCursor: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 1)
                   || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 1
-                    && root.hoverSection === "")
+                    && !root.hoverPainted)
                 onHovered: function(on) {
                   root.setRowHover("header", 1, on)
                 }
@@ -1779,7 +1824,7 @@ Panel {
                 height: settingsTabRow.height
 
                 readonly property bool active: root.settingsTab === modelData.id
-                readonly property bool hot: settingsTabMouse.containsMouse
+                readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
 
                 Row {
                   anchors.centerIn: parent
@@ -1843,6 +1888,7 @@ Panel {
                   anchors.fill: parent
                   hoverEnabled: true
                   cursorShape: Qt.PointingHandCursor
+                  onPositionChanged: function(mouse) { root.notePointerMotion(settingsTabMouse, mouse) }
                   onClicked: {
                     root.settingsTab = settingsTabItem.modelData.id
                     root.settingsIndex = 0
@@ -2472,6 +2518,9 @@ Panel {
     }
 
     Keys.onPressed: function(event) {
+      // The compositor hides the pointer on a key press, so the hover under it
+      // must stop painting now; the next pointer movement brings it back.
+      root.pointerActive = false
       if (catcher.blocked) return
 
       if (event.key === Qt.Key_Escape) {
@@ -2592,11 +2641,11 @@ Panel {
     readonly property color toneColor: tone === "urgent" ? root.urgent : tone === "accent" ? root.accent : root.foreground
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
 
-    readonly property bool pointerHovered: root.hoverSection === "primary" && root.hoverIndex === rowIndex
+    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "primary" && root.hoverIndex === rowIndex
     readonly property bool keyboardCursor: root.cursorActive && root.page === "home"
       && root.focusSection === "primary" && root.selectedIndex === rowIndex
 
-    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
+    hasCursor: pointerHovered || (keyboardCursor && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(action)
     foreground: root.foreground
     accent: root.accent
@@ -2724,6 +2773,7 @@ Panel {
       enabled: action.enabled
       cursorShape: Qt.PointingHandCursor
       onContainsMouseChanged: root.setRowHover("primary", action.rowIndex, containsMouse)
+      onPositionChanged: function(mouse) { root.pointerMoved("primary", action.rowIndex, action, mouse) }
       onClicked: {
         root.cursorActive = true
         root.focusSection = "primary"
@@ -2809,7 +2859,8 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onContainsMouseChanged: if (containsMouse) root.takeMenuIndex = menuItem.itemIndex
+      onContainsMouseChanged: if (containsMouse && root.pointerActive) root.takeMenuIndex = menuItem.itemIndex
+      onPositionChanged: function(mouse) { root.notePointerMotion(menuItem, mouse) }
       onClicked: {
         root.takeMenuIndex = menuItem.itemIndex
         root.activateTakeMenu()
@@ -2969,11 +3020,11 @@ Panel {
       onTriggered: take.dragStarted = false
     }
 
-    readonly property bool pointerHovered: root.hoverSection === "recents" && root.hoverIndex === rowIndex
+    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "recents" && root.hoverIndex === rowIndex
     readonly property bool keyboardCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
 
-    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
+    hasCursor: pointerHovered || (keyboardCursor && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(take)
     foreground: root.foreground
     accent: root.accent
@@ -3111,6 +3162,7 @@ Panel {
         take.pressing = true
       }
       onPositionChanged: function(mouse) {
+        root.pointerMoved("recents", take.rowIndex, take, mouse)
         if (!take.pressing || take.dragging || take.dragWanted) return
         if (!(mouse.buttons & Qt.LeftButton)) return
         var dx = mouse.x - take.pressAt.x
@@ -3143,11 +3195,11 @@ Panel {
     id: folder
     property int rowIndex: 0
 
-    readonly property bool pointerHovered: root.hoverSection === "recents" && root.hoverIndex === rowIndex
+    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "recents" && root.hoverIndex === rowIndex
     readonly property bool keyboardCursor: root.cursorActive && root.page === "history"
       && root.focusSection === "recents" && root.selectedIndex === rowIndex
 
-    hasCursor: pointerHovered || (keyboardCursor && root.hoverSection === "")
+    hasCursor: pointerHovered || (keyboardCursor && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(folder)
     foreground: root.foreground
     accent: root.accent
@@ -3210,6 +3262,7 @@ Panel {
         if (containsMouse && root.suppressHistoryHover) return
         root.setRowHover("recents", folder.rowIndex, containsMouse)
       }
+      onPositionChanged: function(mouse) { root.pointerMoved("recents", folder.rowIndex, folder, mouse) }
       onClicked: {
         root.cursorActive = true
         root.focusSection = "recents"
@@ -3292,11 +3345,11 @@ Panel {
     property var row: null
     property int rowIndex: 0
 
-    readonly property bool pointerHovered: root.hoverSection === "settings" && root.hoverIndex === rowIndex
+    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive && root.page === "home"
       && root.focusSection === "settings" && root.settingsIndex === rowIndex
 
-    hasCursor: pointerHovered || (selected && root.hoverSection === "")
+    hasCursor: pointerHovered || (selected && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(shortcut)
     foreground: root.foreground
     accent: root.accent
@@ -3345,6 +3398,7 @@ Panel {
       hoverEnabled: true
       cursorShape: Qt.ArrowCursor
       onContainsMouseChanged: root.setRowHover("settings", shortcut.rowIndex, containsMouse)
+      onPositionChanged: function(mouse) { root.pointerMoved("settings", shortcut.rowIndex, shortcut, mouse) }
       onClicked: {
         root.cursorActive = true
         root.focusSection = "settings"
@@ -3363,7 +3417,7 @@ Panel {
     property string kind: "cycle"
     property string infoValue: ""
 
-    readonly property bool pointerHovered: root.hoverSection === "settings" && root.hoverIndex === rowIndex
+    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive
       && root.page === "home"
       && root.focusSection === "settings"
@@ -3371,7 +3425,7 @@ Panel {
     readonly property bool switchRow: setting.kind !== "info" && root.isSwitch(setting.settingKey)
     readonly property bool switchOn: root.currentValue(setting.settingKey) === "on"
 
-    hasCursor: pointerHovered || (selected && root.hoverSection === "")
+    hasCursor: pointerHovered || (selected && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
@@ -3519,6 +3573,7 @@ Panel {
       cursorShape: setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
       onContainsMouseChanged: root.setRowHover("settings", setting.rowIndex, containsMouse)
+      onPositionChanged: function(mouse) { root.pointerMoved("settings", setting.rowIndex, setting, mouse) }
       onClicked: function(mouse) {
         if (setting.kind === "info") return
         root.cursorActive = true
