@@ -173,6 +173,18 @@ Item {
     onLoadFailed: root.applyState("")
   }
 
+  // The engine creates the runtime directory on first use, which can land
+  // after the shell starts. FileView cannot watch a path whose parent does not
+  // exist yet, and it never retries on its own, so the first take would stay
+  // invisible in the bar until the panel refreshed the service. Reload until
+  // the file is reachable; that also installs the watch.
+  Timer {
+    interval: 1000
+    repeat: true
+    running: !stateFile.loaded
+    onTriggered: stateFile.reload()
+  }
+
   Process {
     id: statusProc
     command: ["reel", "status", "--json"]

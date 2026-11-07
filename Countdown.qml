@@ -104,6 +104,16 @@ Item {
     onLoadFailed: root.applyState("")
   }
 
+  // The runtime directory may not exist when the shell starts. FileView cannot
+  // watch a missing path and does not retry, so the countdown would never
+  // appear until something else reloaded it. Keep asking until it loads.
+  Timer {
+    interval: 1000
+    repeat: true
+    running: !stateFile.loaded
+    onTriggered: stateFile.reload()
+  }
+
   Timer {
     id: frameTimer
     interval: 16
