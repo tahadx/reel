@@ -1,20 +1,41 @@
 # Reel cursor-effects program — progress overview
 
-Tracked coordination file (`plans/` is public). Main carries only the shared UI
-scaffold commits (plans, the Visuals tab, and the Recording Saving section); no
-feature implementation, pushes, or GitHub Issues exist yet.
+Tracked coordination file (`plans/` is public). The four features are approved
+for implementation, but **no feature code has started** and **no GitHub Issues
+will be opened**. The approval record is `plans/FEATURES.md`; the shared design
+is `plans/SHARED-FOUNDATION.md`.
+
+## Current state
+
+- `main` carries the shared UI scaffold and the update-restart fix.
+- Feature worktrees carry the same scaffold plus their proposal and branch brief.
+- Every worktree is clean.
+- No feature implementation, no GitHub Issues.
+- Do not start feature code until the orchestrator gives the kickoff.
 
 ## Worktrees and branches
 
 | Feature | Branch | Worktree | Proposal | Status |
 | --- | --- | --- | --- | --- |
-| Cursor Motion Blur | `feat/motion-blur` | `/home/taha/Projects/oss/reel-motion-blur` | `plans/proposals/cursor-motion-blur.md` | Investigated, awaiting approval |
-| Smooth Cursor | `feat/smooth-cursor` | `/home/taha/Projects/oss/reel-smooth-cursor` | `plans/proposals/smooth-cursor.md` | Investigated, awaiting approval |
-| Click Effects | `feat/click-effects` | `/home/taha/Projects/oss/reel-click-effects` | `plans/proposals/click-effects.md` | Investigated, awaiting approval |
-| Editable Cursor Styles | `feat/cursor-styles` | `/home/taha/Projects/oss/reel-cursor-styles` | `plans/proposals/cursor-styles.md` | Investigated, awaiting approval |
+| Shared cursor foundation | `feat/cursor-foundation` (to create) | new worktree | `plans/SHARED-FOUNDATION.md` | Approved, not started |
+| Cursor Motion Blur | `feat/motion-blur` | `/home/taha/Projects/oss/reel-motion-blur` | `plans/proposals/cursor-motion-blur.md` | Approved, not started |
+| Smooth Cursor | `feat/smooth-cursor` | `/home/taha/Projects/oss/reel-smooth-cursor` | `plans/proposals/smooth-cursor.md` | Approved, not started |
+| Click Effects | `feat/click-effects` | `/home/taha/Projects/oss/reel-click-effects` | `plans/proposals/click-effects.md` | Approved, not started |
+| Editable Cursor Styles | `feat/cursor-styles` | `/home/taha/Projects/oss/reel-cursor-styles` | `plans/proposals/cursor-styles.md` | Approved, not started |
 
-All four worktrees are based on `main` at `e5cfe3c`, branch verified, no tracked
-changes. Proposals are local-only and are not committed.
+The foundation branch does not exist yet. Create it before feature work so the
+shared interfaces land once.
+
+## Approval record
+
+- Approved on 2026-11-09: shared cursor foundation, Smooth Cursor, Cursor Motion
+  Blur, Click Effects, and Editable Cursor Styles.
+- No GitHub Issues. `plans/FEATURES.md` is the feature register and acceptance
+  record.
+- Shared defaults: pointer-free plate retained, manual live zoom disabled or
+  falling back for synthetic takes in v1, PNG-only custom cursor assets,
+  baked/off defaults, and the existing Recording/Visuals/Shortcuts tabs.
+- No implementation has started.
 
 ## Baseline findings that drive the shared design
 
@@ -44,9 +65,9 @@ changes. Proposals are local-only and are not committed.
   the camera to the already-rendered take. Real non-destructive restyling needs
   a retained pointer-free plate and an already-rendered guard.
 
-## Shared foundation proposed by the orchestrator
+## Shared foundation
 
-This must land once, before feature branches merge. Details in
+Must land once, before feature branches merge. Details in
 `plans/SHARED-FOUNDATION.md`.
 
 1. **Pointer data model + time map**: one parser for `move`/`sync`/`button`,
@@ -55,32 +76,30 @@ This must land once, before feature branches merge. Details in
 2. **Coordinate model**: one `Camera::viewport_at` / source-to-output transform
    shared by cursor, blur, clicks, and future layers.
 3. **Project contract**: additive `Cursor`/`Ripples` fields (`capture`, `style`,
-   `smoothing`, `motionBlur`, `events`, appearance, `cuts`, `telemetryPath`);
-   unknown fields preserved; no v2 bump yet.
+   `smoothing`, `motionBlur`, `events`, appearance, `cuts`, `telemetryPath`,
+   `plate`); unknown fields preserved; no v2 bump yet.
 4. **Capture contract**: `cursor=on` + `baked` stays today's behavior. Synthetic
    mode strips the pointer only after a gated telemetry listener is live, forces
    the hardware cursor, and falls back to baked if telemetry cannot start.
 5. **Render plan**: one ffmpeg pass, old `-vf` path kept when nothing is enabled.
-   Order: camera -> click effects -> synthetic cursor/blur -> future webcam/canvas.
+   Order: camera → click effects → synthetic cursor/blur → future webcam/canvas.
    Vector layers via generated ASS; custom PNG via overlay; motion blur may need
    a raw RGBA tile overlay if ASS ghost benchmarks are too heavy.
 6. **Non-destructive re-render**: retain a pointer-free plate for synthetic
    takes (`.reel/<stem>.plate.<ext>`), store it in the project, and render from
    the plate instead of double-applying effects.
-7. **UI surface**: rename the **Zoom** tab to **Visuals**, keep Manual zoom and
-   Auto zoom there, and move pointer capture plus all pointer appearance/effect
-   rows into it. Remove the **Output** tab and fold its contents into
-   **Recording** under a new **Saving** section (saved notification, filename
-   prefix, recordings path). **Media** is renamed **Recording** and **Keys** is
-   renamed **Shortcuts**. The tab count is three settings tabs plus History;
-   `1–3` and `Shift+H` are the shortcuts. Defaults preserve today: baked
-   pointer, all effects off.
+7. **UI surface**: the tabs are Recording, Visuals, and Shortcuts. Pointer
+   capture and pointer effects live in Visuals. Output is folded into Recording
+   → Saving. Defaults preserve today: baked pointer, all effects off.
 
-## Open shared decisions (not feature approvals)
+## Implementation order
 
-- Retain a pointer-free plate for synthetic takes (recommended) or accept that
-  restyling is a one-shot save-pass choice?
-- For v1, disable live manual zoom on synthetic takes (recommended) or record
-  the live viewport as new metadata?
-- Custom cursor assets: PNG-only with config/CLI selection acceptable?
-- New settings default: all effects off, cursor style `baked` (recommended).
+1. Create the shared foundation branch and land the interfaces.
+2. Smooth Cursor.
+3. Cursor Styles.
+4. Motion Blur.
+5. Click Effects can run alongside the foundation once shared telemetry and
+   `RenderPlan` are stable.
+
+No automatic merges. Each feature needs its own live desktop test, auto-zoom and
+manual-zoom compatibility check, and explicit merge approval.

@@ -1,8 +1,10 @@
 # Shared cursor-data and post-processing foundation
 
-This is the orchestrator's proposed common design. It is not yet approved and no
-code has been written. Feature branches must consume this foundation rather than
-inventing four cursor parsers or four ffmpeg graphs.
+**Status:** Approved for implementation on 2026-11-09. Not started. No GitHub
+Issue; the approval record is `plans/FEATURES.md`.
+
+This is the common design. Feature branches must consume this foundation rather
+than inventing four cursor parsers or four ffmpeg graphs.
 
 ## 1. One pointer-data model
 
@@ -150,16 +152,15 @@ log it. Do not write a project that claims an effect the saved file lacks.
 ## 7. Non-destructive re-render
 
 Current state: raw capture deleted, `reel render` re-applies camera to the saved
-take. That cannot support restyling after save. Proposed: retain a pointer-free
+take. That cannot support restyling after save. Approved: retain a pointer-free
 plate for synthetic takes, store `plate` in the project, and render from it.
-Storage roughly doubles synthetic takes. If rejected, document restyling as a
-save-time choice, not a re-render guarantee.
+Storage roughly doubles synthetic takes. If the plate is ever unavailable,
+document restyling as a save-time choice, not a re-render guarantee.
 
 ## 8. UI and settings
 
-The existing **Zoom** tab is renamed **Visuals**. It keeps Manual zoom and Auto
-zoom at the top and becomes the home for pointer capture and all pointer
-appearance/effect rows:
+The existing **Visuals** tab keeps Manual zoom and Auto zoom at the top and is
+the home for pointer capture and all pointer appearance/effect rows:
 
 - Manual zoom
 - Auto zoom
@@ -170,13 +171,13 @@ appearance/effect rows:
 - Click effects (Off / On) + style/duration/size/intensity/buttons
 - Pointer size, color, outline, shadow, hide when idle
 
-The **Output** tab is removed. Its contents move into **Recording** (renamed
-from Media) under a new **Saving** section: saved notification, filename
-prefix, and the recordings path. **Keys** is renamed **Shortcuts**. The tab
-count becomes three settings tabs plus History; `1–3` and `Shift+H` are the
-shortcuts. `Record the pointer` moves out of Recording and into Visuals.
-Defaults preserve today's output: baked pointer, all effects off. All keys must
-exist in `config.rs`, `manifest.json`, and `Panel.qml` in the same change.
+The **Recording** tab contains Audio, Video, Capture, and Saving sections.
+**Output** is folded into Recording → Saving: saved notification, filename
+prefix, and the recordings path. The tabs are Recording, Visuals, and
+Shortcuts, plus History; `1–3` and `Shift+H` are the shortcuts. `Record the
+pointer` lives in Visuals. Defaults preserve today's output: baked pointer, all
+effects off. All keys must exist in `config.rs`, `manifest.json`, and `Panel.qml`
+in the same change.
 
 ## 9. Verification
 
