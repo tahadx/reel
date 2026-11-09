@@ -1,7 +1,8 @@
 # Reel cursor-effects program — progress overview
 
-Tracked coordination file (`plans/` is public). Main checkout remains untouched;
-no production code, pushes, or GitHub Issues exist yet.
+Tracked coordination file (`plans/` is public). Main carries only the shared UI
+scaffold commits (plans, the Visuals tab, and the Media Saving section); no
+feature implementation, pushes, or GitHub Issues exist yet.
 
 ## Worktrees and branches
 
