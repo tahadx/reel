@@ -1,16 +1,15 @@
 # Reel cursor-effects program — progress overview
 
 Tracked coordination file (`plans/` is public). The four features are approved
-for implementation, but **no feature code has started** and **no GitHub Issues
-will be opened**. The approval record is `plans/features/index.md`; the shared design
-is `plans/shared-foundation.md`.
+for implementation, but **no feature code has started**. The approval record is
+`plans/features/index.md`; the shared design is `plans/shared-foundation.md`.
 
 ## Current state
 
 - `main` carries the shared UI scaffold and the update-restart fix.
 - Feature worktrees carry the same scaffold plus their proposal and branch brief.
 - Every worktree is clean.
-- No feature implementation, no GitHub Issues.
+- No feature implementation.
 - Do not start feature code until the orchestrator gives the kickoff.
 
 ## Worktrees and branches
@@ -30,8 +29,7 @@ shared interfaces land once.
 
 - Approved on 2026-11-09: shared cursor foundation, Smooth Cursor, Cursor Motion
   Blur, Click Effects, and Editable Cursor Styles.
-- No GitHub Issues. `plans/features/index.md` is the feature register and acceptance
-  record.
+- `plans/features/index.md` is the feature register and acceptance record.
 - Shared defaults: pointer-free plate retained, manual live zoom disabled or
   falling back for synthetic takes in v1, PNG-only custom cursor assets,
   baked/off defaults, and the existing Recording/Visuals/Shortcuts tabs.

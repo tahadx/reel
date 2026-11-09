@@ -1,7 +1,7 @@
 # Shared cursor-data and post-processing foundation
 
-**Status:** Approved for implementation on 2026-11-09. Not started. No GitHub
-Issue; the approval record is `plans/features/index.md`.
+**Status:** Approved for implementation on 2026-11-09. Not started. Approval
+record: `plans/features/index.md`.
 
 This is the common design. Feature branches must consume this foundation rather
 than inventing four cursor parsers or four ffmpeg graphs.

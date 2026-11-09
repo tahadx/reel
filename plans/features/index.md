@@ -2,8 +2,7 @@
 
 **approved:** 2026-11-09
 **status:** approved for implementation; not started.
-**issue policy:** no github issues. this folder is the approval record. do not
-open an issue for these features.
+**approval record:** this folder.
 **scope:** all four user-facing features are approved together, but each keeps
 its own branch, worktree, verification gate, and merge decision.
 
