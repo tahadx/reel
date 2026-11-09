@@ -157,8 +157,12 @@ save-time choice, not a re-render guarantee.
 
 ## 8. UI and settings
 
-Recommended: one shared **Cursor** settings tab (fifth tab) containing:
+The existing **Zoom** tab is renamed **Visuals**. It keeps Manual zoom and Auto
+zoom at the top and becomes the home for pointer capture and all pointer
+appearance/effect rows:
 
+- Manual zoom
+- Auto zoom
 - Record the pointer
 - Pointer style (Recorded / Arrow / Minimal / Hand / Dot / Ring / Custom)
 - Pointer smoothing (Off / Precise / Balanced / Cinematic)
@@ -166,9 +170,9 @@ Recommended: one shared **Cursor** settings tab (fifth tab) containing:
 - Click effects (Off / On) + style/duration/size/intensity/buttons
 - Pointer size, color, outline, shadow, hide when idle
 
-This updates `1–4` to `1–5`, `docs/design.md`, `navDestinations`, and the
-keyboard shortcut copy. Defaults preserve today's output: baked pointer, all
-effects off. All keys must exist in `config.rs`, `manifest.json`, and
+The tab count stays at four; `1–4` and `Shift+H` do not change. `Record the
+pointer` moves out of Media. Defaults preserve today's output: baked pointer,
+all effects off. All keys must exist in `config.rs`, `manifest.json`, and
 `Panel.qml` in the same change.
 
 ## 9. Verification

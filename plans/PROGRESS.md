@@ -66,12 +66,13 @@ This must land once, before feature branches merge. Details in
 6. **Non-destructive re-render**: retain a pointer-free plate for synthetic
    takes (`.reel/<stem>.plate.<ext>`), store it in the project, and render from
    the plate instead of double-applying effects.
-7. **UI surface**: one shared **Cursor** settings tab (fifth tab), not four
-   scattered rows. Defaults preserve today: baked pointer, all effects off.
+7. **UI surface**: rename the **Zoom** tab to **Visuals**, keep Manual zoom and
+   Auto zoom there, and move pointer capture plus all pointer appearance/effect
+   rows into it. The tab count stays at four; `1–4` and `Shift+H` do not change.
+   Defaults preserve today: baked pointer, all effects off.
 
 ## Open shared decisions (not feature approvals)
 
-- Shared Cursor tab (recommended) or rows scattered in Media/Zoom?
 - Retain a pointer-free plate for synthetic takes (recommended) or accept that
   restyling is a one-shot save-pass choice?
 - For v1, disable live manual zoom on synthetic takes (recommended) or record
