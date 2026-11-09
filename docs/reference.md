@@ -59,9 +59,9 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--manual-zoom` | `on`, `off` | `on` |
 | `--auto-zoom` | `on`, `off` | `off` |
 
-`reel update` updates the installed Omarchy plugin, runs the installer from the
-updated checkout, then restarts the shell so the new QML is loaded. If the
-Hyprland shortcut block is missing, the installer asks before adding it.
+`reel update` updates the installed Omarchy plugin, then runs the installer from
+the updated checkout. The installer restarts the shell so the new QML is loaded.
+If the Hyprland shortcut block is missing, the installer asks before adding it.
 `--binds` adds or refreshes it without prompting. From an open panel, `Shift+U`
 runs the same command in a floating terminal so the updater and its prompt stay
 visible while the plugin reloads. The update fails with a clear message rather

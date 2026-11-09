@@ -173,5 +173,12 @@ LUA
   fi
 fi
 
+echo "== Reel: shell =="
+if ! omarchy restart shell; then
+  echo "install.sh: the shell did not restart. Run \`omarchy restart shell\` to load Reel." >&2
+  exit 1
+fi
+echo "  restarted."
+
 echo
 echo "Done. Click the Reel icon in the bar, or press Super+Shift+R if you added the shortcut."

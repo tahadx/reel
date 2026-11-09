@@ -81,9 +81,9 @@ Reel is current, so a manual refresh never needs a terminal. The check contacts
 only the plugin's own git origin; a result is cached for the hour.
 
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
-the installer from the freshly updated plugin checkout. It relinks the `reel`
-command, rechecks dependencies, and restarts the Omarchy shell so the new widget
-is loaded. It never downloads a second copy of the installer.
+the installer from the freshly updated plugin checkout. The installer relinks
+the `reel` command, rechecks dependencies, and restarts the Omarchy shell so the
+new widget is loaded. It never downloads a second copy of the installer.
 
 By default it leaves `~/.config/hypr/bindings.lua` alone when the Reel block is
 already there. If the block is missing, the installer asks before adding it.

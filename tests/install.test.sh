@@ -115,6 +115,7 @@ grep -qxF -- 'o.bind("CTRL + ALT + mouse_up", "Reel zoom in", "reel zoom-in --st
 [[ "$(tail -c 1 -- "$BINDINGS" | wc -l)" -eq 1 ]] || fail "bindings file lost its final newline"
 assert_file "$BINDINGS.bak."*
 grep -q 'plugin enable' "$TEST_ROOT/omarchy.log" && fail "installer enabled an enabled plugin"
+grep -qxF -- 'restart shell' "$TEST_ROOT/omarchy.log" || fail "installer did not restart the shell"
 assert_no_file "$TEST_ROOT/hyprctl.log"
 
 BACKUPS_BEFORE="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.bak.*' | wc -l)"
