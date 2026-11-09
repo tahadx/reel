@@ -170,13 +170,13 @@ appearance/effect rows:
 - Click effects (Off / On) + style/duration/size/intensity/buttons
 - Pointer size, color, outline, shadow, hide when idle
 
-The **Output** tab is removed. Its contents move into **Media** under a new
-**Saving** section: saved notification, filename prefix, and the recordings
-path. The tab count becomes three settings tabs plus History; `1–3` and
-`Shift+H` are the shortcuts. `Record the pointer` moves out of Media and into
-Visuals. Defaults preserve today's output: baked pointer, all effects off. All
-keys must exist in `config.rs`, `manifest.json`, and `Panel.qml` in the same
-change.
+The **Output** tab is removed. Its contents move into **Recording** (renamed
+from Media) under a new **Saving** section: saved notification, filename
+prefix, and the recordings path. **Keys** is renamed **Shortcuts**. The tab
+count becomes three settings tabs plus History; `1–3` and `Shift+H` are the
+shortcuts. `Record the pointer` moves out of Recording and into Visuals.
+Defaults preserve today's output: baked pointer, all effects off. All keys must
+exist in `config.rs`, `manifest.json`, and `Panel.qml` in the same change.
 
 ## 9. Verification
 

@@ -1,7 +1,7 @@
 # Reel cursor-effects program — progress overview
 
 Tracked coordination file (`plans/` is public). Main carries only the shared UI
-scaffold commits (plans, the Visuals tab, and the Media Saving section); no
+scaffold commits (plans, the Visuals tab, and the Recording Saving section); no
 feature implementation, pushes, or GitHub Issues exist yet.
 
 ## Worktrees and branches
@@ -69,9 +69,10 @@ This must land once, before feature branches merge. Details in
    the plate instead of double-applying effects.
 7. **UI surface**: rename the **Zoom** tab to **Visuals**, keep Manual zoom and
    Auto zoom there, and move pointer capture plus all pointer appearance/effect
-   rows into it. Remove the **Output** tab and fold its contents into **Media**
-   under a new **Saving** section (saved notification, filename prefix,
-   recordings path). The tab count is now three settings tabs plus History;
+   rows into it. Remove the **Output** tab and fold its contents into
+   **Recording** under a new **Saving** section (saved notification, filename
+   prefix, recordings path). **Media** is renamed **Recording** and **Keys** is
+   renamed **Shortcuts**. The tab count is three settings tabs plus History;
    `1–3` and `Shift+H` are the shortcuts. Defaults preserve today: baked
    pointer, all effects off.
 
