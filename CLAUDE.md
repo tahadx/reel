@@ -118,11 +118,11 @@ Four post-recording cursor features are approved for implementation but **not
 started**: Smooth Cursor, Cursor Motion Blur, Click Effects, and Editable Cursor
 Styles. They share one pointer-data and post-processing foundation.
 
-- Read `plans/FEATURES.md` and `plans/SHARED-FOUNDATION.md` before touching
+- Read `plans/features/index.md` and `plans/shared-foundation.md` before touching
   telemetry, project, render, capture, settings, or cursor code.
 - The shared foundation lands first; feature branches must not invent private
   telemetry parsers, project schemas, camera transforms, or ffmpeg graphs.
-- No GitHub Issues. `plans/FEATURES.md` is the approval and acceptance record.
+- No GitHub Issues. `plans/features/index.md` is the approval and acceptance record.
 - Do not start feature code until the orchestrator gives the kickoff. Each
   feature keeps its own branch, worktree, verification, and merge gate.
 - Preserve the baked-pointer default. Synthetic cursor rendering is opt-in and
@@ -235,5 +235,5 @@ what the fix does, and how it was verified (build, tests,
 ## Status
 
 - **Shipped:** settings tabs (Recording, Visuals, Shortcuts), fixed tab strip, save-pass noise reduction, `Shift+U` update shortcut, countdown quarantine, history actions (open/cut/share/trash/copy path), live/manual zoom, pause/resume, cursor capture, webcam corner overlay, and bar states.
-- **Approved for implementation, not started:** shared cursor foundation, Smooth Cursor, Cursor Motion Blur, Click Effects, and Editable Cursor Styles. No GitHub Issues; see `plans/FEATURES.md`.
+- **Approved for implementation, not started:** shared cursor foundation, Smooth Cursor, Cursor Motion Blur, Click Effects, and Editable Cursor Styles. No GitHub Issues; see `plans/features/index.md`.
 - **Open:** marketplace verification, maintainer review pending.

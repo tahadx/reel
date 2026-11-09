@@ -2,8 +2,8 @@
 
 Tracked coordination file (`plans/` is public). The four features are approved
 for implementation, but **no feature code has started** and **no GitHub Issues
-will be opened**. The approval record is `plans/FEATURES.md`; the shared design
-is `plans/SHARED-FOUNDATION.md`.
+will be opened**. The approval record is `plans/features/index.md`; the shared design
+is `plans/shared-foundation.md`.
 
 ## Current state
 
@@ -17,7 +17,7 @@ is `plans/SHARED-FOUNDATION.md`.
 
 | Feature | Branch | Worktree | Proposal | Status |
 | --- | --- | --- | --- | --- |
-| Shared cursor foundation | `feat/cursor-foundation` (to create) | new worktree | `plans/SHARED-FOUNDATION.md` | Approved, not started |
+| Shared cursor foundation | `feat/cursor-foundation` (to create) | new worktree | `plans/shared-foundation.md` | Approved, not started |
 | Cursor Motion Blur | `feat/motion-blur` | `/home/taha/Projects/oss/reel-motion-blur` | `plans/proposals/cursor-motion-blur.md` | Approved, not started |
 | Smooth Cursor | `feat/smooth-cursor` | `/home/taha/Projects/oss/reel-smooth-cursor` | `plans/proposals/smooth-cursor.md` | Approved, not started |
 | Click Effects | `feat/click-effects` | `/home/taha/Projects/oss/reel-click-effects` | `plans/proposals/click-effects.md` | Approved, not started |
@@ -30,7 +30,7 @@ shared interfaces land once.
 
 - Approved on 2026-11-09: shared cursor foundation, Smooth Cursor, Cursor Motion
   Blur, Click Effects, and Editable Cursor Styles.
-- No GitHub Issues. `plans/FEATURES.md` is the feature register and acceptance
+- No GitHub Issues. `plans/features/index.md` is the feature register and acceptance
   record.
 - Shared defaults: pointer-free plate retained, manual live zoom disabled or
   falling back for synthetic takes in v1, PNG-only custom cursor assets,
@@ -68,7 +68,7 @@ shared interfaces land once.
 ## Shared foundation
 
 Must land once, before feature branches merge. Details in
-`plans/SHARED-FOUNDATION.md`.
+`plans/shared-foundation.md`.
 
 1. **Pointer data model + time map**: one parser for `move`/`sync`/`button`,
    button identity, tap/physical source, clicks; `trimStart`, video-start mark,
