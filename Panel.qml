@@ -1404,6 +1404,10 @@ Panel {
     - barLabelMetrics.ascent
     + barLabelMetrics.tightBoundingRect("0").height) / 2
 
+  // A bar on the left or right edge is vertical, and the pill turns with it:
+  // the same capsule laid along the bar instead of across it.
+  readonly property bool barVertical: root.bar ? root.bar.vertical === true : false
+
   // The take's pill: the panel's capsule, carried into the bar, with the live
   // clock inside and the accent kept for its dot.
   readonly property real barPillHeight: Style.space(20)
@@ -1438,7 +1442,8 @@ Panel {
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.barPillWidth
+    fixedWidth: root.barVertical ? -1 : root.barPillWidth
+    fixedHeight: root.barVertical ? root.barPillWidth : -1
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
     onPressed: function(button) {
@@ -1456,8 +1461,8 @@ Panel {
     Item {
       id: takePill
       anchors.centerIn: parent
-      width: root.barPillWidth
-      height: root.barPillHeight
+      width: root.barVertical ? root.barPillHeight : root.barPillWidth
+      height: root.barVertical ? root.barPillWidth : root.barPillHeight
 
       property real savingPulse: 0
 
@@ -1475,49 +1480,59 @@ Panel {
         NumberAnimation { to: 0; duration: 1000; easing.type: Easing.InOutQuad }
       }
 
-      Rectangle {
-        anchors.fill: parent
-        radius: height / 2
-        color: Util.alpha(root.barInk,
-          root.finalizing ? root.barPillSavingFillAlpha : root.barPillFillAlpha)
-        border.width: 1
-        border.color: Util.alpha(root.barInk,
-          root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
-      }
-
-      Row {
+      // The pill is drawn along its long axis and then turned with the bar, so
+      // the dot leads from the top edge and the clock runs down the capsule.
+      Item {
+        id: pillBody
         anchors.centerIn: parent
-        spacing: root.barPillGap
+        width: root.barPillWidth
+        height: root.barPillHeight
+        rotation: root.barVertical ? 90 : 0
 
-        // The dot is bar ink at rest, exactly like the hour label; accent
-        // belongs to frames running.
         Rectangle {
-          id: takeDot
-          width: root.barPillDot
-          height: width
-          radius: width / 2
-          anchors.verticalCenter: parent.verticalCenter
-          color: root.status === "recording" || root.capturing
-            ? root.accent : root.barInk
-
-          SequentialAnimation on opacity {
-            running: (root.status === "recording" || root.capturing)
-              && !Style.reduceMotion
-            loops: Animation.Infinite
-            NumberAnimation { to: 0.55; duration: 1000; easing.type: Easing.InOutQuad }
-            NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
-          }
+          anchors.fill: parent
+          radius: height / 2
+          color: Util.alpha(root.barInk,
+            root.finalizing ? root.barPillSavingFillAlpha : root.barPillFillAlpha)
+          border.width: 1
+          border.color: Util.alpha(root.barInk,
+            root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
         }
 
-        Text {
-          textFormat: Text.PlainText
-          text: root.barClockText()
-          color: root.barInk
-          font.family: root.fontFamily
-          font.pixelSize: Style.bar.iconFont
-          font.bold: root.status === "recording" || root.capturing
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.verticalCenterOffset: root.barFigureOffset
+        Row {
+          anchors.centerIn: parent
+          spacing: root.barPillGap
+
+          // The dot is bar ink at rest, exactly like the hour label; accent
+          // belongs to frames running.
+          Rectangle {
+            id: takeDot
+            width: root.barPillDot
+            height: width
+            radius: width / 2
+            anchors.verticalCenter: parent.verticalCenter
+            color: root.status === "recording" || root.capturing
+              ? root.accent : root.barInk
+
+            SequentialAnimation on opacity {
+              running: (root.status === "recording" || root.capturing)
+                && !Style.reduceMotion
+              loops: Animation.Infinite
+              NumberAnimation { to: 0.55; duration: 1000; easing.type: Easing.InOutQuad }
+              NumberAnimation { to: 1.0; duration: 1000; easing.type: Easing.InOutQuad }
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            text: root.barClockText()
+            color: root.barInk
+            font.family: root.fontFamily
+            font.pixelSize: Style.bar.iconFont
+            font.bold: root.status === "recording" || root.capturing
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: root.barFigureOffset
+          }
         }
       }
     }

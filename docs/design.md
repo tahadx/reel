@@ -315,6 +315,10 @@ Rules:
   `height / 2`, drawn from the bar's ink at 5% with a 14% hairline on a dark
   strip. Its width comes from the clock's advance, so the timer never clips;
   the same width is reserved at rest, so starting a take does not move the bar.
+- A left or right bar is vertical, and the pill turns with it: the same
+  capsule now `Style.space(20)` wide and running down the bar for the clock's
+  advance, dot at the top, clock reading down the capsule. The bar's own
+  thickness sets the slot, so the mark never hangs past the strip and clips.
 - The bar can be transparent, so it has no surface colour of its own. The pill
   is built from `bar.barForeground` — the ink Omarchy picks against the
   wallpaper strip behind the bar (`omarchy-bar-text-color`) — never from the
