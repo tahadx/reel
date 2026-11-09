@@ -443,23 +443,24 @@ is not a setting.
 
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Recording | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
+| Recording | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner, webcam device. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
 | Visuals   | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
 | Shortcuts | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
 
 Rules:
 
-- No sixth destination. The `1`–`4` and `Shift+H` shortcuts are part of the
+- No fourth settings tab. The `1`–`3` and `Shift+H` shortcuts are part of the
   interface contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
-- Put the most frequently changed setting first inside a tab.
+- Put the most frequently changed setting first inside a tab. In Recording,
+  Audio and Video lead; Capture and Saving follow.
 - Visuals is the home for zoom and pointer. Manual zoom comes first: it is the
   live, on-by-default control. Auto zoom is the optional save-pass switch and is
   off by default. Pointer capture and pointer appearance follow.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
-- Recording uses section labels so the capture, audio, video, and saving groups
+- Recording uses section labels so the audio, video, capture, and saving groups
   still scan quickly.
 
 ### 6.6 Settings rows

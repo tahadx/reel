@@ -141,9 +141,6 @@ Panel {
   })
 
   readonly property var recordingSettingRows: [
-    { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
-    { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
-    { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
@@ -152,6 +149,9 @@ Panel {
     { key: "codec", label: "Video codec", glyph: "󰅴" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
     { key: "container", label: "Container", glyph: "󰏗" },
+    { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
+    { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
+    { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
     { key: "notifications", label: "Saved notification", glyph: "󰂚", section: "Saving" }
   ]
   readonly property var shortcutRows: [
