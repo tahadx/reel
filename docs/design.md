@@ -428,7 +428,7 @@ navigation.
   subordinate `⇧` modifier for History (the shift glyph is lighter than the
   letter, so it reads as one key, not two).
 - No pills, no icons, no counters, no badges.
-- Each panel open returns to Media; the selected destination is not persisted.
+- Each panel open returns to Recording; the selected destination is not persisted.
 - Switching is instant. The underline and label colors animate, the body returns
   to the top, and the settings cursor returns to the first row.
 - Clicking History opens it; clicking a settings tab leaves History and shows
@@ -443,9 +443,9 @@ is not a setting.
 
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Media   | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or key bindings |
-| Visuals | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
-| Keys    | Read-only shortcut reference                                              | Editable key bindings            |
+| Recording | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
+| Visuals   | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
+| Shortcuts | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
 
 Rules:
@@ -459,7 +459,7 @@ Rules:
   off by default. Pointer capture and pointer appearance follow.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
-- Media uses section labels so the capture, audio, video, and saving groups
+- Recording uses section labels so the capture, audio, video, and saving groups
   still scan quickly.
 
 ### 6.6 Settings rows
@@ -475,7 +475,7 @@ Rules:
   in the row cursor; activation is a no-op.
 - Toggle rows: `32 × 16` pill. On: accent fill, thumb `onAccent`. Off:
   foreground at `0.18`, thumb secondary. Thumb moves in `120` ms.
-- Shortcut rows (Keys tab): height `30`, square, key chip + description.
+- Shortcut rows (Shortcuts tab): height `30`, square, key chip + description.
   Key chip minimum width `56`, height `18`, radius `4`, keycap shadow, caption
   bold. Chip fill is an opaque theme background plus `0.08` foreground at rest,
   accent at `0.14` when active; the opaque base keeps the keycap shadow from

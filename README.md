@@ -199,7 +199,7 @@ block; touchpad pinch is registered by Reel when a take starts. If you already
 have your own two-finger pinch binding, Reel overrides it for the take and
 reloads your config afterwards so it comes back.
 
-**Noise reduction** is off by default. Turn it on in Settings → **Media**
+**Noise reduction** is off by default. Turn it on in Settings → **Recording**
 with the microphone enabled; Reel reduces steady background noise during the
 save pass, before the take is normalized. It only runs for takes that captured
 the microphone. It uses FFmpeg's noise reduction, so EasyEffects is not

@@ -140,7 +140,7 @@ Panel {
     "webcamDevice": ""
   })
 
-  readonly property var mediaSettingRows: [
+  readonly property var recordingSettingRows: [
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
@@ -176,13 +176,13 @@ Panel {
     { keys: "esc", what: "go back, then close" }
   ]
   readonly property var settingsTabs: [
-    { id: "media", label: "Media", rows: root.mediaSettingRows },
+    { id: "recording", label: "Recording", rows: root.recordingSettingRows },
     { id: "visuals", label: "Visuals", rows: [
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "cursor", label: "Record the pointer", glyph: "󰍽" }
     ] },
-    { id: "keys", label: "Keys", rows: root.shortcutRows }
+    { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
   ]
   // The strip is navigation, not settings: the three settings tabs plus History,
   // which is a page beside them. Keeping the same strip on both pages is what
@@ -241,7 +241,7 @@ Panel {
   property bool keyboardScroll: false
   property bool carryingFile: false
   property int settingsIndex: 0
-  property string settingsTab: "media"
+  property string settingsTab: "recording"
   // A tab is a different page, so it starts at its first row. Setting this on
   // the tab itself keeps every caller honest (tab click, number keys, Tab).
   onSettingsTabChanged: {
@@ -1256,14 +1256,14 @@ Panel {
       return
     }
     if (dx !== 0) {
-      if (root.settingsTab === "keys") return
+      if (root.settingsTab === "shortcuts") return
       var row = root.settingsRows()[root.settingsIndex]
       if (row && row.kind !== "info") root.cycleOption(row.key, dx)
     }
   }
 
   function activateSettings() {
-    if (root.settingsTab === "keys") return
+    if (root.settingsTab === "shortcuts") return
     var row = root.settingsRows()[root.settingsIndex]
     if (row && row.kind !== "info") root.cycleOption(row.key, 1)
   }
@@ -1351,7 +1351,7 @@ Panel {
       root.selectedIndex = 0
       root.cursorActive = true
       root.settingsIndex = 0
-      root.settingsTab = "media"
+      root.settingsTab = "recording"
       root.carryingFile = false
       root.notice = ""
       root.discardArmed = false
@@ -1954,7 +1954,7 @@ Panel {
                 spacing: Style.space(12)
 
                 Repeater {
-                  model: root.settingsTab === "keys" ? [] : root.settingsRows()
+                  model: root.settingsTab === "shortcuts" ? [] : root.settingsRows()
 
                   Column {
                     required property var modelData
@@ -1983,7 +1983,7 @@ Panel {
                 }
 
                 Repeater {
-                  model: root.settingsTab === "keys" ? root.shortcutRows : []
+                  model: root.settingsTab === "shortcuts" ? root.shortcutRows : []
 
                   ShortcutRow {
                     required property var modelData
@@ -1995,7 +1995,7 @@ Panel {
                 }
 
               Column {
-                visible: root.settingsTab === "media"
+                visible: root.settingsTab === "recording"
                 width: parent.width
                 spacing: Style.space(4)
 
@@ -2049,7 +2049,7 @@ Panel {
               }
 
               Text {
-                visible: root.settingsTab === "media"
+                visible: root.settingsTab === "recording"
                 textFormat: Text.PlainText
                 text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
                 color: root.dim

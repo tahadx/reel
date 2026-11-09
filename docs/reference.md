@@ -126,7 +126,7 @@ that is unplugged stays selected and shows as unplugged; a take started while it
 is missing uses the first camera found and says so in a notification. The device
 only matters while **Webcam corner** is on.
 
-`noiseCancellation` is off by default and appears in Settings → **Media** as
+`noiseCancellation` is off by default and appears in Settings → **Recording** as
 Noise reduction.
 When it is on and the take captured the microphone, the save pass applies
 FFT-based noise reduction before normalizing the audio. It is a save-pass
