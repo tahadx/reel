@@ -173,9 +173,10 @@ pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Update the installed Omarchy plugin, then run the installer from the
-/// updated checkout. The installer is version-matched to the engine it just
-/// fetched, so there is no second download or curl-to-shell step.
+/// Update the installed Omarchy plugin, run the installer from the updated
+/// checkout, then restart the shell so the new QML is loaded. The installer is
+/// version-matched to the engine it just fetched, so there is no second
+/// download or curl-to-shell step.
 pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     state::reconcile(paths);
     match state::status(paths).as_str() {
@@ -229,6 +230,22 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     // The cached check described the old checkout. Drop it so the next panel
     // look can confirm the new version without waiting for the hour.
     paths::remove_quiet(&paths.update);
+
+    // Files are installed, but Quickshell keeps the old QML in memory. A
+    // restart is part of the update, not a manual testing step: without it the
+    // panel can keep showing the previous tabs until the session is restarted.
+    println!("  restarting the shell");
+    let status = Command::new("omarchy")
+        .args(["restart", "shell"])
+        .status()
+        .context("could not restart the Omarchy shell")?;
+    if !status.success() {
+        anyhow::bail!(
+            "Reel was updated, but the Omarchy shell could not be restarted. \
+             Run `omarchy restart shell` to load the new plugin."
+        );
+    }
+
     println!("Reel updated.");
     Ok(())
 }

@@ -70,7 +70,9 @@ reel update
 ```
 
 From an open panel, `Shift+U` runs the same command in a floating terminal, so
-the updater and its shortcut prompt stay visible while the plugin reloads.
+the updater and its shortcut prompt stay visible while the plugin reloads. The
+update restarts the Omarchy shell at the end, so the new panel is loaded without
+a manual `omarchy-restart-shell`.
 
 Reel also checks for updates by itself: once when the shell starts and then once
 an hour. A waiting update shows as an accent dot on the bar mark and a newer
@@ -80,8 +82,8 @@ only the plugin's own git origin; a result is cached for the hour.
 
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
 the installer from the freshly updated plugin checkout. It relinks the `reel`
-command, rechecks dependencies, and reloads the widget. It never downloads a
-second copy of the installer.
+command, rechecks dependencies, and restarts the Omarchy shell so the new widget
+is loaded. It never downloads a second copy of the installer.
 
 By default it leaves `~/.config/hypr/bindings.lua` alone when the Reel block is
 already there. If the block is missing, the installer asks before adding it.

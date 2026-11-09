@@ -26,7 +26,7 @@ its own:
 | `reel webcams [--json]` | List the cameras available for the webcam corner |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
-| `reel update [--binds]` | Update the plugin and rerun its installer |
+| `reel update [--binds]` | Update the plugin, rerun its installer, and restart the shell |
 | `reel update --check [--json] [--force]` | Check whether a newer commit is available |
 
 A take cannot start until the previous take has finished saving: while the
@@ -59,11 +59,13 @@ no take is active. `reel trash` accepts only files inside the recordings folder.
 | `--manual-zoom` | `on`, `off` | `on` |
 | `--auto-zoom` | `on`, `off` | `off` |
 
-`reel update` updates the installed Omarchy plugin, then runs the installer from
-the updated checkout. If the Hyprland shortcut block is missing, the installer
-asks before adding it. `--binds` adds or refreshes it without prompting. From an
-open panel, `Shift+U` runs the same command in a floating terminal so the
-updater and its prompt stay visible while the plugin reloads.
+`reel update` updates the installed Omarchy plugin, runs the installer from the
+updated checkout, then restarts the shell so the new QML is loaded. If the
+Hyprland shortcut block is missing, the installer asks before adding it.
+`--binds` adds or refreshes it without prompting. From an open panel, `Shift+U`
+runs the same command in a floating terminal so the updater and its prompt stay
+visible while the plugin reloads. The update fails with a clear message rather
+than claiming success if the shell cannot be restarted.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take
