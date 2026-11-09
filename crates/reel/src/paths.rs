@@ -25,6 +25,9 @@ pub struct Paths {
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
+    /// Where previews lived before they moved out of the cache directory. Kept
+    /// so a take adopted after an upgrade still finds its thumbnail.
+    pub legacy_previews: PathBuf,
     /// Durable list of captures that must stay out of history.
     pub pending: PathBuf,
 }
@@ -49,6 +52,7 @@ impl Paths {
             config_dir: root.join("config"),
             config: root.join("config.json"),
             previews: root.join("previews"),
+            legacy_previews: root.join("cache-previews"),
             pending: root.join("pending-quarantine.json"),
             runtime: root,
         }
@@ -87,7 +91,10 @@ impl Paths {
         let cache_home = std::env::var_os("XDG_CACHE_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|| home.join(".cache"));
-        let previews = cache_home.join("reel/previews");
+        // Previews used to live in the cache, where a cache wipe erased the
+        // history thumbnails. They now sit beside the user's other Reel data.
+        let legacy_previews = cache_home.join("reel/previews");
+        let previews = home.join(".reel/previews");
 
         let paths = Paths {
             state: runtime.join("state.json"),
@@ -104,6 +111,7 @@ impl Paths {
             config: config_dir.join("reel.json"),
             config_dir,
             previews,
+            legacy_previews,
             pending,
             runtime,
         };
@@ -111,7 +119,11 @@ impl Paths {
         let _ = fs::create_dir_all(&paths.runtime);
         let _ = fs::set_permissions(&paths.runtime, fs::Permissions::from_mode(0o700));
         let _ = fs::create_dir_all(&paths.previews);
+        if let Some(dir) = paths.previews.parent() {
+            let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
+        }
         let _ = fs::set_permissions(&paths.previews, fs::Permissions::from_mode(0o700));
+        migrate_legacy_previews(&paths);
         if let Some(dir) = paths.pending.parent() {
             let _ = fs::create_dir_all(dir);
             let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
@@ -124,12 +136,44 @@ impl Paths {
     pub fn preview_path(&self, file: &Path) -> PathBuf {
         self.previews.join(preview_file_name(file))
     }
+
+    /// The pre-`~/.reel` preview location. Read once to adopt a thumbnail and
+    /// cleaned up whenever a take is removed.
+    pub fn cache_preview_path(&self, file: &Path) -> PathBuf {
+        self.legacy_previews.join(preview_file_name(file))
+    }
 }
 
 /// The old location, next to the recording. Used to adopt previews made by
 /// older Reel versions without leaving them in the recordings folder.
 pub fn legacy_preview_path(file: &Path) -> PathBuf {
     PathBuf::from(format!("{}-preview.jpg", file.with_extension("").display()))
+}
+
+/// Move previews out of the old cache folder the first time Reel runs after an
+/// upgrade. A cache wipe would otherwise erase every history thumbnail.
+fn migrate_legacy_previews(paths: &Paths) {
+    let Ok(entries) = fs::read_dir(&paths.legacy_previews) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let source = entry.path();
+        if !source.is_file() {
+            continue;
+        }
+        let Some(name) = source.file_name() else {
+            continue;
+        };
+        let target = paths.previews.join(name);
+        if target.exists() {
+            continue;
+        }
+        if fs::rename(&source, &target).is_err() && fs::copy(&source, &target).is_ok() {
+            let _ = fs::remove_file(&source);
+        }
+    }
+    // Leave no empty directory behind; a failed move keeps it for next time.
+    let _ = fs::remove_dir(&paths.legacy_previews);
 }
 
 /// Raw captures that still contain the countdown are written here first. The
@@ -503,6 +547,26 @@ mod tests {
         let body = fs::read_to_string(&paths.log).expect("log");
         assert!(body.contains("the first take failed"));
         assert!(body.contains("the second take started"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn previews_in_the_old_cache_folder_move_to_the_durable_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-paths-previews-{}-{}",
+            std::process::id(),
+            now_secs()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let paths = Paths::for_test(&root);
+        fs::create_dir_all(&paths.previews).unwrap();
+        fs::create_dir_all(&paths.legacy_previews).unwrap();
+        fs::write(paths.legacy_previews.join("take-preview.jpg"), b"jpg").unwrap();
+
+        migrate_legacy_previews(&paths);
+
+        assert!(paths.previews.join("take-preview.jpg").is_file());
+        assert!(!paths.legacy_previews.exists());
         let _ = fs::remove_dir_all(&root);
     }
 

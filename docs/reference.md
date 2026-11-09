@@ -268,7 +268,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
-| `$XDG_CACHE_HOME/reel/previews` | History and notification thumbnails |
+| `~/.reel/previews` | History and notification thumbnails; survives cache cleanup |
 | `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
 | `~/Videos/Reel` | Default recordings folder |
 | `~/Videos/Reel/.reel` | Hidden project and telemetry sidecars for saved takes |
@@ -284,8 +284,11 @@ uses `reel-`; repeated names get `-2`, `-3`, and so on. When pointer telemetry
 is on, Reel records it in the runtime folder and copies it into the hidden
 `.reel` folder beside the saved video as `<take-stem>.telemetry.jsonl`, with the
 render contract beside it as `<take-stem>.project.json`. JPEG previews are kept
-in `$XDG_CACHE_HOME/reel/previews`, not beside the recordings. Previews written
-by older Reel versions are moved into the cache when history is first read.
+in `~/.reel/previews`, not in the cache directory and not beside the recordings,
+so clearing the cache no longer removes history thumbnails. Previews written by
+older Reel versions, including ones left in `$XDG_CACHE_HOME/reel/previews`, are
+moved into that folder on the first run after upgrading. Removing a take also
+removes its preview, even when the recording was already deleted from disk.
 
 ## Optional Hyprland shortcuts
 

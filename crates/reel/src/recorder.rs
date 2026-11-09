@@ -1172,6 +1172,7 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
     paths::remove_quiet(&project::legacy_project_path(path));
     paths::remove_quiet(&path.with_extension("zoom.json"));
     paths::remove_quiet(&paths.preview_path(path));
+    paths::remove_quiet(&paths.cache_preview_path(path));
     paths::remove_quiet(&paths::legacy_preview_path(path));
     paths::remove_quiet(Path::new(&format!("{stem}-processed.{ext}")));
     fs::remove_dir(paths::sidecar_dir(path)).ok();

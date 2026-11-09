@@ -260,26 +260,35 @@ struct Take {
     mtime: i64,
 }
 
+/// Move a preview from an older location into the durable preview folder so
+/// the take keeps its thumbnail after an upgrade. On failure the old path is
+/// returned, which still lets the panel show the image.
+fn adopt_preview(legacy: &Path, cached: &Path) -> Option<PathBuf> {
+    if !legacy.is_file() {
+        return None;
+    }
+    if fs::rename(legacy, cached).is_ok() {
+        return Some(cached.to_path_buf());
+    }
+    if fs::copy(legacy, cached).is_ok() {
+        paths::remove_quiet(legacy);
+        return Some(cached.to_path_buf());
+    }
+    Some(legacy.to_path_buf())
+}
+
 /// The cached preview for a take, adopting a preview written next to the
-/// recording by an older Reel version when possible.
+/// recording or left in the old cache folder by an older Reel version.
 fn take_preview(paths: &Paths, file: &Path) -> Option<PathBuf> {
     let cached = paths.preview_path(file);
     if cached.is_file() {
         return Some(cached);
     }
 
-    let legacy = paths::legacy_preview_path(file);
-    if !legacy.is_file() {
-        return None;
+    if let Some(adopted) = adopt_preview(&paths.cache_preview_path(file), &cached) {
+        return Some(adopted);
     }
-    if fs::rename(&legacy, &cached).is_ok() {
-        return Some(cached);
-    }
-    if fs::copy(&legacy, &cached).is_ok() {
-        paths::remove_quiet(&legacy);
-        return Some(cached);
-    }
-    Some(legacy)
+    adopt_preview(&paths::legacy_preview_path(file), &cached)
 }
 
 fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
@@ -375,18 +384,42 @@ pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
 }
 
 pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
-    if !file.is_file() {
-        anyhow::bail!("Usage: reel trash <recording>");
-    }
     let dir = config::output_dir(paths);
     let real_dir = fs::canonicalize(&dir).unwrap_or(dir.clone());
-    let real_file = fs::canonicalize(&file)?;
-    if !real_file.starts_with(&real_dir) {
+
+    // A take can be removed from the panel after its file was already deleted
+    // elsewhere. In that case the preview is the only artifact left, so accept
+    // a missing file as long as the folder that should hold it is inside the
+    // recordings folder. The cached preview itself lives in Reel's own folder,
+    // so an arbitrary path can never reach a user file through it.
+    let missing = file.symlink_metadata().is_err();
+    let file_inside = fs::canonicalize(&file).is_ok_and(|real| real.starts_with(&real_dir));
+    let parent_inside = file.file_name().is_some()
+        && file
+            .parent()
+            .and_then(|parent| fs::canonicalize(parent).ok())
+            .is_some_and(|parent| parent.starts_with(&real_dir));
+    if missing && !parent_inside {
         anyhow::bail!("Refusing to delete a file outside the recordings folder.");
+    }
+    if !missing && !file_inside {
+        anyhow::bail!("Refusing to delete a file outside the recordings folder.");
+    }
+    if !missing && !file.is_file() {
+        anyhow::bail!("Usage: reel trash <recording>");
     }
 
     let preview = paths.preview_path(&file);
+    let cache_preview = paths.cache_preview_path(&file);
     let legacy_preview = paths::legacy_preview_path(&file);
+
+    if missing {
+        paths::remove_quiet(&preview);
+        paths::remove_quiet(&cache_preview);
+        paths::remove_quiet(&legacy_preview);
+        return Ok(());
+    }
+
     let trashed = util::have("gio")
         && Command::new("gio")
             .arg("trash")
@@ -402,6 +435,7 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
         fs::remove_file(&file).with_context(|| format!("cannot remove {}", file.display()))?;
     }
     paths::remove_quiet(&preview);
+    paths::remove_quiet(&cache_preview);
     paths::remove_quiet(&legacy_preview);
     Ok(())
 }
@@ -871,6 +905,77 @@ mod tests {
         assert!(!paths::is_partial(Path::new("reel-1.mp4")));
         assert!(paths::is_partial(Path::new("reel-1.part.42.mp4")));
         assert!(paths::is_partial(Path::new("reel-1.capture.mp4")));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn history_config(paths: &Paths, videos: &Path) {
+        fs::write(
+            &paths.config,
+            format!("{{\"outputDir\":\"{}\"}}", videos.display()),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn removing_a_take_that_is_already_gone_removes_its_previews() {
+        let root = temp_root("trash-missing");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+
+        let file = videos.join("reel-1.mp4");
+        let cached = paths.preview_path(&file);
+        let old_cache = paths.cache_preview_path(&file);
+        let legacy = paths::legacy_preview_path(&file);
+        fs::create_dir_all(&paths.previews).unwrap();
+        fs::create_dir_all(&paths.legacy_previews).unwrap();
+        fs::write(&cached, b"new").unwrap();
+        fs::write(&old_cache, b"old cache").unwrap();
+        fs::write(&legacy, b"old folder").unwrap();
+
+        trash(&paths, file).expect("a missing take is still removable");
+
+        assert!(!cached.exists());
+        assert!(!old_cache.exists());
+        assert!(!legacy.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn trashing_a_missing_path_outside_recordings_is_refused() {
+        let root = temp_root("trash-outside");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        fs::create_dir_all(root.join("elsewhere")).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+
+        let outside = root.join("elsewhere/missing.mp4");
+        let legacy = paths::legacy_preview_path(&outside);
+        fs::write(&legacy, b"keep").unwrap();
+
+        assert!(trash(&paths, outside).is_err());
+        assert!(legacy.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_preview_left_in_the_old_cache_is_adopted() {
+        let root = temp_root("preview-adopt");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        let file = videos.join("reel-1.mp4");
+        let cached = paths.preview_path(&file);
+        let old_cache = paths.cache_preview_path(&file);
+        fs::create_dir_all(&paths.previews).unwrap();
+        fs::create_dir_all(old_cache.parent().unwrap()).unwrap();
+        fs::write(&old_cache, b"jpg").unwrap();
+
+        assert_eq!(take_preview(&paths, &file), Some(cached.clone()));
+        assert!(cached.is_file());
+        assert!(!old_cache.exists());
         let _ = fs::remove_dir_all(root);
     }
 
