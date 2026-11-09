@@ -45,6 +45,17 @@ pub enum Command {
     },
     /// Move a take to the trash.
     Trash { file: PathBuf },
+    /// Generate missing thumbnails for recent takes.
+    Thumbnails {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Rename a take on disk, keeping its preview and sidecars together.
+    Rename {
+        file: PathBuf,
+        #[arg(allow_hyphen_values = true)]
+        name: String,
+    },
     /// Read or write the settings file.
     Config(ConfigArgs),
     /// Capture a still of the next take's framing for the panel.

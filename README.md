@@ -22,8 +22,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   and a webcam corner overlay with a camera picker.
 - A bar mark for recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
-  menu with share and trash, path copy, and drag-out to drop the video into
-  another app.
+  menu with rename, share, and trash, path copy, and drag-out to drop the video
+  into another app. Missing thumbnails are rebuilt from the take.
 - Keyboard-first panel.
 - An update check: the bar and panel mark a waiting update, and the header
   button checks again on demand.
@@ -173,6 +173,7 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `t` | Cut the selected take in Omacut |
 | `x` / `Delete` | Trash the selected take (press twice) |
 | `u` | Share the selected take with LocalSend |
+| `n` | Rename the selected take |
 | `c` | Copy the selected take's path |
 | `o` | Open the recordings folder |
 

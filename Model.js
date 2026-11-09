@@ -226,6 +226,56 @@ function takeTitle(row) {
   return name || "Recording"
 }
 
+// The editable part of a take name: the file name without its extension.
+function takeStem(path) {
+  var name = baseName(path)
+  var dot = name.lastIndexOf(".")
+  return dot > 0 ? name.slice(0, dot) : name
+}
+
+// The path a rename would publish. Mirrors the engine so the row can update
+// before the disk rename finishes; the engine remains the authority.
+function renamedPath(path, name) {
+  var value = String(path || "")
+  var wanted = String(name || "").trim()
+  if (value === "" || wanted === "") return value
+  var base = baseName(value)
+  var dot = base.lastIndexOf(".")
+  var suffix = dot > 0 ? base.slice(dot) : ""
+  var stem = wanted
+  if (suffix !== "" && stem.length > suffix.length
+      && stem.slice(-suffix.length).toLowerCase() === suffix.toLowerCase())
+    stem = stem.slice(0, -suffix.length)
+  var slash = value.lastIndexOf("/")
+  return (slash >= 0 ? value.slice(0, slash + 1) : "") + stem + suffix
+}
+
+// A shallow row copy for an optimistic rename; the real path stays available
+// until the refreshed history replaces it.
+function withPath(row, path) {
+  var source = object(row)
+  var copy = {}
+  for (var key in source) copy[key] = source[key]
+  copy.path = String(path || "")
+  return copy
+}
+
+// Rows shown in history: drop pending trash and apply optimistic renames while
+// the engine catches up on disk.
+function visibleRecents(rows, pendingTrash, pendingRenames) {
+  var list = Array.isArray(rows) ? rows : []
+  var trash = object(pendingTrash)
+  var renamed = object(pendingRenames)
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var row = object(list[i])
+    var path = String(row.path || "")
+    if (trash[path]) continue
+    out.push(renamed[path] ? withPath(row, renamed[path]) : row)
+  }
+  return out
+}
+
 // A take still in the save pass is listed before it has a final name: the state
 // points at the hidden capture file, so show the name it will be published as.
 function publishedPath(path) {

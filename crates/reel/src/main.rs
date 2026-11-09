@@ -42,6 +42,8 @@ fn run() -> anyhow::Result<u8> {
         Command::Status { json } => commands::status(&paths, json)?,
         Command::Recent { json, limit } => commands::recent(&paths, json, limit)?,
         Command::Trash { file } => commands::trash(&paths, file)?,
+        Command::Thumbnails { limit } => commands::thumbnails(&paths, limit)?,
+        Command::Rename { file, name } => commands::rename(&paths, file, name)?,
         Command::Config(args) => config::run(&paths, args)?,
         Command::Preview { json, note_only } => commands::preview(&paths, json, note_only)?,
         Command::Render(args) => render::run(&paths, args)?,

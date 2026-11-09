@@ -20,6 +20,8 @@ its own:
 | `reel status [--json]` | Print the current state |
 | `reel recent [--json] [--limit N]` | List recent takes; the default limit is 8 |
 | `reel trash <file>` | Move a take to the trash |
+| `reel thumbnails [--limit N]` | Generate missing thumbnails for recent takes |
+| `reel rename <file> <name>` | Rename a take, keeping its preview and sidecars |
 | `reel config <command>` | Read or write settings |
 | `reel preview [--json] [--note-only]` | Capture a still of the focused monitor |
 | `reel render --project <path> [--output <path>]` | Render a take again from its project file |
@@ -37,6 +39,10 @@ sticks.
 
 `reel toggle` accepts the same options as `reel start`. `reel stop` fails when
 no take is active. `reel trash` accepts only files inside the recordings folder.
+`reel rename` keeps the recording extension, refuses names that already exist or
+belong to another folder, and moves the preview, telemetry, project, zoom, and
+rendered files with the take. Only finished takes can be renamed. Names ending
+in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 
 ### Start options
 
@@ -287,8 +293,10 @@ render contract beside it as `<take-stem>.project.json`. JPEG previews are kept
 in `~/.reel/previews`, not in the cache directory and not beside the recordings,
 so clearing the cache no longer removes history thumbnails. Previews written by
 older Reel versions, including ones left in `$XDG_CACHE_HOME/reel/previews`, are
-moved into that folder on the first run after upgrading. Removing a take also
-removes its preview, even when the recording was already deleted from disk.
+moved into that folder on the first run after upgrading. Previews lost before
+that change are rebuilt from the recording: the panel runs `reel thumbnails`
+when History opens. Removing a take also removes its preview, even when the
+recording was already deleted from disk.
 
 ## Optional Hyprland shortcuts
 

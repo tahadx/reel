@@ -498,7 +498,8 @@ Rules:
 - Text `body`, foreground; left/right inset `9`; selection uses accent with
   `onAccent` text.
 - Helper line below: `caption`, `dim`, wrapped, explains the default filename.
-- This is the only text field in the panel.
+- This is the only persistent text field in the panel; the take actions menu
+  opens a transient rename field (6.11).
 
 ### 6.8 History page
 
@@ -595,8 +596,14 @@ The toast is the only notification surface. It floats over the body.
 - Card: theme background, hairline border, radius `Style.cornerRadius`.
 - Depth: two black offset layers, `0.28` and `0.18`, no blur.
 - Row: glyph `20` wide, label `body`, shortcut `caption` secondary.
-- Items: `Open` (`enter`), `Cut in Omacut` (`t`), `Share` (`u`), `Delete`
-  (`x`). Delete arms first, then relabels to `Confirm delete` in urgent ink.
+- Items: `Open` (`enter`), `Cut in Omacut` (`t`), `Share` (`u`), `Rename`
+  (`n`), `Delete` (`x`). Delete arms first, then relabels to `Confirm delete` in
+  urgent ink.
+- Rename replaces the item rows with one text field in the same card. The field
+  is prefilled with the take's stem and selected; the recording extension never
+  changes. `Enter` renames, `Esc` cancels the edit and returns to the rows.
+  The row takes the new name immediately while the engine renames on disk; a
+  failed rename reverts the row and reports through the toast.
 - `c` copies the selected take's path without opening the menu.
 - Cursor row: `selectedFill` + `2` px accent leading edge; destructive rows use
   `urgentSoft` + urgent ink.

@@ -1,5 +1,6 @@
 use crate::config;
 use crate::paths::{self, Paths};
+use crate::project;
 use crate::state;
 use crate::util;
 use crate::webcam;
@@ -354,6 +355,33 @@ fn recent_takes(paths: &Paths, limit: usize) -> Vec<Take> {
         .collect()
 }
 
+/// Fill in thumbnails that were lost before previews moved out of the cache.
+/// Runs from the panel when history opens, so the repair is asynchronous and
+/// never delays a row from appearing.
+pub fn thumbnails(paths: &Paths, limit: usize) -> Result<()> {
+    let takes = recent_takes(paths, limit);
+    let mut made = 0;
+    for take in takes {
+        if !take.preview.is_empty() {
+            continue;
+        }
+        let preview = paths.preview_path(&take.path);
+        let seek = 0.2_f64.min((take.duration / 2.0).max(0.0));
+        if crate::finalize::make_preview(&take.path, &preview, seek) {
+            made += 1;
+        }
+    }
+    if made > 0 {
+        paths::log(paths, &format!("thumbnails: generated {made}"));
+    }
+    if made == 0 {
+        println!("No missing previews.");
+    } else {
+        println!("Generated {made} preview(s).");
+    }
+    Ok(())
+}
+
 pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
     let takes = recent_takes(paths, limit);
     if as_json {
@@ -437,6 +465,269 @@ pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
     paths::remove_quiet(&preview);
     paths::remove_quiet(&cache_preview);
     paths::remove_quiet(&legacy_preview);
+    Ok(())
+}
+
+/// The name a rename should publish, keeping the recording extension. The
+/// panel pre-fills the stem, but accepting the extension again is harmless.
+fn rename_destination(file: &Path, raw: &str) -> Result<PathBuf> {
+    let name = raw.trim();
+    if name.is_empty() || name == "." || name == ".." {
+        anyhow::bail!("Enter a name for the take.");
+    }
+    if name
+        .chars()
+        .any(|ch| ch.is_control() || ch == '/' || ch == '\\')
+    {
+        anyhow::bail!("A take name cannot contain slashes or control characters.");
+    }
+    if name.len() > 200 {
+        anyhow::bail!("That take name is too long.");
+    }
+
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let suffix = if ext.is_empty() {
+        String::new()
+    } else {
+        format!(".{ext}")
+    };
+    let mut stem = name;
+    if !suffix.is_empty() {
+        let cut = name.len().saturating_sub(suffix.len());
+        if name.get(..cut).is_some() && name[cut..].eq_ignore_ascii_case(&suffix) {
+            stem = name.get(..cut).unwrap_or(name);
+        }
+    }
+    if stem.is_empty() || stem.starts_with('.') {
+        anyhow::bail!("Enter a different take name.");
+    }
+    let lower = stem.to_ascii_lowercase();
+    if lower.ends_with("-untrimmed") || lower.contains(".capture") || lower.contains(".part.") {
+        anyhow::bail!("That take name is reserved by Reel.");
+    }
+
+    Ok(if ext.is_empty() {
+        file.with_file_name(stem)
+    } else {
+        file.with_file_name(format!("{stem}.{ext}"))
+    })
+}
+
+/// Move one sidecar, replacing a stale file at the destination. Returns false
+/// when there is nothing to move or both rename and copy failed.
+fn move_quiet(from: &Path, to: &Path) -> bool {
+    if from == to || !from.is_file() {
+        return false;
+    }
+    if let Some(dir) = to.parent() {
+        let _ = fs::create_dir_all(dir);
+    }
+    if to.exists() {
+        paths::remove_quiet(to);
+    }
+    if fs::rename(from, to).is_ok() {
+        return true;
+    }
+    if fs::copy(from, to).is_ok() {
+        paths::remove_quiet(from);
+        return true;
+    }
+    false
+}
+
+/// Move whichever preview location an older build left for this take into the
+/// new key, so the renamed take keeps its thumbnail without a re-render.
+fn move_preview(paths: &Paths, old: &Path, new: &Path) {
+    let target = paths.preview_path(new);
+    let sources = [
+        paths.preview_path(old),
+        paths.cache_preview_path(old),
+        paths::legacy_preview_path(old),
+    ];
+    let mut moved = false;
+    for source in sources {
+        if source == target || !source.is_file() {
+            continue;
+        }
+        if !moved {
+            moved = move_quiet(&source, &target);
+        } else {
+            paths::remove_quiet(&source);
+        }
+    }
+}
+
+/// Keep a renamed take's sidecars attached to it. This is best effort: the
+/// recording itself has already moved, and a sidecar failure must not make the
+/// rename look failed.
+fn rename_sidecars(paths: &Paths, old: &Path, new: &Path) {
+    move_preview(paths, old, new);
+    move_quiet(&paths::telemetry_path(old), &paths::telemetry_path(new));
+    move_quiet(
+        &paths::legacy_telemetry_path(old),
+        &paths::legacy_telemetry_path(new),
+    );
+
+    let old_project = project::project_path(old);
+    let new_project = project::project_path(new);
+    if old_project.is_file() {
+        match project::Project::load(&old_project) {
+            Ok(mut project) => {
+                project.take = project::relative_take(new);
+                project.telemetry = paths::telemetry_path(new)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                if project::Project::save(&new_project, &project).is_ok() {
+                    paths::remove_quiet(&old_project);
+                } else {
+                    move_quiet(&old_project, &new_project);
+                }
+            }
+            Err(_) => {
+                move_quiet(&old_project, &new_project);
+            }
+        }
+    }
+    move_quiet(
+        &project::legacy_project_path(old),
+        &project::legacy_project_path(new),
+    );
+
+    move_quiet(
+        &old.with_extension("zoom.json"),
+        &new.with_extension("zoom.json"),
+    );
+    move_quiet(&project::rendered_path(old), &project::rendered_path(new));
+
+    let ext = new
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if !ext.is_empty() {
+        let old_stem = old.with_extension("").display().to_string();
+        let new_stem = new.with_extension("").display().to_string();
+        move_quiet(
+            Path::new(&format!("{old_stem}-processed.{ext}")),
+            Path::new(&format!("{new_stem}-processed.{ext}")),
+        );
+    }
+}
+
+/// Point the last-take record at the new name so the hero and the saved
+/// notification do not keep naming a file that no longer exists.
+fn update_last_after_rename(paths: &Paths, old: &Path, new: &Path) {
+    let old_path = old.display().to_string();
+    let new_path = new.display().to_string();
+    let old_previews = [
+        paths.preview_path(old).display().to_string(),
+        paths.cache_preview_path(old).display().to_string(),
+        paths::legacy_preview_path(old).display().to_string(),
+    ];
+    let new_preview = paths.preview_path(new).display().to_string();
+
+    let Some(mut last) = fs::read_to_string(&paths.last)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+    else {
+        return;
+    };
+
+    let mut changed = false;
+    if last.get("path").and_then(Value::as_str) == Some(old_path.as_str()) {
+        last["path"] = json!(new_path);
+        changed = true;
+    }
+    if let Some(preview) = last.get("preview").and_then(Value::as_str) {
+        if old_previews
+            .iter()
+            .any(|old_preview| preview == *old_preview)
+        {
+            last["preview"] = json!(new_preview);
+            changed = true;
+        }
+    }
+    if !changed {
+        return;
+    }
+    if let Ok(body) = serde_json::to_string(&last) {
+        let _ = paths::write_atomic(&paths.last, &body);
+    }
+    if let Some(mut state) = state::read(paths) {
+        let state_is_this_take = state
+            .get("last")
+            .and_then(|last| last.get("path"))
+            .and_then(Value::as_str)
+            == Some(old_path.as_str());
+        if state_is_this_take {
+            state["last"] = last;
+            let _ = state::write(paths, &state);
+        }
+    }
+}
+
+/// Rename a finished take and keep its preview, telemetry, project, zoom, and
+/// rendered artifacts under the new name.
+pub fn rename(paths: &Paths, file: PathBuf, name: String) -> Result<()> {
+    if !file.is_file() {
+        anyhow::bail!("Usage: reel rename <recording> <name>");
+    }
+    let dir = config::output_dir(paths);
+    let real_dir = fs::canonicalize(&dir).unwrap_or(dir);
+    let real_file =
+        fs::canonicalize(&file).with_context(|| format!("cannot rename {}", file.display()))?;
+    if !real_file.starts_with(&real_dir) {
+        anyhow::bail!("Refusing to rename a file outside the recordings folder.");
+    }
+    let ext = file
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext != "mp4" && ext != "mkv" {
+        anyhow::bail!("Only finished takes can be renamed.");
+    }
+    if paths::is_untrimmed(&file) || paths::is_partial(&file) {
+        anyhow::bail!("That take is still being saved.");
+    }
+
+    let file_text = file.display().to_string();
+    let active = state::read(paths)
+        .map(|state| {
+            ["file", "output"]
+                .iter()
+                .any(|key| state::field_str(&state, key).as_deref() == Some(file_text.as_str()))
+        })
+        .unwrap_or(false);
+    if active {
+        anyhow::bail!("Stop the current take before renaming it.");
+    }
+
+    let target = rename_destination(&file, &name)?;
+    if target == file {
+        return Ok(());
+    }
+    if target.exists() {
+        anyhow::bail!(
+            "A take named {} already exists.",
+            target
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default()
+        );
+    }
+
+    fs::rename(&file, &target)
+        .with_context(|| format!("cannot rename {} to {}", file.display(), target.display()))?;
+    rename_sidecars(paths, &file, &target);
+    update_last_after_rename(paths, &file, &target);
+    paths::log(
+        paths,
+        &format!("rename: {} -> {}", file.display(), target.display()),
+    );
     Ok(())
 }
 
@@ -976,6 +1267,139 @@ mod tests {
         assert_eq!(take_preview(&paths, &file), Some(cached.clone()));
         assert!(cached.is_file());
         assert!(!old_cache.exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn renaming_moves_the_take_preview_and_sidecars() {
+        let root = temp_root("rename");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+
+        let old = videos.join("reel-1.mp4");
+        fs::write(&old, b"take").unwrap();
+        fs::create_dir_all(&paths.previews).unwrap();
+        let old_preview = paths.preview_path(&old);
+        fs::write(&old_preview, b"jpg").unwrap();
+        fs::write(old.with_extension("zoom.json"), b"{}").unwrap();
+        fs::write(videos.join("reel-1-processed.mp4"), b"processed").unwrap();
+        fs::create_dir_all(paths::sidecar_dir(&old)).unwrap();
+        fs::write(paths::telemetry_path(&old), b"{}\n").unwrap();
+        let project = project::Project::for_take(&old, 1920, 1080, 60.0, 2.0);
+        project::Project::save(&project::project_path(&old), &project).unwrap();
+        fs::write(
+            &paths.last,
+            serde_json::to_string(&json!({
+                "path": old.display().to_string(),
+                "preview": old_preview.display().to_string(),
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        rename(&paths, old.clone(), "demo-take".into()).expect("rename succeeds");
+
+        let new = videos.join("demo-take.mp4");
+        assert!(new.is_file());
+        assert!(!old.exists());
+        assert!(paths.preview_path(&new).is_file());
+        assert!(!old_preview.exists());
+        assert!(paths::telemetry_path(&new).is_file());
+        assert!(!paths::telemetry_path(&old).exists());
+        assert!(new.with_extension("zoom.json").is_file());
+        assert!(videos.join("demo-take-processed.mp4").is_file());
+        let moved = project::Project::load(&project::project_path(&new)).unwrap();
+        assert_eq!(moved.take, "../demo-take.mp4");
+        assert_eq!(moved.telemetry, "demo-take.telemetry.jsonl");
+        assert!(!project::project_path(&old).exists());
+        let last: Value = serde_json::from_str(&fs::read_to_string(&paths.last).unwrap()).unwrap();
+        assert_eq!(last["path"], json!(new.display().to_string()));
+        assert_eq!(
+            last["preview"],
+            json!(paths.preview_path(&new).display().to_string())
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rename_keeps_the_extension_and_rejects_unsafe_names() {
+        let file = Path::new("/videos/reel-1.mp4");
+        assert_eq!(
+            rename_destination(file, "demo").unwrap(),
+            Path::new("/videos/demo.mp4")
+        );
+        assert_eq!(
+            rename_destination(file, "demo.mp4").unwrap(),
+            Path::new("/videos/demo.mp4")
+        );
+        assert_eq!(
+            rename_destination(file, "demo.MP4").unwrap(),
+            Path::new("/videos/demo.mp4")
+        );
+        for name in [
+            "",
+            "../x",
+            ".hidden",
+            "x-untrimmed",
+            "x.capture",
+            "x.part.2",
+        ] {
+            assert!(rename_destination(file, name).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn rename_refuses_an_existing_take() {
+        let root = temp_root("rename-collision");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+        let old = videos.join("reel-1.mp4");
+        fs::write(&old, b"take").unwrap();
+        fs::write(videos.join("taken.mp4"), b"other").unwrap();
+
+        assert!(rename(&paths, old.clone(), "taken".into()).is_err());
+        assert!(old.is_file());
+        assert_eq!(fs::read(videos.join("taken.mp4")).unwrap(), b"other");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rename_refuses_a_file_outside_recordings() {
+        let root = temp_root("rename-outside");
+        let videos = root.join("Videos");
+        let elsewhere = root.join("elsewhere");
+        fs::create_dir_all(&videos).unwrap();
+        fs::create_dir_all(&elsewhere).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+        let outside = elsewhere.join("reel-1.mp4");
+        fs::write(&outside, b"take").unwrap();
+
+        assert!(rename(&paths, outside.clone(), "demo".into()).is_err());
+        assert!(outside.is_file());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn thumbnails_leave_existing_previews_untouched() {
+        let root = temp_root("thumbnails");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let paths = test_paths(&root);
+        history_config(&paths, &videos);
+        let file = videos.join("reel-1.mp4");
+        fs::write(&file, b"not a real take").unwrap();
+        fs::create_dir_all(&paths.previews).unwrap();
+        let preview = paths.preview_path(&file);
+        fs::write(&preview, b"jpg").unwrap();
+
+        thumbnails(&paths, 5).unwrap();
+
+        assert_eq!(fs::read(&preview).unwrap(), b"jpg");
         let _ = fs::remove_dir_all(root);
     }
 

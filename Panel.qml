@@ -23,15 +23,8 @@ Panel {
 
   readonly property var state: root.service ? root.service.state : Model.emptyState()
   readonly property var recents: root.service ? root.service.recents : []
-  readonly property var visibleRecents: {
-    var rows = root.recents || []
-    var pending = root.pendingTrash || ({})
-    var out = []
-    for (var i = 0; i < rows.length; i++) {
-      if (!pending[String(rows[i].path || "")]) out.push(rows[i])
-    }
-    return out
-  }
+  readonly property var visibleRecents: Model.visibleRecents(
+    root.recents, root.pendingTrash, root.pendingRenames)
   readonly property int elapsed: root.service ? root.service.elapsed : 0
   readonly property string status: Model.status(root.state)
   readonly property bool active: Model.isActive(root.state)
@@ -170,6 +163,7 @@ Panel {
     { keys: "a", what: "open the take actions menu" },
     { keys: "x / delete", what: "trash the selected take" },
     { keys: "u", what: "share the selected take" },
+    { keys: "n", what: "rename the selected take" },
     { keys: "c", what: "copy the selected take's path" },
     { keys: "o", what: "open the recordings folder" },
     { keys: "q", what: "close the panel" },
@@ -258,8 +252,10 @@ Panel {
   property string discardArmedPath: ""
   property string trashArmedPath: ""
   property var pendingTrash: ({})
+  property var pendingRenames: ({})
   property string removingPath: ""
   property string trashInFlightPath: ""
+  property string renameInFlightPath: ""
   property string historyAnchorPath: ""
   property int historyAnchorIndex: 0
   property bool suppressHistoryHover: false
@@ -276,9 +272,16 @@ Panel {
   // row's menu button and floats over the history list.
   property bool takeMenuOpen: false
   property var takeMenuRow: null
+  property var takeMenuAnchor: null
   property int takeMenuIndex: 0
   property real takeMenuX: 0
   property real takeMenuY: 0
+  // Rename swaps the action rows for one text field in the same card, so it
+  // never becomes a second modal.
+  property bool takeMenuRenaming: false
+  property string renamePath: ""
+  property string renameText: ""
+  property bool renameBusy: false
   readonly property real takeMenuWidth: Style.space(220)
   readonly property real takeMenuRowHeight: Style.space(30)
   readonly property real takeMenuPadding: Style.space(5)
@@ -287,6 +290,7 @@ Panel {
     { key: "open", label: "Open", glyph: "󰏌", shortcut: "Enter" },
     { key: "cut", label: "Cut in Omacut", glyph: "󰆐", shortcut: "t" },
     { key: "share", label: "Share", glyph: "󰒗", shortcut: "u" },
+    { key: "rename", label: "Rename", glyph: "󰏫", shortcut: "n" },
     {
       key: "trash",
       label: root.trashArmedPath !== "" && root.takeMenuRow
@@ -298,9 +302,15 @@ Panel {
         && root.trashArmedPath === String(root.takeMenuRow.path || "")
     }
   ]
-  readonly property real takeMenuHeight: root.takeMenuRowHeight * root.takeMenuItems.length
+  readonly property real takeMenuHeight: (root.takeMenuRenaming
+    ? Style.space(52)
+    : root.takeMenuRowHeight * root.takeMenuItems.length)
     + root.takeMenuPadding * 2
     + Border.top(root.takeMenuBorderSpec) + Border.bottom(root.takeMenuBorderSpec)
+
+  // Rename shrinks the card; keep it anchored to the row's menu button instead
+  // of leaving it where the taller action list was placed.
+  onTakeMenuRenamingChanged: root.placeTakeMenu()
 
   // A take can be armed for a second press, but not for long.
   Timer {
@@ -680,6 +690,7 @@ Panel {
   }
 
   function openVideo(row) {
+    if (root.renameInFlightPath !== "") return
     var command = Model.playCommand(row && row.path)
     if (command.length > 0) Quickshell.execDetached(command)
   }
@@ -729,36 +740,104 @@ Panel {
 
   // ---------- take actions menu ------------------------------------------
 
+  function placeTakeMenu() {
+    if (!root.takeMenuOpen || !root.takeMenuAnchor) return
+    var surface = keyCatcher
+    if (!surface) return
+    var anchor = root.takeMenuAnchor
+    var point = anchor.mapToItem(surface, 0, 0)
+    var margin = Style.space(8)
+    var gap = Style.space(4)
+    var height = (root.takeMenuRenaming
+      ? Style.space(52)
+      : root.takeMenuRowHeight * root.takeMenuItems.length)
+      + root.takeMenuPadding * 2
+      + Border.top(root.takeMenuBorderSpec) + Border.bottom(root.takeMenuBorderSpec)
+    var x = point.x + anchor.width - root.takeMenuWidth
+    x = Math.max(margin, Math.min(x, surface.width - root.takeMenuWidth - margin))
+    var y = point.y + anchor.height + gap
+    if (y + height > surface.height - margin)
+      y = point.y - height - gap
+    y = Math.max(margin, Math.min(y, surface.height - height - margin))
+
+    root.takeMenuX = x
+    root.takeMenuY = y
+  }
+
   function openTakeMenu(row, rowIndex, anchor) {
-    if (!row || !anchor) return
+    if (!row || !anchor || root.renameInFlightPath !== "") return
     var surface = keyCatcher
     if (!surface) return
     root.cursorActive = true
     root.focusSection = "recents"
     root.selectedIndex = rowIndex
 
-    var point = anchor.mapToItem(surface, 0, 0)
-    var margin = Style.space(8)
-    var gap = Style.space(4)
-    var x = point.x + anchor.width - root.takeMenuWidth
-    x = Math.max(margin, Math.min(x, surface.width - root.takeMenuWidth - margin))
-    var y = point.y + anchor.height + gap
-    if (y + root.takeMenuHeight > surface.height - margin)
-      y = point.y - root.takeMenuHeight - gap
-    y = Math.max(margin, Math.min(y, surface.height - root.takeMenuHeight - margin))
-
-    root.takeMenuX = x
-    root.takeMenuY = y
     root.takeMenuRow = row
+    root.takeMenuAnchor = anchor
     root.takeMenuIndex = 0
+    root.takeMenuRenaming = false
+    root.renamePath = ""
+    root.renameText = ""
+    root.renameBusy = false
     root.takeMenuOpen = true
+    root.placeTakeMenu()
   }
 
   function closeTakeMenu() {
     if (!root.takeMenuOpen) return
     root.takeMenuOpen = false
     root.takeMenuRow = null
+    root.takeMenuAnchor = null
     root.takeMenuIndex = 0
+    root.takeMenuRenaming = false
+    root.renamePath = ""
+    root.renameText = ""
+    root.renameBusy = false
+    if (root.opened) Qt.callLater(root.focusPanelKeys)
+  }
+
+  function beginRename(row) {
+    if (!row || !row.path || root.renameInFlightPath !== "") return
+    root.renamePath = String(row.path)
+    root.renameText = Model.takeStem(row.path)
+    root.renameBusy = false
+    root.takeMenuRenaming = true
+    Qt.callLater(function() {
+      if (root.takeMenuRenaming) renameInput.forceActiveFocus()
+    })
+  }
+
+  function cancelRename() {
+    if (!root.takeMenuRenaming || root.renameBusy) return
+    root.takeMenuRenaming = false
+    root.renamePath = ""
+    root.renameText = ""
+    Qt.callLater(root.focusPanelKeys)
+  }
+
+  function commitRename() {
+    if (root.renameBusy || root.renameInFlightPath !== "" || renameProc.running) return
+    var path = root.renamePath
+    var name = String(root.renameText || "").trim()
+    if (path === "") return
+    if (name === "") {
+      root.setNotice("Enter a name for the take.", true)
+      return
+    }
+    var renamedPath = Model.renamedPath(path, name)
+    if (renamedPath !== path) root.addPendingRename(path, renamedPath)
+    root.renameBusy = true
+    root.renameInFlightPath = path
+    renameProc.command = ["reel", "rename", path, name]
+    root.closeTakeMenu()
+    renameProc.running = true
+  }
+
+  function renameSelected() {
+    var row = root.selectedTake()
+    if (!row || root.renameInFlightPath !== "") return
+    var item = takesRepeater.itemAt(root.selectedIndex - 1)
+    if (item && typeof item.openRename === "function") item.openRename()
   }
 
   function moveTakeMenu(delta) {
@@ -781,6 +860,8 @@ Panel {
     } else if (key === "share") {
       root.closeTakeMenu()
       root.share(row)
+    } else if (key === "rename") {
+      root.beginRename(row)
     } else if (key === "trash") {
       var path = String(row.path || "")
       if (path === "") return
@@ -833,8 +914,42 @@ Panel {
     root.pendingTrash = next
   }
 
+  function addPendingRename(path, renamedPath) {
+    var next = {}
+    for (var key in root.pendingRenames) next[key] = root.pendingRenames[key]
+    next[String(path)] = String(renamedPath)
+    root.pendingRenames = next
+  }
+
+  function dropPendingRename(path) {
+    var next = {}
+    for (var key in root.pendingRenames) {
+      if (key !== String(path)) next[key] = root.pendingRenames[key]
+    }
+    root.pendingRenames = next
+  }
+
+  // Drop an optimistic name once the refreshed history carries the new path,
+  // or once the old path is gone. Until then the row keeps showing it.
+  function prunePendingRenames() {
+    var next = {}
+    var rows = root.recents || []
+    for (var key in root.pendingRenames) {
+      var newPath = root.pendingRenames[key]
+      var hasOld = false
+      var hasNew = false
+      for (var i = 0; i < rows.length; i++) {
+        var path = String(rows[i].path || "")
+        if (path === key) hasOld = true
+        if (path === newPath) hasNew = true
+      }
+      if (hasOld && !hasNew) next[key] = newPath
+    }
+    root.pendingRenames = next
+  }
+
   function beginOptimisticTrash(row) {
-    if (!row || !row.path) return
+    if (!row || !row.path || root.renameInFlightPath !== "") return
     if (root.removingPath !== "" || trashProc.running) return
     var path = String(row.path)
     var index = -1
@@ -865,7 +980,7 @@ Panel {
   }
 
   function trashTake(row) {
-    if (!row || !row.path) return
+    if (!row || !row.path || root.renameInFlightPath !== "") return
     if (root.trashArmedPath !== String(row.path)) {
       root.trashArmedPath = String(row.path)
       root.setNotice("Press x again to move " + Model.takeTitle(row) + " to the trash.", true)
@@ -1077,7 +1192,9 @@ Panel {
   function onTextKey(text) {
     var raw = String(text || "")
     if (root.takeMenuOpen) {
-      if (raw.toLowerCase() === "a") root.closeTakeMenu()
+      var menuKey = raw.toLowerCase()
+      if (menuKey === "a") root.closeTakeMenu()
+      else if (menuKey === "n" && root.takeMenuRow) root.beginRename(root.takeMenuRow)
       return
     }
     if (root.typingPrefix) return
@@ -1116,6 +1233,7 @@ Panel {
     else if (key === "o") root.openFolder()
     else if (key === "t") root.cutSelected()
     else if (key === "u") root.shareSelected()
+    else if (key === "n") root.renameSelected()
     else if (key === "a") {
       if (keyCatcher
           && typeof keyCatcher.openTakeMenuForSelected === "function")
@@ -1151,6 +1269,7 @@ Panel {
     if (root.page === "history") return
     root.clearHover()
     if (!omacutProbe.running) omacutProbe.running = true
+    if (!thumbProc.running) thumbProc.running = true
     var area = root.scrollArea()
     var flick = area ? area.contentItem : null
     if (flick && flick.contentY !== undefined) flick.contentY = 0
@@ -1308,6 +1427,7 @@ Panel {
 
   onRecentsChanged: {
     root.prunePendingTrash()
+    root.prunePendingRenames()
     root.settleHistorySelection()
   }
 
@@ -1361,6 +1481,10 @@ Panel {
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
+      root.takeMenuRenaming = false
+      root.renamePath = ""
+      root.renameText = ""
+      root.renameBusy = false
       root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
@@ -1374,6 +1498,10 @@ Panel {
       root.takeMenuOpen = false
       root.takeMenuRow = null
       root.takeMenuIndex = 0
+      root.takeMenuRenaming = false
+      root.renamePath = ""
+      root.renameText = ""
+      root.renameBusy = false
     }
   }
 
@@ -1560,7 +1688,7 @@ Panel {
       id: keyCatcher
       property alias scrollArea: scrollArea
       anchors.fill: parent
-      blocked: root.typingPrefix
+      blocked: root.typingPrefix || root.takeMenuRenaming
 
       onMoveRequested: function(dx, dy) {
         if (root.takeMenuOpen) root.moveTakeMenu(dy)
@@ -2495,6 +2623,7 @@ Panel {
             anchors.rightMargin: takeMenuCard.contentRightInset
             anchors.topMargin: takeMenuCard.contentTopInset
             anchors.bottomMargin: takeMenuCard.contentBottomInset
+            visible: !root.takeMenuRenaming
 
             Repeater {
               model: root.takeMenuItems
@@ -2510,6 +2639,63 @@ Panel {
                 urgent: !!modelData.urgent
                 selected: root.takeMenuIndex === index
               }
+            }
+          }
+
+          Column {
+            anchors.fill: parent
+            anchors.leftMargin: takeMenuCard.contentLeftInset
+            anchors.rightMargin: takeMenuCard.contentRightInset
+            anchors.topMargin: takeMenuCard.contentTopInset
+            anchors.bottomMargin: takeMenuCard.contentBottomInset
+            visible: root.takeMenuRenaming
+            spacing: Style.space(4)
+
+            Rectangle {
+              width: parent.width
+              height: root.takeMenuRowHeight
+              radius: Style.cornerRadius
+              color: root.restFill
+              border.width: 1
+              border.color: renameInput.activeFocus ? root.accent : root.hairline
+              Behavior on border.color {
+                ColorAnimation { duration: 120 }
+              }
+
+              TextInput {
+                id: renameInput
+                anchors.fill: parent
+                anchors.leftMargin: Style.space(9)
+                anchors.rightMargin: Style.space(9)
+                verticalAlignment: TextInput.AlignVCenter
+                text: root.renameText
+                color: root.foreground
+                selectionColor: root.accent
+                selectedTextColor: root.inkOn(root.accent)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                selectByMouse: true
+                clip: true
+                enabled: !root.renameBusy
+                focus: root.takeMenuRenaming
+                onTextEdited: root.renameText = text
+                onActiveFocusChanged: if (activeFocus) selectAll()
+                onAccepted: root.commitRename()
+                Keys.onEscapePressed: function(event) {
+                  root.cancelRename()
+                  event.accepted = true
+                }
+              }
+            }
+
+            Text {
+              textFormat: Text.PlainText
+              text: root.renameBusy ? "Renaming…" : "Enter to rename · Esc to cancel"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+              width: parent.width
             }
           }
         }
@@ -3002,6 +3188,11 @@ Panel {
         return
       }
       root.openTakeMenu(take.row, take.rowIndex, menuButton)
+    }
+
+    function openRename() {
+      if (!take.menuOpen) root.openTakeMenu(take.row, take.rowIndex, menuButton)
+      root.beginRename(take.row)
     }
 
     property bool pressing: false
@@ -3678,6 +3869,20 @@ Panel {
     onExited: function(code) { root.hasOmacut = code === 0 }
   }
 
+  // Previews live outside the cache now, but takes recorded before that change
+  // may still have no thumbnail. Repair them in the background when history is
+  // opened, then refresh the list so the images fill in.
+  Process {
+    id: thumbProc
+    running: false
+    command: ["reel", "thumbnails", "--limit", "20"]
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
+    onExited: function(code) {
+      if (code === 0 && root.service) root.service.refresh()
+    }
+  }
+
   // Cameras can be plugged in while the shell runs, so this is re-read on
   // panel open and every time settings open rather than only at startup.
   Process {
@@ -3772,6 +3977,26 @@ Panel {
         root.setNotice("Take moved to the trash.")
       }
       root.trashInFlightPath = ""
+      if (root.service) root.service.refresh()
+    }
+  }
+
+  Process {
+    id: renameProc
+    running: false
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: renameErr; waitForEnd: true }
+    onExited: function(code) {
+      var oldPath = root.renameInFlightPath
+      root.renameInFlightPath = ""
+      root.renameBusy = false
+      if (code === 0) {
+        root.setNotice("Take renamed.")
+      } else {
+        root.dropPendingRename(oldPath)
+        var message = String(renameErr.text || "").trim()
+        root.setNotice(message.replace(/^reel:\s*/, "") || "Could not rename that take.", true)
+      }
       if (root.service) root.service.refresh()
     }
   }

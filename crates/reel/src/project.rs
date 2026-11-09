@@ -870,7 +870,7 @@ pub fn legacy_project_path(take: &Path) -> PathBuf {
 }
 
 /// The take name as stored in a project that lives one level below it.
-fn relative_take(take: &Path) -> String {
+pub(crate) fn relative_take(take: &Path) -> String {
     take.file_name()
         .map(|name| format!("../{}", name.to_string_lossy()))
         .unwrap_or_default()
