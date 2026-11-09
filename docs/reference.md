@@ -133,7 +133,8 @@ FFT-based noise reduction before normalizing the audio. It is a save-pass
 filter, so it does not add latency while recording and cannot clean an already
 finished take.
 
-**Record the pointer** (`cursor`) controls pointer capture. When it is on, Reel
+**Record the pointer** (`cursor`) lives in Settings → **Visuals** and controls
+pointer capture. When it is on, Reel
 also records local pointer movement and clicks for later save-pass work. This
 needs read access to `/dev/input`; add your user to the `input` group
 (`sudo usermod -aG input "$USER"`) and log in again. If the devices cannot be
@@ -141,7 +142,7 @@ read, the take still records and simply has no pointer telemetry.
 
 ## Auto zoom
 
-**Auto zoom** sits below **Manual zoom** in Settings → **Zoom**, a single
+**Auto zoom** sits below **Manual zoom** in Settings → **Visuals**, a single
 on/off switch that is off by default. The panel sends the switch with every
 take, so the take uses the setting you are looking at. When it is on, clicks
 during the take become short zoom blocks in the saved file. A touchpad tap counts too when the compositor has

@@ -443,8 +443,8 @@ is not a setting.
 
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Media   | Capture section: countdown, webcam corner, webcam device, pointer. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location or zoom |
-| Zoom    | Manual zoom, auto zoom                                                    | Anything unrelated to zoom       |
+| Media   | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location, zoom, or pointer appearance |
+| Visuals | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
 | Output  | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
 | Keys    | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
@@ -455,8 +455,9 @@ Rules:
   interface contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab.
-- Manual zoom comes first: it is the live, on-by-default control. Auto zoom is
-  the optional save-pass switch and is off by default.
+- Visuals is the home for zoom and pointer. Manual zoom comes first: it is the
+  live, on-by-default control. Auto zoom is the optional save-pass switch and is
+  off by default. Pointer capture and pointer appearance follow.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
 - Media uses section labels so the capture, audio, and video groups still scan

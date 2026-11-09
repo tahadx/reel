@@ -144,7 +144,6 @@ Panel {
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
     { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
-    { key: "cursor", label: "Record the pointer", glyph: "󰍽" },
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
@@ -177,9 +176,10 @@ Panel {
   ]
   readonly property var settingsTabs: [
     { id: "media", label: "Media", rows: root.mediaSettingRows },
-    { id: "zoom", label: "Zoom", rows: [
+    { id: "visuals", label: "Visuals", rows: [
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
-      { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" }
+      { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
+      { key: "cursor", label: "Record the pointer", glyph: "󰍽" }
     ] },
     { id: "output", label: "Output", rows: [
       { key: "notifications", label: "Saved notification", glyph: "󰂚" }
