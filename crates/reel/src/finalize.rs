@@ -547,6 +547,7 @@ fn take_options(paths: &Paths) -> TakeOptions {
 /// time (`t - trimStart`, floored at 0).
 #[allow(clippy::too_many_arguments)]
 fn project_from_telemetry(
+    app_paths: &Paths,
     telemetry_file: &Path,
     input: &Path,
     output: &Path,
@@ -554,7 +555,6 @@ fn project_from_telemetry(
     options: &TakeOptions,
     target: &str,
     target_kind: &str,
-    refiner: Option<&activity::Refiner>,
 ) -> Result<project::Project> {
     let telemetry = project::read_telemetry(telemetry_file)?;
     let width = telemetry.width;
@@ -607,8 +607,10 @@ fn project_from_telemetry(
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
-    let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<(f64, f64)> {
-        refiner?.target(enter, hold, cx, cy, width as f64, height as f64)
+    let refiner =
+        activity::Refiner::new(app_paths, input, trim).with_samples(telemetry.samples.clone());
+    let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<Vec<(f64, f64, f64)>> {
+        refiner.targets(enter, hold, cx, cy, width as f64, height as f64)
     };
     project.camera = project::build_camera(
         &telemetry.clicks,
@@ -782,10 +784,6 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let mut error = String::new();
     let mut saved = output.clone();
     let mut built_project: Option<project::Project> = None;
-    // Where the pointer is at click time is not always where the work is: a
-    // tap that only focuses a window lands wherever the pointer was parked.
-    // The refiner samples the capture so such a block can follow the caret.
-    let refiner = activity::Refiner::new(paths, &file, args.trim_start);
     let pass = match args.project.as_ref() {
         Some(project_file) => match project::Project::load(project_file) {
             Ok(mut project) => {
@@ -794,8 +792,8 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                 if let Some(telemetry_file) = telemetry_file.as_deref() {
                     if project.camera.keyframes.is_empty() && project.camera.style != "off" {
                         let trim = project.trim_start;
-                        let refiner = activity::Refiner::new(paths, &file, trim);
                         match project_from_telemetry(
+                            paths,
                             telemetry_file,
                             &file,
                             &output,
@@ -803,7 +801,6 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                             &options,
                             &args.target,
                             &args.target_kind,
-                            Some(&refiner),
                         ) {
                             Ok(built) => project.camera = built.camera,
                             Err(err) => paths::log(
@@ -826,6 +823,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         },
         None => match telemetry_file.as_deref() {
             Some(telemetry_file) => match project_from_telemetry(
+                paths,
                 telemetry_file,
                 &file,
                 &output,
@@ -833,7 +831,6 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                 &options,
                 &args.target,
                 &args.target_kind,
-                Some(&refiner),
             ) {
                 Ok(project) => {
                     paths::log(
@@ -1121,6 +1118,7 @@ mod tests {
             depth: 2.0,
         };
         let project = project_from_telemetry(
+            &Paths::for_test(&root),
             &telemetry_fixture(),
             &take,
             &take,
@@ -1129,7 +1127,6 @@ mod tests {
             &options,
             "monitor:DP-1",
             "monitor",
-            None,
         )
         .unwrap();
 
@@ -1167,6 +1164,7 @@ mod tests {
         fs::write(&take, b"video").unwrap();
 
         let project = project_from_telemetry(
+            &Paths::for_test(&root),
             &telemetry_fixture(),
             &take,
             &take,
@@ -1177,7 +1175,6 @@ mod tests {
             },
             "",
             "",
-            None,
         )
         .unwrap();
 
@@ -1205,6 +1202,7 @@ mod tests {
         fs::write(&take, b"video").unwrap();
 
         let err = project_from_telemetry(
+            &Paths::for_test(&root),
             &telemetry,
             &take,
             &take,
@@ -1215,7 +1213,6 @@ mod tests {
             },
             "",
             "",
-            None,
         )
         .unwrap_err();
         assert!(err.to_string().contains("capture size"));
@@ -1234,6 +1231,7 @@ mod tests {
         fs::write(&legacy, b"old\n").unwrap();
 
         let project = project_from_telemetry(
+            &Paths::for_test(&root),
             &telemetry_fixture(),
             &take,
             &take,
@@ -1244,7 +1242,6 @@ mod tests {
             },
             "",
             "",
-            None,
         )
         .unwrap();
         let written = write_project(&paths, &take, &project).expect("a project path");
@@ -1288,6 +1285,7 @@ mod tests {
             fs::write(&telemetry, start + &click).unwrap();
 
             let project = project_from_telemetry(
+                &Paths::for_test(&root),
                 &telemetry,
                 &take,
                 &take,
@@ -1298,7 +1296,6 @@ mod tests {
                 },
                 target,
                 kind,
-                None,
             )
             .unwrap();
 

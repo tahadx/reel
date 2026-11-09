@@ -42,6 +42,18 @@ const MIN_CLUSTER_CELLS: usize = 2;
 /// A retarget must move the camera at least this far, as a share of the width,
 /// so a one-cell nudge never fights the click.
 const MIN_MOVE_SHARE: f64 = 0.05;
+/// A drag must start within this long after the click.
+const DRAG_START_SECS: f64 = 0.75;
+/// A drag must last at least this long.
+const DRAG_MIN_SECS: f64 = 0.30;
+/// A drag must move at least this share of the width.
+const DRAG_MIN_SHARE: f64 = 0.04;
+/// A drag ends after this long without movement.
+const DRAG_STOP_SECS: f64 = 0.30;
+/// How long after a click to keep looking for a drag.
+const DRAG_MAX_SECS: f64 = 6.0;
+/// Spacing of the camera points generated along a drag.
+const DRAG_STEP_SECS: f64 = 0.12;
 
 /// Mean absolute change per pixel, cell by cell, over a sampled window.
 #[derive(Debug, Clone, PartialEq)]
@@ -155,11 +167,108 @@ impl Activity {
     }
 }
 
+/// Camera points along a pointer drag that starts just after the click.
+///
+/// A text selection is a drag: the pointer moves continuously from the click
+/// to the other end. Screen Studio follows that movement; snapping between
+/// clicks leaves the selection off-screen. Returns `(saved-take time, x, y)`
+/// points, starting at the last still sample before the pointer moved.
+pub fn drag_targets(
+    samples: &[(f64, f64, f64)],
+    enter: f64,
+    hold: f64,
+    width: f64,
+) -> Vec<(f64, f64, f64)> {
+    if width <= 0.0 || samples.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut points: Vec<(f64, f64, f64)> = Vec::new();
+    let mut start: Option<(f64, f64, f64)> = None;
+    let mut previous: Option<(f64, f64, f64)> = None;
+    let mut last_move = enter;
+    let start_limit = hold.max(enter + DRAG_START_SECS);
+
+    for &sample in samples {
+        if sample.0 < enter - 0.15 || sample.0 > enter + DRAG_MAX_SECS {
+            continue;
+        }
+        let Some(prev) = previous else {
+            previous = Some(sample);
+            continue;
+        };
+        let step = distance(prev, sample);
+        if start.is_none() {
+            // The still sample before the first real movement is the drag's
+            // origin, so the camera starts from the selection's first end.
+            if sample.0 <= start_limit && step >= 2.0 {
+                start = Some(prev);
+                points.push(prev);
+                points.push(sample);
+                last_move = sample.0;
+            }
+            previous = Some(sample);
+            continue;
+        }
+        points.push(sample);
+        if step >= 2.0 {
+            last_move = sample.0;
+        }
+        previous = Some(sample);
+        if sample.0 - last_move > DRAG_STOP_SECS {
+            break;
+        }
+    }
+
+    let (Some(start), Some(&end)) = (start, points.last()) else {
+        return Vec::new();
+    };
+    if last_move - start.0 < DRAG_MIN_SECS || distance(start, end) < DRAG_MIN_SHARE * width {
+        return Vec::new();
+    }
+
+    // A camera point every DRAG_STEP_SECS keeps the pan continuous. Always
+    // keep the final position so the block ends where the drag did.
+    let mut out = vec![start];
+    let mut next = start.0 + DRAG_STEP_SECS;
+    for &point in points.iter().skip(1) {
+        if point.0 >= next {
+            out.push(point);
+            next = point.0 + DRAG_STEP_SECS;
+        }
+    }
+    if out.last().map(|point| point.0) != Some(end.0) {
+        out.push(end);
+    }
+    smooth_positions(&mut out);
+    out
+}
+
+fn distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
+    ((a.1 - b.1).powi(2) + (a.2 - b.2).powi(2)).sqrt()
+}
+
+/// Three-point smoothing, keeping the endpoints exact.
+fn smooth_positions(points: &mut [(f64, f64, f64)]) {
+    if points.len() < 3 {
+        return;
+    }
+    let original = points.to_vec();
+    for index in 1..points.len() - 1 {
+        let before = original[index - 1];
+        let here = original[index];
+        let after = original[index + 1];
+        points[index].1 = (before.1 + 2.0 * here.1 + after.1) / 4.0;
+        points[index].2 = (before.2 + 2.0 * here.2 + after.2) / 4.0;
+    }
+}
+
 /// Samples a take around a block and answers where the camera should point.
 pub struct Refiner {
     video: PathBuf,
     log: PathBuf,
     offset: f64,
+    samples: Vec<(f64, f64, f64)>,
 }
 
 impl Refiner {
@@ -169,12 +278,21 @@ impl Refiner {
             video: video.to_path_buf(),
             log: paths.log.clone(),
             offset: trim_start.max(0.0),
+            samples: Vec::new(),
         }
     }
 
-    /// The centre for a block that eases in at `enter` and holds until `hold`,
-    /// given the click centroid. `None` keeps the click.
-    pub fn target(
+    /// Pointer samples in raw telemetry time, used to follow a drag.
+    pub fn with_samples(mut self, samples: Vec<(f64, f64, f64)>) -> Self {
+        self.samples = samples;
+        self
+    }
+
+    /// The camera track for a block that eases in at `enter` and holds until
+    /// `hold`, given the click centroid. The first point replaces the click
+    /// when the click area was quiet; a pointer drag after the click is
+    /// followed continuously.
+    pub fn targets(
         &self,
         enter: f64,
         hold: f64,
@@ -182,20 +300,44 @@ impl Refiner {
         cy: f64,
         width: f64,
         height: f64,
-    ) -> Option<(f64, f64)> {
+    ) -> Option<Vec<(f64, f64, f64)>> {
+        let mut points = Vec::new();
         let start = (enter + self.offset).max(0.0);
-        let window = (hold + self.offset - start).clamp(0.0, MAX_WINDOW_SECS);
-        let frames = self.sample(start, window)?;
-        let activity = Activity::from_frames(&frames)?;
-        let target = activity.retarget(cx, cy, width, height)?;
-        paths::log_to(
-            &self.log,
-            &format!(
-                "finalize: zoom target moved from ({cx:.0},{cy:.0}) to ({:.0},{:.0}) at {enter:.2}s; the click area was quiet",
-                target.0, target.1
-            ),
-        );
-        Some(target)
+        let span = (hold + self.offset - start).clamp(0.0, MAX_WINDOW_SECS);
+        if let Some(frames) = self.sample(start, span) {
+            if let Some((x, y)) = Activity::from_frames(&frames)
+                .and_then(|activity| activity.retarget(cx, cy, width, height))
+            {
+                points.push((enter, x, y));
+                paths::log_to(
+                    &self.log,
+                    &format!(
+                        "finalize: zoom target moved from ({cx:.0},{cy:.0}) to ({x:.0},{y:.0}) at {enter:.2}s; the click area was quiet"
+                    ),
+                );
+            }
+        }
+        if points.is_empty() {
+            points.push((enter, cx, cy));
+        }
+
+        if !self.samples.is_empty() {
+            let saved: Vec<(f64, f64, f64)> = self
+                .samples
+                .iter()
+                .map(|&(t, x, y)| (t - self.offset, x, y))
+                .collect();
+            let drag = drag_targets(&saved, enter, hold, width);
+            if !drag.is_empty() {
+                let count = drag.len();
+                points.extend(drag.into_iter().filter(|point| point.0 > enter + 0.01));
+                paths::log_to(
+                    &self.log,
+                    &format!("finalize: zoom follows a drag of {count} points at {enter:.2}s"),
+                );
+            }
+        }
+        Some(points)
     }
 
     fn sample(&self, start: f64, duration: f64) -> Option<Vec<Vec<u8>>> {
@@ -354,5 +496,46 @@ mod tests {
     fn frames_of_the_wrong_size_are_ignored() {
         let frames = vec![vec![0u8; 10], vec![0u8; 10]];
         assert!(Activity::from_frames(&frames).is_none());
+    }
+
+    #[test]
+    fn a_drag_is_followed_between_clicks() {
+        let mut samples = vec![(1.0, 720.0, 720.0)];
+        for step in 1..=20 {
+            let t = 1.0 + step as f64 * 0.1;
+            samples.push((t, 720.0 + step as f64 * 20.0, 720.0 + step as f64 * 10.0));
+        }
+
+        let points = drag_targets(&samples, 1.0, 1.9, WIDTH);
+
+        assert!(points.len() >= 5, "points were {points:?}");
+        assert!(points.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        let (_, x, y) = *points.last().unwrap();
+        assert!(x > 1000.0, "last x was {x}");
+        assert!(y > 900.0, "last y was {y}");
+    }
+
+    #[test]
+    fn a_single_jump_is_not_a_drag() {
+        let samples = vec![
+            (1.0, 720.0, 720.0),
+            (1.05, 2000.0, 1200.0),
+            (1.6, 2000.0, 1200.0),
+        ];
+
+        assert!(drag_targets(&samples, 1.0, 1.9, WIDTH).is_empty());
+    }
+
+    #[test]
+    fn a_move_after_the_drag_window_is_not_a_drag() {
+        let mut samples = Vec::new();
+        for step in 0..=10 {
+            samples.push((1.0 + step as f64 * 0.1, 720.0, 720.0));
+        }
+        for step in 1..=10 {
+            samples.push((2.0 + step as f64 * 0.1, 720.0 + step as f64 * 30.0, 720.0));
+        }
+
+        assert!(drag_targets(&samples, 1.0, 1.9, WIDTH).is_empty());
     }
 }

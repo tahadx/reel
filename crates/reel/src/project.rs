@@ -340,6 +340,9 @@ pub struct Click {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Telemetry {
     pub clicks: Vec<Click>,
+    /// Every pointer position in telemetry time: `(t, x, y)`. Used to follow a
+    /// drag instead of snapping between reported clicks.
+    pub samples: Vec<(f64, f64, f64)>,
     pub capture: Capture,
     /// Encoded video dimensions from the `start` record. `0` when absent.
     pub width: u32,
@@ -359,6 +362,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         .with_context(|| format!("cannot read the telemetry at {}", path.display()))?;
     let mut telemetry = Telemetry {
         clicks: Vec::new(),
+        samples: Vec::new(),
         capture: Capture::default(),
         width: 0,
         height: 0,
@@ -402,12 +406,27 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 };
                 telemetry.clicks.push(Click { t, x, y });
             }
+            Some("move") | Some("sync") => {
+                let Some(t) = record.get("t").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(x) = record.get("x").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(y) = record.get("y").and_then(Value::as_f64) else {
+                    continue;
+                };
+                if t.is_finite() && x.is_finite() && y.is_finite() {
+                    telemetry.samples.push((t, x, y));
+                }
+            }
             Some("stop") => {
                 telemetry.stop_t = record.get("t").and_then(Value::as_f64).unwrap_or(0.0);
             }
             _ => {}
         }
     }
+    telemetry.samples.sort_by(|a, b| a.0.total_cmp(&b.0));
     Ok(telemetry)
 }
 
@@ -429,10 +448,11 @@ fn string(record: &Map<String, Value>, key: &str) -> String {
         .to_string()
 }
 
-/// Optional hook that may move a block's centre. It receives the block's
-/// saved-take window (`enter`, `hold`) and the click centroid, and returns a
-/// replacement centre when the click landed somewhere quiet.
-pub type TargetRefiner<'a> = &'a dyn Fn(f64, f64, f64, f64) -> Option<(f64, f64)>;
+/// Optional hook that may move a block's centre over time. It receives the
+/// block's saved-take window (`enter`, `hold`) and the click centroid, and
+/// returns a camera track of `(saved-take time, x, y)` points starting at
+/// `enter`, or `None` to keep the click.
+pub type TargetRefiner<'a> = &'a dyn Fn(f64, f64, f64, f64) -> Option<Vec<(f64, f64, f64)>>;
 
 /// Clamp a camera centre the same way a keyframe would at this depth.
 fn clamped_center(x: f64, y: f64, width: f64, height: f64, depth: f64) -> (f64, f64) {
@@ -504,8 +524,8 @@ pub fn build_camera(
         enter: f64,
         hold: f64,
         end: f64,
-        cx: f64,
-        cy: f64,
+        /// `(saved-take time, x, y)` points; the first is at `enter`.
+        targets: Vec<(f64, f64, f64)>,
     }
 
     let blocks: Vec<Block> = cluster_clicks(&clicks)
@@ -521,17 +541,36 @@ pub fn build_camera(
             // The pointer is not always where the work is: a tap that only
             // focuses a window lands wherever the pointer was parked. If the
             // block's own window shows more change somewhere else, follow it.
-            let (cx, cy) = refine
+            // A long block can move more than once, so the hook returns a
+            // track rather than a single centre.
+            let mut targets = refine
                 .and_then(|refine| refine(enter, hold, click_x, click_y))
-                .filter(|(x, y)| x.is_finite() && y.is_finite())
-                .unwrap_or((click_x, click_y));
+                .unwrap_or_default();
+            targets.retain(|(t, x, y)| t.is_finite() && x.is_finite() && y.is_finite());
+            targets.sort_by(|a, b| a.0.total_cmp(&b.0));
+            for target in &mut targets {
+                target.0 = target.0.max(enter);
+            }
+            if targets.is_empty() {
+                targets.push((enter, click_x, click_y));
+            } else {
+                // The block must be aimed when it eases in, not part-way.
+                targets[0].0 = enter;
+            }
+            // A continuing change (a selection being dragged, a typing burst)
+            // can outlast the usual hold; keep the block alive for it.
+            let last = targets.last().map(|target| target.0).unwrap_or(enter);
+            let hold = if last > hold + 0.01 {
+                last + HOLD_AFTER_LAST_SECS / 2.0
+            } else {
+                hold
+            };
             Block {
                 start: (enter - EASE_IN_SECS).max(0.0),
                 enter,
                 hold,
                 end: hold + EASE_OUT_SECS,
-                cx,
-                cy,
+                targets,
             }
         })
         .collect();
@@ -549,24 +588,37 @@ pub fn build_camera(
             &mut frames,
             Keyframe::new(first.start, 1.0, centre_x, centre_y),
         );
-        let mut enter = first.enter.max(first.start + 0.001);
-        let mut current = clamped_center(first.cx, first.cy, width, height, camera.depth);
+        let at = first.enter.max(first.start + 0.001);
+        let (_, first_x, first_y) = *first.targets.first().expect("targets is never empty");
+        let mut current = clamped_center(first_x, first_y, width, height, camera.depth);
         push_frame(
             &mut frames,
-            Keyframe::new(enter, camera.depth, current.0, current.1),
+            Keyframe::new(at, camera.depth, current.0, current.1),
+        );
+        let mut last_t = at;
+        push_targets(
+            &mut frames,
+            &first.targets,
+            &mut current,
+            &mut last_t,
+            width,
+            height,
+            camera.depth,
+            deadband,
         );
 
         let mut last = index;
         while last + 1 < blocks.len() && blocks[last + 1].start <= blocks[last].end {
             last += 1;
             let next = &blocks[last];
-            let next_enter = next.enter.max(enter + 0.001);
-            let next_centre = clamped_center(next.cx, next.cy, width, height, camera.depth);
+            let next_enter = next.enter.max(last_t + 0.001);
+            let (_, next_x, next_y) = *next.targets.first().expect("targets is never empty");
+            let next_centre = clamped_center(next_x, next_y, width, height, camera.depth);
             let dx = next_centre.0 - current.0;
             let dy = next_centre.1 - current.1;
             if (dx * dx + dy * dy).sqrt() > deadband {
                 let pan_start = next_enter - PAN_SECS;
-                if pan_start > enter + 0.001 {
+                if pan_start > last_t + 0.001 {
                     // Hold the old view until the pan begins, so the camera
                     // does not drift across the whole block.
                     push_frame(
@@ -579,12 +631,22 @@ pub fn build_camera(
                     Keyframe::new(next_enter, camera.depth, next_centre.0, next_centre.1),
                 );
                 current = next_centre;
-                enter = next_enter;
+                last_t = next_enter;
             }
+            push_targets(
+                &mut frames,
+                &next.targets,
+                &mut current,
+                &mut last_t,
+                width,
+                height,
+                camera.depth,
+                deadband,
+            );
         }
 
         let final_block = &blocks[last];
-        let hold = final_block.hold.max(enter + 0.001);
+        let hold = final_block.hold.max(last_t + 0.001);
         push_frame(
             &mut frames,
             Keyframe::new(hold, camera.depth, current.0, current.1),
@@ -599,6 +661,52 @@ pub fn build_camera(
     camera.keyframes = frames;
     camera.normalize(width, height);
     camera
+}
+
+/// Append the later points of one block, panning between them.
+///
+/// `targets[0]` is the block's entry point and is handled by the caller.
+/// Times are clamped forward so a keyframe can never run backwards.
+#[allow(clippy::too_many_arguments)]
+fn push_targets(
+    frames: &mut Vec<Keyframe>,
+    targets: &[(f64, f64, f64)],
+    current: &mut (f64, f64),
+    last_t: &mut f64,
+    width: f64,
+    height: f64,
+    depth: f64,
+    deadband: f64,
+) {
+    for &(t, x, y) in targets.iter().skip(1) {
+        let at = t.max(*last_t + 0.001);
+        let next = clamped_center(x, y, width, height, depth);
+        let dx = next.0 - current.0;
+        let dy = next.1 - current.1;
+        let moved = (dx * dx + dy * dy).sqrt();
+        // Dense points come from a drag and must move continuously. A sparse
+        // point is a click/jump: hold the old view, then pan over PAN_SECS.
+        if at - *last_t > PAN_SECS + 0.02 {
+            if moved <= deadband {
+                continue;
+            }
+            let pan_start = at - PAN_SECS;
+            if pan_start > *last_t + 0.001 {
+                push_frame(
+                    frames,
+                    Keyframe::new(pan_start, depth, current.0, current.1),
+                );
+            }
+            push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
+        } else {
+            if moved <= 1.0 {
+                continue;
+            }
+            push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
+        }
+        *current = next;
+        *last_t = at;
+    }
 }
 
 fn push_frame(frames: &mut Vec<Keyframe>, frame: Keyframe) {
@@ -912,11 +1020,15 @@ mod tests {
         assert_eq!(telemetry.capture.monitor, "DP-1");
         assert_eq!(telemetry.stop_t, 10.0);
         // One `down` in the fixture: the `up` state is not a click, and the
-        // `move` and `sync` records carry no click.
+        // `move` and `sync` records are kept as pointer samples.
         assert_eq!(telemetry.clicks.len(), 1);
         assert_eq!(telemetry.clicks[0].t, 1.5);
         assert_eq!(telemetry.clicks[0].x, 100.5);
         assert_eq!(telemetry.clicks[0].y, 200.25);
+        assert_eq!(
+            telemetry.samples,
+            vec![(1.234, 100.5, 200.25), (2.0, 100.0, 200.0)]
+        );
     }
 
     #[test]
@@ -1171,7 +1283,7 @@ mod tests {
     fn a_refiner_can_aim_a_block_at_the_work() {
         // A tap that only focused the window lands in an empty area; the screen
         // changed at the prompt instead, so the block follows the change.
-        let refine = |_enter: f64, _hold: f64, _x: f64, _y: f64| Some((2000.0, 600.0));
+        let refine = |enter: f64, _hold: f64, _x: f64, _y: f64| Some(vec![(enter, 2000.0, 600.0)]);
         let camera = build_camera(
             &[click(2.0, 1000.0, 1200.0)],
             true,
@@ -1209,6 +1321,115 @@ mod tests {
             .expect("a zoomed keyframe");
         assert_eq!(peak.x, 1000.0);
         assert_eq!(peak.y, 1200.0);
+    }
+
+    #[test]
+    fn a_refiner_can_follow_a_moving_target() {
+        // The work moves from the left to the right while the block plays.
+        // The camera must pan instead of holding the first target.
+        let refine = |enter: f64, _hold: f64, _x: f64, _y: f64| {
+            Some(vec![(enter, 1000.0, 1200.0), (enter + 0.8, 2200.0, 300.0)])
+        };
+        let camera = build_camera(
+            &[click(2.0, 1000.0, 1200.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            Some(&refine),
+        );
+
+        assert!(camera
+            .keyframes
+            .windows(2)
+            .all(|pair| pair[0].t <= pair[1].t));
+        let first = camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.t == 2.0)
+            .expect("the block eases in");
+        assert_eq!(first.zoom, 2.0);
+        assert_eq!(first.x, 1000.0);
+        let pan = camera
+            .keyframes
+            .iter()
+            .find(|frame| (frame.t - 2.8).abs() < 1e-9)
+            .expect("the block pans to the later target");
+        assert_eq!(pan.zoom, 2.0);
+        assert_eq!(pan.x, 2160.0);
+        assert_eq!(pan.y, 405.0);
+    }
+
+    #[test]
+    fn dense_pointer_targets_follow_continuously() {
+        // One target every 0.23 s, like a pointer drag. No 450 ms hold may be
+        // inserted between them or the pan would stutter.
+        let refine = |enter: f64, _hold: f64, _x: f64, _y: f64| {
+            let mut points = vec![(enter, 720.0, 660.0)];
+            for step in 1..=10 {
+                let t = enter + step as f64 * 0.23;
+                points.push((t, 720.0 + step as f64 * 60.0, 660.0 + step as f64 * 40.0));
+            }
+            Some(points)
+        };
+        let camera = build_camera(
+            &[click(2.0, 292.0, 660.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            Some(&refine),
+        );
+
+        let zoomed: Vec<&Keyframe> = camera
+            .keyframes
+            .iter()
+            .filter(|frame| frame.zoom == 2.0)
+            .collect();
+        assert!(zoomed.len() >= 10, "keyframes were {zoomed:?}");
+        assert!(zoomed.windows(2).all(|pair| pair[0].t < pair[1].t));
+        // The final hold after the drag may be a normal 450 ms tail; the pan
+        // points before it must not be split by one.
+        let drag_frames = &zoomed[..zoomed.len().saturating_sub(1)];
+        assert!(!drag_frames
+            .windows(2)
+            .any(|pair| (pair[1].t - pair[0].t - PAN_SECS).abs() < 0.02));
+    }
+
+    #[test]
+    fn a_target_past_the_hold_extends_the_block() {
+        // A drag that outlasts the usual 0.9 s hold keeps the zoom alive.
+        let refine = |enter: f64, _hold: f64, _x: f64, _y: f64| {
+            Some(vec![(enter, 1000.0, 1200.0), (enter + 2.0, 2200.0, 300.0)])
+        };
+        let camera = build_camera(
+            &[click(2.0, 1000.0, 1200.0)],
+            true,
+            2.0,
+            2880.0,
+            1620.0,
+            0.0,
+            Some(&refine),
+        );
+
+        let pan = camera
+            .keyframes
+            .iter()
+            .find(|frame| (frame.t - 4.0).abs() < 1e-9)
+            .expect("the block keeps following past the click hold");
+        assert_eq!(pan.x, 2160.0);
+        let out = camera
+            .keyframes
+            .last()
+            .expect("the block eases out at the end");
+        assert_eq!(out.zoom, 1.0);
+        assert!(
+            (out.t - (4.0 + HOLD_AFTER_LAST_SECS / 2.0 + EASE_OUT_SECS)).abs() < 1e-9,
+            "ease-out was at {}",
+            out.t
+        );
     }
 
     #[test]

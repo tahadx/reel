@@ -164,6 +164,10 @@ zoom:
   only focuses a window clicks wherever the pointer was parked, so this keeps
   the zoom on the work rather than on an empty area. A click that changes the
   picture where it landed keeps its place.
+- A drag that starts just after the click — selecting text, moving a window,
+  drawing a line — is followed continuously. The camera pans with the pointer
+  in small steps instead of snapping between clicks, so the selection stays in
+  frame. The follow ends when the pointer stops and the block then holds.
 - Each block eases in over 500 ms before the first click, holds through the
   last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
   keyframe.
