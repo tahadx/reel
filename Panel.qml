@@ -165,7 +165,7 @@ Panel {
     { keys: "u", what: "share the selected take" },
     { keys: "n", what: "rename the selected take" },
     { keys: "c", what: "copy the selected take's path" },
-    { keys: "o", what: "open the recordings folder" },
+    { keys: "o", what: "open the recordings folder and close" },
     { keys: "q", what: "close the panel" },
     { keys: "esc", what: "go back, then close" }
   ]
@@ -692,7 +692,9 @@ Panel {
   function openVideo(row) {
     if (root.renameInFlightPath !== "") return
     var command = Model.playCommand(row && row.path)
-    if (command.length > 0) Quickshell.execDetached(command)
+    if (command.length === 0) return
+    Quickshell.execDetached(command)
+    root.close()
   }
 
   // Cut is the only history action that launches Omacut. Opening a take always
@@ -705,10 +707,12 @@ Panel {
       return
     }
     Quickshell.execDetached(command)
+    root.close()
   }
 
   function openFolder() {
     Quickshell.execDetached(["xdg-open", root.outputDir])
+    root.close()
   }
 
   function copyPath(path) {

@@ -150,6 +150,8 @@ right-click starts or pauses, and middle-click opens the recordings folder.
 Pause or resume from the panel, the bar's right-click action, or `p`. Open
 history from the **History** tab in the panel's navigation strip, or with
 `Shift+H`. Drag a take row into another app to copy the video file there.
+Opening a take in `mpv` or cutting it in Omacut closes the panel; opening the
+recordings folder does too.
 
 A window is recorded as its **visible screen rectangle**, not an isolated
 toplevel surface. Overlapping windows and window movement can appear in the
@@ -175,7 +177,7 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `u` | Share the selected take with LocalSend |
 | `n` | Rename the selected take |
 | `c` | Copy the selected take's path |
-| `o` | Open the recordings folder |
+| `o` | Open the recordings folder and close the panel |
 
 ### Zoom during a take
 

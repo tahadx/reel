@@ -553,7 +553,7 @@ missing from history between Stop and the saved file.
   take. A finished carry closes the panel so it cannot cover the target window.
 - Trash animation: fade `120` ms, then collapse height `160` ms. No spinner, no
   confirmation dialog.
-- Click opens the video. Right-click opens the actions menu.
+- Click opens the video and closes the panel. Right-click opens the actions menu.
 
 ### 6.9 Empty state
 
