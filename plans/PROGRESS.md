@@ -68,8 +68,11 @@ This must land once, before feature branches merge. Details in
    the plate instead of double-applying effects.
 7. **UI surface**: rename the **Zoom** tab to **Visuals**, keep Manual zoom and
    Auto zoom there, and move pointer capture plus all pointer appearance/effect
-   rows into it. The tab count stays at four; `1–4` and `Shift+H` do not change.
-   Defaults preserve today: baked pointer, all effects off.
+   rows into it. Remove the **Output** tab and fold its contents into **Media**
+   under a new **Saving** section (saved notification, filename prefix,
+   recordings path). The tab count is now three settings tabs plus History;
+   `1–3` and `Shift+H` are the shortcuts. Defaults preserve today: baked
+   pointer, all effects off.
 
 ## Open shared decisions (not feature approvals)
 
