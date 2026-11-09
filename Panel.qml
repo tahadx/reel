@@ -3020,6 +3020,11 @@ Panel {
       take.dragMime = ({})
       root.carryingFile = false
       dragClickGuard.restart()
+      // The carry only exists to hand the take to another window, so the panel
+      // must not stay on top of what it was dropped into. Close whenever the
+      // platform ends the drag, including targets that never negotiate a drop
+      // action and so report IgnoreAction for a drop that landed.
+      Qt.callLater(root.close)
     }
 
     Drag.dragType: Drag.Automatic

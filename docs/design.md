@@ -545,7 +545,7 @@ missing from history between Stop and the saved file.
 - Drag: press and move past the platform drag threshold to copy the video file.
   The payload is `text/uri-list` plus `text/plain`. The panel mask becomes empty
   for the carry so the drop reaches the window below; a drag never opens the
-  take.
+  take. A finished carry closes the panel so it cannot cover the target window.
 - Trash animation: fade `120` ms, then collapse height `160` ms. No spinner, no
   confirmation dialog.
 - Click opens the video. Right-click opens the actions menu.
