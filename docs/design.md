@@ -214,7 +214,7 @@ here.`
   `Style.space(410)`).
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `8` above, `2` below) + `1` px hairline. The strip is
-  navigation: four settings tabs and History.
+  navigation: three settings tabs and History.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
@@ -418,7 +418,7 @@ The strip sits above the scroll area and stays fixed on **every** destination,
 History included, while the body scrolls underneath it. It is the panel's only
 navigation.
 
-- Height `30`; four settings destinations share the strip, then History takes a
+- Height `30`; three settings destinations share the strip, then History takes a
   wider slot whose extra width is the separation — no rule between them. The
   strip keeps `Style.space(8)` above and `Style.space(2)` below.
 - Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
@@ -438,14 +438,13 @@ navigation.
 
 ### 6.5.1 Settings taxonomy
 
-The four settings tabs are fixed. New settings must fit one of them; History
+The three settings tabs are fixed. New settings must fit one of them; History
 is not a setting.
 
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Media   | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container | Output location, zoom, or pointer appearance |
+| Media   | Capture section: countdown, webcam corner, webcam device. Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or key bindings |
 | Visuals | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
-| Output  | Saved notification, filename prefix, recordings path                      | Recording inputs                 |
 | Keys    | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
 
@@ -460,8 +459,8 @@ Rules:
   off by default. Pointer capture and pointer appearance follow.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
-- Media uses section labels so the capture, audio, and video groups still scan
-  quickly.
+- Media uses section labels so the capture, audio, video, and saving groups
+  still scan quickly.
 
 ### 6.6 Settings rows
 

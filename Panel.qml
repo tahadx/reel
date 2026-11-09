@@ -151,7 +151,8 @@ Panel {
     { key: "quality", label: "Quality", glyph: "󰓅" },
     { key: "codec", label: "Video codec", glyph: "󰅴" },
     { key: "resolution", label: "Resolution cap", glyph: "󰍹" },
-    { key: "container", label: "Container", glyph: "󰏗" }
+    { key: "container", label: "Container", glyph: "󰏗" },
+    { key: "notifications", label: "Saved notification", glyph: "󰂚", section: "Saving" }
   ]
   readonly property var shortcutRows: [
     { keys: "Shift+U", what: "update Reel" },
@@ -160,7 +161,7 @@ Panel {
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
     { keys: "tab", what: "switch sections or settings tabs" },
-    { keys: "1–4", what: "switch settings tabs" },
+    { keys: "1–3", what: "switch settings tabs" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -181,12 +182,9 @@ Panel {
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "cursor", label: "Record the pointer", glyph: "󰍽" }
     ] },
-    { id: "output", label: "Output", rows: [
-      { key: "notifications", label: "Saved notification", glyph: "󰂚" }
-    ] },
     { id: "keys", label: "Keys", rows: root.shortcutRows }
   ]
-  // The strip is navigation, not settings: the four settings tabs plus History,
+  // The strip is navigation, not settings: the three settings tabs plus History,
   // which is a page beside them. Keeping the same strip on both pages is what
   // makes History a destination rather than a mode with its own frame.
   readonly property var navDestinations: {
@@ -1813,7 +1811,7 @@ Panel {
           }
         }
 
-        // The strip is the panel's navigation: four settings tabs and History.
+        // The strip is the panel's navigation: three settings tabs and History.
         // It stays fixed on both pages so History is reachable from the panel
         // itself, not only from a shortcut.
         Item {
@@ -1833,7 +1831,7 @@ Panel {
               delegate: Item {
                 id: settingsTabItem
                 required property var modelData
-                // The four settings tabs share the strip; History takes a wider
+                // The three settings tabs share the strip; History takes a wider
                 // slot so its longer label and hint keep their air, and the
                 // extra width itself separates it from the settings run.
                 readonly property real historyShare: 0.24
@@ -1997,7 +1995,7 @@ Panel {
                 }
 
               Column {
-                visible: root.settingsTab === "output"
+                visible: root.settingsTab === "media"
                 width: parent.width
                 spacing: Style.space(4)
 
@@ -2051,7 +2049,7 @@ Panel {
               }
 
               Text {
-                visible: root.settingsTab === "output"
+                visible: root.settingsTab === "media"
                 textFormat: Text.PlainText
                 text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
                 color: root.dim
