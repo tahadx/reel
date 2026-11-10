@@ -1610,6 +1610,8 @@ mod tests {
             desktop: true,
             mic: false,
             noise_cancellation: true,
+            desktop_device: String::new(),
+            microphone_device: String::new(),
             cursor: true,
             webcam: "off".into(),
             webcam_device: String::new(),
@@ -1631,6 +1633,8 @@ mod tests {
         assert_eq!(value["desktopAudio"], true);
         assert_eq!(value["microphoneAudio"], false);
         assert_eq!(value["noiseCancellation"], true);
+        assert_eq!(value["desktopDevice"], "");
+        assert_eq!(value["microphoneDevice"], "");
         assert_eq!(value["manualZoom"], true);
         assert_eq!(value["zoomMax"], 2.0);
     }
