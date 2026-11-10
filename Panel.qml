@@ -1638,32 +1638,46 @@ Panel {
       anchors.centerIn: parent
       width: Math.min(Style.bar.iconCanvas, button.barSize - Style.space(4))
       height: width
-      readonly property real unit: width / 24
-      // The screen outline centres on its own box, which reads a pixel high
-      // beside the bar's glyphs. Drop the mark to the bar's centre line where
-      // the other icons sit.
-      anchors.verticalCenterOffset: Style.space(1)
       scale: button.pressScale
 
-      Rectangle {
-        id: screenOutline
-        x: 2.5 * parent.unit
-        y: 4.5 * parent.unit
-        width: 19 * parent.unit
-        height: 15 * parent.unit
-        radius: 4.5 * parent.unit
-        color: "transparent"
-        border.width: Math.max(1, Math.round(1.6 * parent.unit))
-        border.color: root.barInk
-        opacity: 0.9
-      }
+      // The outline and the dot share one canvas. As two separate rectangles
+      // each rounded its own edges to the pixel grid, which walked the dot a
+      // device pixel off the screen's centre as the bar's text size changed;
+      // painted together they always share one centre. The mark itself sits on
+      // the bar's centre line like the glyphs beside it.
+      Canvas {
+        id: idleCanvas
+        anchors.fill: parent
+        renderStrategy: Canvas.Cooperative
+        property color ink: root.barInk
+        onInkChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
 
-      Rectangle {
-        anchors.centerIn: screenOutline
-        width: 6.4 * parent.unit
-        height: 6.4 * parent.unit
-        radius: 3.2 * parent.unit
-        color: root.barInk
+        onPaint: {
+          var ctx = getContext("2d")
+          ctx.reset()
+          var unit = width / 24
+          if (unit <= 0) return
+
+          // The 19 × 15 screen with its stroke kept inside the box, then the
+          // 6.4 record dot on the same centre point.
+          var line = Math.max(1, Math.round(1.6 * unit))
+          ctx.strokeStyle = idleCanvas.ink
+          ctx.lineWidth = line
+          ctx.globalAlpha = 0.9
+          ctx.beginPath()
+          ctx.roundedRect(2.5 * unit + line / 2, 4.5 * unit + line / 2,
+            19 * unit - line, 15 * unit - line,
+            4.5 * unit - line / 2, 4.5 * unit - line / 2)
+          ctx.stroke()
+
+          ctx.globalAlpha = 1
+          ctx.fillStyle = idleCanvas.ink
+          ctx.beginPath()
+          ctx.arc(width / 2, height / 2, 3.2 * unit, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
     }
 

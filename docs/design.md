@@ -316,9 +316,11 @@ Rules:
   `Style.bar.iconCanvas`. Its size is clamped to the bar's own thickness
   (`min(iconCanvas, barSize - 4)`), so a thin or scaled bar never clips it, and
   it stays upright on a vertical bar.
-- The outline's box centre reads a pixel high beside the bar's glyphs, so the
-  whole mark is dropped `Style.space(1)` onto the bar's centre line, where the
-  other icons sit.
+- The outline and the dot are painted in one `Canvas`, not as two rectangles:
+  separate items round their own edges to the pixel grid, which walked the dot
+  a device pixel off the screen's centre as the bar's text size changed.
+  Painted together they share one centre at every size, and the mark sits on
+  the bar's centre line like the glyphs beside it.
 - The mark is bar ink: outline at `0.9`, dot at full, so it reads like the
   bar's own label on a transparent strip. A press shrinks it with the widget,
   so the click is felt.
