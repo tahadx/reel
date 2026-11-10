@@ -164,12 +164,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         "off",
     ));
     let desktop_device = effective(&options.desktop_device, &stored, "desktopDevice", "");
-    let microphone_device = effective(
-        &options.microphone_device,
-        &stored,
-        "microphoneDevice",
-        "",
-    );
+    let microphone_device = effective(&options.microphone_device, &stored, "microphoneDevice", "");
     let cursor = util::normalize_switch(&effective(&options.cursor, &stored, "cursor", "on"));
     let webcam = util::pick_choice(
         &effective(&options.webcam, &stored, "webcam", "off"),
@@ -320,14 +315,20 @@ pub fn list_audio_devices() -> Vec<AudioDevice> {
             if id.is_empty() {
                 return None;
             }
-            let kind = if id == "default_output" || id.ends_with(".monitor") || id.contains("output") {
-                "output"
-            } else if id == "default_input" || id.contains("input") || id.contains("source") || id.starts_with("alsa_input") || id.starts_with("bluez_input") {
-                "input"
-            } else {
-                "unknown"
-            }
-            .to_string();
+            let kind =
+                if id == "default_output" || id.ends_with(".monitor") || id.contains("output") {
+                    "output"
+                } else if id == "default_input"
+                    || id.contains("input")
+                    || id.contains("source")
+                    || id.starts_with("alsa_input")
+                    || id.starts_with("bluez_input")
+                {
+                    "input"
+                } else {
+                    "unknown"
+                }
+                .to_string();
             Some(AudioDevice { id, label, kind })
         })
         .collect()
@@ -336,7 +337,10 @@ pub fn list_audio_devices() -> Vec<AudioDevice> {
 fn device_exists(devices: &str, id: &str) -> bool {
     devices.lines().any(|line| {
         let line = line.trim();
-        line == id || line.strip_prefix(id).is_some_and(|rest| rest.starts_with('|'))
+        line == id
+            || line
+                .strip_prefix(id)
+                .is_some_and(|rest| rest.starts_with('|'))
     })
 }
 
