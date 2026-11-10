@@ -15,6 +15,11 @@ bin/dist/** binary linguist-generated
 Cargo.lock linguist-generated
 .github/** linguist-vendored
 
+# Third-party notices are vendored verbatim for redistribution. They still ship
+# in the tarball, but their bulk (the Rust COPYRIGHT-library.html alone is 1.5 MB)
+# must not make GitHub label the project HTML.
+licenses/** linguist-vendored
+
 # Tests are development-only: keep them out of the published release tarball
 # (git archive / GitHub release assets) and out of language statistics. They
 # remain in the working tree and in CI.
