@@ -1508,9 +1508,9 @@ Panel {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // The take's clock: 0:00 at rest and while a take is being armed (the
-  // countdown is on screen, so the bar does not echo it), the live time while
-  // frames run, and the take's last time while it is saved.
+  // The take's clock: 0:00 while a take is being armed (the countdown is on
+  // screen, so the bar does not echo it), the live time while frames run, and
+  // the take's last time while it is saved.
   property int savedElapsed: 0
 
   function barClockText() {
@@ -1562,16 +1562,19 @@ Panel {
   readonly property real barPillSavingFillAlpha: root.barOnLight ? 0.10 : 0.04
   readonly property real barPillSavingLineAlpha: root.barOnLight ? 0.30 : 0.12
 
-  // The take's pill, for every state it can be in: parked at 0:00, counting
-  // while frames run, frozen when paused, dimmed while the save lands.
+  // The take's pill while a take is live, and the resting mark when nothing
+  // runs. Both are drawings sized from the bar's own tokens, so the widget
+  // follows the bar's thickness instead of assuming a fixed slot.
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.barVertical ? -1 : root.barPillWidth
-    fixedHeight: root.barVertical ? root.barPillWidth : -1
+    fixedWidth: root.barVertical ? -1
+      : (root.busy ? root.barPillWidth : Style.bar.iconSlot)
+    fixedHeight: root.barVertical
+      ? (root.busy ? root.barPillWidth : Style.bar.iconSlot) : -1
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
     onPressed: function(button) {
@@ -1586,8 +1589,51 @@ Panel {
       }
     }
 
+    // The resting mark: a small screen with a record dot, drawn rather than
+    // borrowed from the icon font so it keeps its shape at every bar size and
+    // on a vertical bar. It gives way to the take's pill while frames run, so
+    // the bar still answers "is it recording?" without opening the panel.
+    Item {
+      id: idleMark
+      visible: !root.busy
+      anchors.centerIn: parent
+      width: Math.min(Style.bar.iconCanvas, button.barSize - Style.space(4))
+      height: width
+      readonly property real unit: width / 24
+      // The screen outline centres on its own box, which reads a pixel high
+      // beside the bar's glyphs. Drop the mark to the bar's centre line where
+      // the other icons sit.
+      anchors.verticalCenterOffset: Style.space(1)
+      scale: button.pressScale
+
+      Rectangle {
+        id: screenOutline
+        x: 2.5 * parent.unit
+        y: 4.5 * parent.unit
+        width: 19 * parent.unit
+        height: 15 * parent.unit
+        radius: 4.5 * parent.unit
+        color: "transparent"
+        border.width: Math.max(1, Math.round(1.6 * parent.unit))
+        border.color: root.barInk
+        opacity: 0.9
+      }
+
+      Rectangle {
+        anchors.centerIn: screenOutline
+        width: 6.4 * parent.unit
+        height: 6.4 * parent.unit
+        radius: 3.2 * parent.unit
+        color: root.barInk
+      }
+    }
+
+    // The take's pill, for every state a live take can be in: armed at 0:00,
+    // counting while frames run, frozen when paused, dimmed while the save
+    // lands.
     Item {
       id: takePill
+      visible: root.busy
       anchors.centerIn: parent
       width: root.barVertical ? root.barPillHeight : root.barPillWidth
       height: root.barVertical ? root.barPillWidth : root.barPillHeight

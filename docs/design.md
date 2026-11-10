@@ -299,37 +299,49 @@ Rules:
 
 ### 6.1 Bar widget
 
-The bar answers “what is happening?” with the take's pill. It is there at
-rest too, parked at `0:00`, so the bar never swaps drawings as the state
-changes.
+The bar answers “what is happening?” with two drawings: the resting mark when
+nothing runs, and the take's pill while a take is live. Only the pill carries
+a clock.
 
 | State            | Bar                                                    |
 | :--------------- | :----------------------------------------------------- |
-| Idle             | Pill parked at `0:00`; dot and clock in the bar ink   |
-| Take             | The same pill, counting                                |
+| Idle             | Drawn screen with a record dot, in the bar's ink       |
+| Take             | The pill, counting                                     |
 | Disabled / error | Never render logs or error text in the bar             |
 
 Rules:
 
-- One mark, not seven. The pill is `Style.space(20)` tall, radius
-  `height / 2`, drawn from the bar's ink at 5% with a 14% hairline on a dark
-  strip. Its width comes from the clock's advance, so the timer never clips;
-  the same width is reserved at rest, so starting a take does not move the bar.
+- The resting mark is drawn, not borrowed from the icon font: a `19 × 15`
+  screen outline with a `6.4` record dot inside, on a 24-unit canvas from
+  `Style.bar.iconCanvas`. Its size is clamped to the bar's own thickness
+  (`min(iconCanvas, barSize - 4)`), so a thin or scaled bar never clips it, and
+  it stays upright on a vertical bar.
+- The outline's box centre reads a pixel high beside the bar's glyphs, so the
+  whole mark is dropped `Style.space(1)` onto the bar's centre line, where the
+  other icons sit.
+- The mark is bar ink: outline at `0.9`, dot at full, so it reads like the
+  bar's own label on a transparent strip. A press shrinks it with the widget,
+  so the click is felt.
+- The pill is `Style.space(20)` tall, radius `height / 2`, drawn from the bar's
+  ink at 5% with a 14% hairline on a dark strip. Its width comes from the
+  clock's advance, so the timer never clips. The bar widens from
+  `Style.bar.iconSlot` to the pill when a take starts and keeps that width for
+  the whole take, so the clock never moves the bar.
 - A left or right bar is vertical, and the pill turns with it: the same
   capsule now `Style.space(20)` wide and running down the bar for the clock's
   advance, dot at the top, clock reading down the capsule. The bar's own
   thickness sets the slot, so the mark never hangs past the strip and clips.
-- The bar can be transparent, so it has no surface colour of its own. The pill
-  is built from `bar.barForeground` — the ink Omarchy picks against the
-  wallpaper strip behind the bar (`omarchy-bar-text-color`) — never from the
-  theme's raw foreground, which knows nothing about the wallpaper.
+- The bar can be transparent, so it has no surface colour of its own. Both
+  drawings use `bar.barForeground` — the ink Omarchy picks against the wallpaper
+  strip behind the bar (`omarchy-bar-text-color`) — never the theme's raw
+  foreground, which knows nothing about the wallpaper.
 - Dark ink means a light strip: the capsule goes to 10% fill and a 30%
   hairline. Light ink means a dark strip and keeps 5% / 14%. The split is 0.5
   raw luminance; theme inks sit well clear of it on either side.
-- The clock carries the state: `0:00` at rest and while the take is armed (the
-  countdown is already on screen, so the bar does not echo it), the live time
-  while frames run, the frozen time while paused, the take's last time while it
-  is written out, and back to `0:00` when the save lands.
+- The clock carries the take: `0:00` while the take is armed (the countdown is
+  already on screen, so the bar does not echo it), the live time while frames
+  run, the frozen time while paused, and the take's last time while it is
+  written out. The resting mark returns when the save lands.
 - The clock and the dot read exactly like the hour label: full
   `bar.barForeground`, never `muted` or an alpha of the ink. Accent belongs to
   frames running: the dot turns accent and pulses between `0.55` and full while
@@ -337,12 +349,13 @@ Rules:
 - Saving is the same pill sinking into dim and breathing between `0.60` and
   `0.85` opacity until the save lands — dim enough to read as closing, bright
   enough to keep the last time legible. Reduce motion holds it at `0.72`.
-- Nothing enters, so nothing needs an entrance: the pill is always present and
-  only the dot pulse and the saving breath move.
+- The mark and the pill swap in place with no entrance animation: the bar's
+  width change is the state change, and the dot pulse and saving breath are the
+  only bar loops.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
 - Updates belong to the panel, not the bar: the header readout carries the
-  cue. The bar stays one mark with one meaning.
+  cue. The bar stays two drawings with one meaning.
 - `Style.reduceMotion` disables the two loops rather than shortening them: the
   dot holds full and the saving pill holds a steady dim.
 - Hover uses one shared bar hover fill. No per-state hover color.
@@ -760,7 +773,7 @@ Rules:
 
 Spend polish only here:
 
-1. **Start.** The parked `0:00` gives way to the live clock as frames run.
+1. **Start.** The resting mark gives way to the take's pill as frames run.
 2. **Open.** The panel fades and lifts once; nothing inside jumps.
 3. **Save.** The toast confirms the save and the new take appears at the top of
    history.
@@ -772,8 +785,8 @@ If a fourth signature animation is proposed, remove one of these instead.
 ## 9. Iconography
 
 - Nerd Font glyphs only in the panel. No emoji, no mixed icon sets.
-- The bar has one mark, drawn: the take's pill. No glyphs and no icons in the
-  bar at all. The hero leads with the same pill.
+- The bar has two drawings, never glyphs: the resting screen mark, and the
+  take's pill. The hero leads with the same pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Every row and action gets its own glyph. Never reuse one glyph for two
   different meanings, even across tabs: a camera is not a camera device, a

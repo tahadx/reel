@@ -20,13 +20,13 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.
-- A bar mark for recording, paused, and saving states.
+- A bar mark for the resting, recording, paused, and saving states.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
   menu with rename, share, and trash, path copy, and drag-out to drop the video
   into another app. Missing thumbnails are rebuilt from the take.
 - Keyboard-first panel.
-- An update check: the bar and panel mark a waiting update, and the header
-  button checks again on demand.
+- An update check: the panel header marks a waiting update and checks again on
+  demand.
 
 ## Requirements
 
@@ -75,10 +75,10 @@ update restarts the Omarchy shell at the end, so the new panel is loaded without
 a manual `omarchy-restart-shell`.
 
 Reel also checks for updates by itself: once when the shell starts and then once
-an hour. A waiting update shows as an accent dot on the bar mark and a newer
-version with an accent arrow in the panel header. That readout checks again when
-Reel is current, so a manual refresh never needs a terminal. The check contacts
-only the plugin's own git origin; a result is cached for the hour.
+an hour. A waiting update shows as a newer version with an accent arrow in the
+panel header. That readout checks again when Reel is current, so a manual
+refresh never needs a terminal. The check contacts only the plugin's own git
+origin; a result is cached for the hour.
 
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
 the installer from the freshly updated plugin checkout. The installer relinks
