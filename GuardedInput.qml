@@ -25,11 +25,17 @@ TextInput {
       || (event.modifiers & Qt.ShiftModifier && event.key === Qt.Key_Insert)
   }
 
+  // Kept separate from the Keys handler so tests can feed it a plain object:
+  // QTest aborts on Qt versions that cannot derive text for non-ASCII keys.
+  function handleKeyEvent(event) {
+    if (!isPasteShortcut(event)) return false
+    event.accepted = true
+    boundedPaste()
+    return true
+  }
+
   Keys.onPressed: function(event) {
-    if (guardInput.isPasteShortcut(event)) {
-      event.accepted = true
-      guardInput.boundedPaste()
-    }
+    guardInput.handleKeyEvent(event)
   }
 
   MouseArea {

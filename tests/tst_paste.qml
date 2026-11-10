@@ -32,10 +32,17 @@ TestCase {
   }
 
   function test_dedicatedPasteKeyIsIntercepted() {
-    // Qt maps Qt::Key_Paste to QKeySequence::Paste for every platform. If the
-    // handler does not run, the native TextInput would fetch the clipboard
-    // synchronously.
-    keyClick(Qt.Key_Paste)
+    // Qt maps Qt::Key_Paste to QKeySequence::Paste for every platform. Drive
+    // the handler directly rather than through keyClick: QTest on older Qt
+    // (Ubuntu 24.04 ships 6.4) asserts when it derives text for this key.
+    var event = {
+      key: Qt.Key_Paste,
+      modifiers: Qt.NoModifier,
+      accepted: false,
+      matches: function() { return false }
+    }
+    compare(guarded.handleKeyEvent(event), true)
+    compare(event.accepted, true)
     compare(pasteSpy.count, 1)
   }
 
