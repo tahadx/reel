@@ -83,9 +83,15 @@ of it. The installer refuses while Reel is recording or saving.
 
 `reel update --check` compares the installed checkout with the remote head and
 reports whether an update is waiting. It contacts the plugin's git origin, so it
-is the only network access Reel makes. The shell service runs it once when it
-starts and then once an hour; a result is cached for the hour, so a restart
-inside that window reads the cache instead of fetching again. `--force` ignores
+is the only network access Reel makes. If the effective origin URL (after git's
+`insteadOf` rewrites) embeds a credential or a query token, the check refuses to
+fetch: git would put that URL in the remote helper's argv, where another local
+account could read it. Git's remote-helper URL forms (`https::…`, `ext::…`)
+are refused too, since the background check has no reason to use them. Keep
+secrets in a git credential helper. The shell service runs the check once when
+it starts and then once an hour; a result is
+cached for the hour, so a restart inside that window reads the cache instead of
+fetching again. `--force` ignores
 the cache, and `--json` prints the result for the panel. An update waiting shows
 as an accent dot on the bar mark and a newer version with an accent arrow in the
 panel header; that readout checks again when the install is current, and reads
@@ -125,6 +131,14 @@ reel config apply '{"fps": 60}'
 ```
 
 If the JSON argument to `config apply` is omitted, Reel reads it from stdin.
+
+The panel's filename-prefix and rename fields accept typing and bounded paste
+only. Every standard paste binding, including the dedicated Paste key, is
+intercepted before Qt's native handling. Paste runs `bin/clipboard`, which
+stops at 4096 bytes with a hard deadline; the field then refuses line breaks,
+control characters, and text over 200 characters. Qt's native paste is
+intercepted so an oversized or streaming clipboard never enters the shell
+process.
 
 `webcamDevice` is empty by default, which records the first camera Reel finds.
 Settings -> **Webcam device** cycles Auto plus the cameras from `reel webcams`

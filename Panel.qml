@@ -314,6 +314,17 @@ Panel {
   property string controlAction: ""
   property string pendingNotice: ""
   property bool updateNoticePending: false
+  // Explicit paste for the two short name fields. Qt's native paste reads the
+  // whole clipboard synchronously inside the shell process; this asks the
+  // bounded helper instead, caps the result, and refuses control characters.
+  readonly property string pluginBin: root.home + "/.config/omarchy/plugins/io.github.tahadx.reel/bin"
+  property var pasteTarget: null
+  property var pastePending: null
+  property int pasteSeq: 0
+  property string pasteBuffer: ""
+  property string pasteError: ""
+  property string pasteErrorKind: ""
+  readonly property int pasteLimit: 200
 
   // The take actions menu lives at panel level rather than inside each row so
   // the keyboard cursor keeps working while it is open. It anchors to the
@@ -394,6 +405,128 @@ Panel {
     root.noticeUrgent = !!urgent
     root.noticeSeq += 1
     if (root.notice !== "") noticeTimer.restart()
+  }
+
+  // A paste is read by bin/clipboard, which caps stdout at 4096 bytes and has
+  // a hard deadline. Nothing here hands an unbounded clipboard to Qt.
+  //
+  // Requests are serialized: a paste that is still running is killed, and its
+  // exit starts the queued request. Every request carries a sequence number so
+  // a late completion can never consume a newer request's target.
+  function startPaste(kind, input, limit) {
+    root.pasteSeq++
+    var request = { kind: kind, input: input, limit: limit, seq: root.pasteSeq }
+    root.pasteError = ""
+    root.pasteErrorKind = ""
+    root.pastePending = request
+    if (pasteProc.running) {
+      pasteProc.signal(9)
+      return
+    }
+    root.launchPaste()
+  }
+
+  function launchPaste() {
+    var request = root.pastePending
+    if (!request) return
+    root.pastePending = null
+    root.pasteTarget = request
+    root.pasteBuffer = ""
+    pasteProc.command = [root.pluginBin + "/clipboard"]
+    pasteProc.running = true
+    pasteDeadline.restart()
+  }
+
+  function cancelPaste(kind) {
+    if (root.pastePending && (kind === "" || root.pastePending.kind === kind)) {
+      root.pastePending = null
+      root.pasteSeq++
+    }
+    if (root.pasteTarget && (kind === "" || root.pasteTarget.kind === kind)) {
+      root.pasteTarget = null
+      root.pasteSeq++
+      if (pasteProc.running) pasteProc.signal(9)
+      pasteDeadline.stop()
+    }
+    if (kind === "" || root.pasteErrorKind === kind) root.clearPasteError(kind)
+  }
+
+  function clearPasteError(kind) {
+    if (kind === "" || root.pasteErrorKind === kind) {
+      root.pasteError = ""
+      root.pasteErrorKind = ""
+    }
+  }
+
+  function finishPaste(code) {
+    pasteDeadline.stop()
+    var target = root.pasteTarget
+    root.pasteTarget = null
+    // A newer request queued while this one was shutting down: drop the old
+    // completion and start the queued paste.
+    if (root.pastePending) {
+      root.launchPaste()
+      return
+    }
+    if (!target || target.seq !== root.pasteSeq) return
+    if (code !== 0) {
+      root.pasteErrorKind = target.kind
+      root.pasteError = code === 141
+        ? "Paste is longer than this field allows."
+        : (code === 124 || code === 137)
+          ? "The clipboard did not answer in time."
+          : "Could not read the clipboard."
+      return
+    }
+    var result = Model.pasteText(root.pasteBuffer, target.limit)
+    if (!result.ok) {
+      root.pasteErrorKind = target.kind
+      root.pasteError = result.error
+      return
+    }
+    if (result.text === "" || !target.input) return
+    var input = target.input
+    var start = input.selectionStart
+    var end = input.selectionEnd
+    if (start < 0 || end < 0) {
+      start = input.cursorPosition
+      end = start
+    }
+    if (start > end) {
+      var swap = start
+      start = end
+      end = swap
+    }
+    if (start !== end) input.remove(start, end)
+    input.insert(start, result.text)
+    root.clearPasteError(target.kind)
+  }
+
+  Process {
+    id: pasteProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.pasteBuffer = String(text || "")
+    }
+    onExited: function(code) { root.finishPaste(code) }
+  }
+
+  Timer {
+    id: pasteDeadline
+    interval: 1200
+    repeat: false
+    onTriggered: {
+      var kind = root.pasteTarget ? root.pasteTarget.kind : ""
+      root.pasteSeq++
+      root.pastePending = null
+      root.pasteTarget = null
+      if (pasteProc.running) pasteProc.signal(9)
+      if (kind !== "") {
+        root.pasteErrorKind = kind
+        root.pasteError = "The clipboard did not answer in time."
+      }
+    }
   }
 
   // ---------- colours -----------------------------------------------------
@@ -1546,11 +1679,15 @@ Panel {
       root.renameBusy = false
       root.refreshAudioDevices()
       root.refreshCameras()
-      if (root.service) root.service.refresh()
+      if (root.service) {
+        if (root.service.configureFailed) root.service.retryConfigure()
+        root.service.refresh()
+      }
       Qt.callLater(root.resetScroll)
     } else {
       root.panelUp = false
       root.clearHover()
+      root.cancelPaste("")
       root.carryingFile = false
       root.discardArmed = false
       root.trashArmedPath = ""
@@ -1696,32 +1833,46 @@ Panel {
       anchors.centerIn: parent
       width: Math.min(Style.bar.iconCanvas, button.barSize - Style.space(4))
       height: width
-      readonly property real unit: width / 24
-      // The screen outline centres on its own box, which reads a pixel high
-      // beside the bar's glyphs. Drop the mark to the bar's centre line where
-      // the other icons sit.
-      anchors.verticalCenterOffset: Style.space(1)
       scale: button.pressScale
 
-      Rectangle {
-        id: screenOutline
-        x: 2.5 * parent.unit
-        y: 4.5 * parent.unit
-        width: 19 * parent.unit
-        height: 15 * parent.unit
-        radius: 4.5 * parent.unit
-        color: "transparent"
-        border.width: Math.max(1, Math.round(1.6 * parent.unit))
-        border.color: root.barInk
-        opacity: 0.9
-      }
+      // The outline and the dot share one canvas. As two separate rectangles
+      // each rounded its own edges to the pixel grid, which walked the dot a
+      // device pixel off the screen's centre as the bar's text size changed;
+      // painted together they always share one centre. The mark itself sits on
+      // the bar's centre line like the glyphs beside it.
+      Canvas {
+        id: idleCanvas
+        anchors.fill: parent
+        renderStrategy: Canvas.Cooperative
+        property color ink: root.barInk
+        onInkChanged: requestPaint()
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
 
-      Rectangle {
-        anchors.centerIn: screenOutline
-        width: 6.4 * parent.unit
-        height: 6.4 * parent.unit
-        radius: 3.2 * parent.unit
-        color: root.barInk
+        onPaint: {
+          var ctx = getContext("2d")
+          ctx.reset()
+          var unit = width / 24
+          if (unit <= 0) return
+
+          // The 19 × 15 screen with its stroke kept inside the box, then the
+          // 6.4 record dot on the same centre point.
+          var line = Math.max(1, Math.round(1.6 * unit))
+          ctx.strokeStyle = idleCanvas.ink
+          ctx.lineWidth = line
+          ctx.globalAlpha = 0.9
+          ctx.beginPath()
+          ctx.roundedRect(2.5 * unit + line / 2, 4.5 * unit + line / 2,
+            19 * unit - line, 15 * unit - line,
+            4.5 * unit - line / 2, 4.5 * unit - line / 2)
+          ctx.stroke()
+
+          ctx.globalAlpha = 1
+          ctx.fillStyle = idleCanvas.ink
+          ctx.beginPath()
+          ctx.arc(width / 2, height / 2, 3.2 * unit, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
     }
 
@@ -2302,8 +2453,9 @@ Panel {
                     ColorAnimation { duration: 120 }
                   }
 
-                  TextInput {
+                  GuardedInput {
                     id: prefixInput
+                    pasteLimit: root.pasteLimit
                     anchors.fill: parent
                     anchors.leftMargin: Style.space(9)
                     anchors.rightMargin: Style.space(9)
@@ -2314,19 +2466,24 @@ Panel {
                     selectedTextColor: root.inkOn(root.accent)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
-                    selectByMouse: true
                     clip: true
-                    onActiveFocusChanged: root.typingPrefix = activeFocus
+                    onActiveFocusChanged: {
+                      root.typingPrefix = activeFocus
+                      if (!activeFocus) root.cancelPaste("prefix")
+                    }
+                    onTextEdited: root.clearPasteError("prefix")
                     onEditingFinished: root.writeSetting("filenamePrefix", text)
+                    onBoundedPaste: root.startPaste("prefix", prefixInput, root.pasteLimit)
                   }
                 }
 
                 Text {
                   textFormat: Text.PlainText
-                  text: root.currentValue("filenamePrefix") === ""
-                    ? "Empty uses reel-<date>. The date is added to every take."
-                    : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
-                  color: root.dim
+                  text: root.pasteErrorKind === "prefix" ? root.pasteError
+                    : root.currentValue("filenamePrefix") === ""
+                      ? "Empty uses reel-<date>. The date is added to every take."
+                      : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
+                  color: root.pasteErrorKind === "prefix" ? root.urgent : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -2805,8 +2962,9 @@ Panel {
                 ColorAnimation { duration: 120 }
               }
 
-              TextInput {
+              GuardedInput {
                 id: renameInput
+                pasteLimit: root.pasteLimit
                 anchors.fill: parent
                 anchors.leftMargin: Style.space(9)
                 anchors.rightMargin: Style.space(9)
@@ -2817,13 +2975,22 @@ Panel {
                 selectedTextColor: root.inkOn(root.accent)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
-                selectByMouse: true
                 clip: true
                 enabled: !root.renameBusy
                 focus: root.takeMenuRenaming
-                onTextEdited: root.renameText = text
-                onActiveFocusChanged: if (activeFocus) selectAll()
+                onTextEdited: {
+                  root.renameText = text
+                  root.clearPasteError("rename")
+                }
+                onActiveFocusChanged: {
+                  if (activeFocus) {
+                    selectAll()
+                  } else {
+                    root.cancelPaste("rename")
+                  }
+                }
                 onAccepted: root.commitRename()
+                onBoundedPaste: root.startPaste("rename", renameInput, root.pasteLimit)
                 Keys.onEscapePressed: function(event) {
                   root.cancelRename()
                   event.accepted = true
@@ -2833,8 +3000,9 @@ Panel {
 
             Text {
               textFormat: Text.PlainText
-              text: root.renameBusy ? "Renaming…" : "Enter to rename · Esc to cancel"
-              color: root.dim
+              text: root.pasteErrorKind === "rename" ? root.pasteError
+                : root.renameBusy ? "Renaming…" : "Enter to rename · Esc to cancel"
+              color: root.pasteErrorKind === "rename" ? root.urgent : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
@@ -4198,6 +4366,10 @@ Panel {
 
   Connections {
     target: root.service
+    function onLastErrorChanged() {
+      if (root.service && root.service.lastError !== "")
+        root.setNotice(root.service.lastError, true)
+    }
     function onUpdateInfoChanged() {
       if (!root.updateNoticePending) return
       root.updateNoticePending = false

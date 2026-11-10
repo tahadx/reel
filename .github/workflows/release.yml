@@ -116,8 +116,11 @@ jobs:
           OUT="reel-$NAME-linux-x86_64"
           cp bin/dist/reel-native "$OUT"
           chmod +x "$OUT"
-          sha256sum "$OUT" > checksums.txt
+          NOTICES="reel-$NAME-licenses.tar.gz"
+          tar -czf "$NOTICES" LICENSE THIRD-PARTY.md licenses
+          sha256sum "$OUT" "$NOTICES" > checksums.txt
           echo "bin=$OUT" >> "$GITHUB_OUTPUT"
+          echo "notices=$NOTICES" >> "$GITHUB_OUTPUT"
           echo "sha256=$(cut -d' ' -f1 checksums.txt | head -1)" >> "$GITHUB_OUTPUT"
 
       # Highlights for humans come from the annotated tag body, so each release
@@ -130,6 +133,7 @@ jobs:
           TAG: ${{ steps.v.outputs.tag }}
           NAME: ${{ steps.v.outputs.name }}
           BIN: ${{ steps.art.outputs.bin }}
+          NOTICES: ${{ steps.art.outputs.notices }}
           SHA: ${{ steps.art.outputs.sha256 }}
         run: |
           set -euo pipefail
@@ -202,6 +206,7 @@ jobs:
             echo "| --- | --- |"
             echo "| Version | \`$NAME\` |"
             echo "| Binary | \`$BIN\` |"
+            echo "| Notices | \`$NOTICES\` |"
             echo "| SHA-256 | \`$SHA\` |"
             echo ""
             echo "The plugin already ships this engine at \`bin/dist/reel-native\`,"
@@ -222,16 +227,17 @@ jobs:
           NAME: ${{ steps.v.outputs.name }}
           PRERELEASE: ${{ steps.v.outputs.prerelease }}
           BIN: ${{ steps.art.outputs.bin }}
+          NOTICES: ${{ steps.art.outputs.notices }}
         run: |
           set -euo pipefail
           TITLE="reel $NAME"
           if gh release view "$TAG" > /dev/null 2>&1; then
             gh release edit "$TAG" --title "$TITLE" --notes-file notes.md --prerelease="$PRERELEASE"
-            gh release upload "$TAG" "$BIN" checksums.txt --clobber
+            gh release upload "$TAG" "$BIN" "$NOTICES" checksums.txt --clobber
           else
             CREATE_ARGS=()
             if [ "$PRERELEASE" = "true" ]; then CREATE_ARGS+=(--prerelease); fi
-            gh release create "$TAG" "$BIN" checksums.txt \
+            gh release create "$TAG" "$BIN" "$NOTICES" checksums.txt \
               --verify-tag \
               --title "$TITLE" \
               --notes-file notes.md \

@@ -1,0 +1,19 @@
+#!/bin/bash
+# Bounded clipboard read for the panel's short name fields.
+#
+# Qt's native paste fetches the whole selection synchronously inside the shell
+# process. This runs instead on an explicit paste: the read stops after 4096
+# bytes and has a hard deadline. The cap is reported by byte count, so it does
+# not depend on the clipboard owner noticing SIGPIPE.
+#
+# Exit status:
+#   0    text is within the cap
+#   141  the clipboard was larger than the cap
+#   124  the read timed out (137 when the kill was needed)
+#   127  wl-clipboard is not installed
+set -o pipefail
+out=$(timeout -k 0.2 0.6 wl-paste --no-newline --type text 2>/dev/null | head -c 4097)
+code=$?
+printf '%s' "$out"
+if [ "${#out}" -ge 4097 ]; then exit 141; fi
+exit "$code"

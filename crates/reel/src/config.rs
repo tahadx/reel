@@ -4,6 +4,7 @@ use crate::util;
 use anyhow::{Context, Result};
 use serde_json::{Map, Value};
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 
 pub fn defaults() -> Value {
@@ -33,13 +34,33 @@ pub fn defaults() -> Value {
     })
 }
 
+/// Settings are a small object by design. A larger file is corrupt or planted;
+/// ignore it rather than turn it into the shell's status output.
+pub const MAX_CONFIG_BYTES: u64 = 256 * 1024;
+
 pub fn load(paths: &Paths) -> Value {
-    let Ok(text) = fs::read_to_string(&paths.config) else {
-        return Value::Object(Map::new());
+    let empty = || Value::Object(Map::new());
+    let Ok(metadata) = fs::metadata(&paths.config) else {
+        return empty();
     };
+    if !metadata.is_file() || metadata.len() > MAX_CONFIG_BYTES {
+        return empty();
+    }
+    let Ok(file) = fs::File::open(&paths.config) else {
+        return empty();
+    };
+    let mut text = String::new();
+    if file
+        .take(MAX_CONFIG_BYTES + 1)
+        .read_to_string(&mut text)
+        .is_err()
+        || text.len() as u64 > MAX_CONFIG_BYTES
+    {
+        return empty();
+    }
     match serde_json::from_str::<Value>(&text) {
         Ok(value @ Value::Object(_)) => value,
-        _ => Value::Object(Map::new()),
+        _ => empty(),
     }
 }
 
@@ -210,6 +231,23 @@ pub fn run(paths: &Paths, args: ConfigArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_oversized_config_is_ignored() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        fs::write(&paths.config, "x".repeat(MAX_CONFIG_BYTES as usize + 1)).unwrap();
+        assert!(load(&paths).as_object().unwrap().is_empty());
+        let _ = fs::remove_dir_all(root);
+    }
 
     #[test]
     fn cfg_in_uses_the_loaded_object_and_fallback() {
