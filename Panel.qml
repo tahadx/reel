@@ -180,7 +180,7 @@ Panel {
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "desktopDevice", label: "Desktop audio device", glyph: "󰓃" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
-    { key: "microphoneDevice", label: "Microphone device", glyph: "󰍬" },
+    { key: "microphoneDevice", label: "Microphone device", glyph: "󰍰" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
     { key: "fps", label: "Frame rate", glyph: "󰈰", section: "Video" },
     { key: "quality", label: "Quality", glyph: "󰓅" },
