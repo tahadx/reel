@@ -265,4 +265,7 @@ verbatim at install time.
 
 Reel is MIT. The static engine also links third-party crates, the Rust standard
 library, and musl; their notices are mapped in
-[THIRD-PARTY.md](THIRD-PARTY.md) and shipped under `licenses/`.
+[THIRD-PARTY.md](THIRD-PARTY.md) and shipped under `licenses/`. The development
+install copies the notices into the installed plugin tree, and the release
+workflow publishes them as a `reel-<version>-licenses.tar.gz` asset beside the
+standalone engine.

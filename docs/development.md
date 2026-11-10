@@ -6,12 +6,15 @@ engine, so a normal install does not need Rust.
 ## Layout
 
 - `Cargo.toml` and `crates/reel/` — the engine and CLI.
-- `Panel.qml`, `Service.qml`, and `Model.js` — the bar widget, background
-  service, and pure JavaScript helpers.
+- `Panel.qml`, `GuardedInput.qml`, `Service.qml`, and `Model.js` — the bar
+  widget, bounded-paste text field, background service, and pure JavaScript
+  helpers.
 - `bin/dist/reel-native` — the committed x86_64 musl engine.
 - `bin/dist/reel-native.fingerprint` — source fingerprint for the local hook.
 - `bin/refresh-dist`, `bin/stamp-version`, and `bin/check-release` — release
   tooling.
+- `bin/clipboard` — the bounded clipboard reader used by the name fields.
+- `THIRD-PARTY.md` and `licenses/` — notices for the linked engine.
 - `bin/lint-qml`, `bin/test-qml`, and `tests/` — QML and installer checks.
 
 ## Build and test
@@ -86,7 +89,9 @@ version.
 
 The release workflow rebuilds the engine from the tag and refuses to publish
 if `manifest.json` or `crates/reel/Cargo.toml` disagree with it. It uploads a
-`reel-<version>-linux-x86_64` asset and its checksum.
+`reel-<version>-linux-x86_64` asset and its checksum, plus
+`reel-<version>-licenses.tar.gz` with `LICENSE`, `THIRD-PARTY.md`, and
+`licenses/` so the standalone engine carries its notices.
 
 The committed engine and release workflow target x86_64. On another
 architecture, build the crate for the host, place the binary at

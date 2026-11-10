@@ -270,6 +270,8 @@ Panel {
   // bounded helper instead, caps the result, and refuses control characters.
   readonly property string pluginBin: root.home + "/.config/omarchy/plugins/io.github.tahadx.reel/bin"
   property var pasteTarget: null
+  property var pastePending: null
+  property int pasteSeq: 0
   property string pasteBuffer: ""
   property string pasteError: ""
   property string pasteErrorKind: ""
@@ -358,26 +360,42 @@ Panel {
 
   // A paste is read by bin/clipboard, which caps stdout at 4096 bytes and has
   // a hard deadline. Nothing here hands an unbounded clipboard to Qt.
-  function isPasteShortcut(event) {
-    return (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_V)
-      || (event.modifiers & Qt.ShiftModifier && event.key === Qt.Key_Insert)
-  }
-
+  //
+  // Requests are serialized: a paste that is still running is killed, and its
+  // exit starts the queued request. Every request carries a sequence number so
+  // a late completion can never consume a newer request's target.
   function startPaste(kind, input, limit) {
-    if (pasteProc.running) pasteProc.signal(9)
-    pasteDeadline.stop()
-    root.pasteTarget = { kind: kind, input: input, limit: limit }
-    root.pasteBuffer = ""
+    root.pasteSeq++
+    var request = { kind: kind, input: input, limit: limit, seq: root.pasteSeq }
     root.pasteError = ""
     root.pasteErrorKind = ""
+    root.pastePending = request
+    if (pasteProc.running) {
+      pasteProc.signal(9)
+      return
+    }
+    root.launchPaste()
+  }
+
+  function launchPaste() {
+    var request = root.pastePending
+    if (!request) return
+    root.pastePending = null
+    root.pasteTarget = request
+    root.pasteBuffer = ""
     pasteProc.command = [root.pluginBin + "/clipboard"]
     pasteProc.running = true
     pasteDeadline.restart()
   }
 
   function cancelPaste(kind) {
+    if (root.pastePending && (kind === "" || root.pastePending.kind === kind)) {
+      root.pastePending = null
+      root.pasteSeq++
+    }
     if (root.pasteTarget && (kind === "" || root.pasteTarget.kind === kind)) {
       root.pasteTarget = null
+      root.pasteSeq++
       if (pasteProc.running) pasteProc.signal(9)
       pasteDeadline.stop()
     }
@@ -395,7 +413,13 @@ Panel {
     pasteDeadline.stop()
     var target = root.pasteTarget
     root.pasteTarget = null
-    if (!target) return
+    // A newer request queued while this one was shutting down: drop the old
+    // completion and start the queued paste.
+    if (root.pastePending) {
+      root.launchPaste()
+      return
+    }
+    if (!target || target.seq !== root.pasteSeq) return
     if (code !== 0) {
       root.pasteErrorKind = target.kind
       root.pasteError = code === 141
@@ -445,8 +469,10 @@ Panel {
     repeat: false
     onTriggered: {
       var kind = root.pasteTarget ? root.pasteTarget.kind : ""
-      if (pasteProc.running) pasteProc.signal(9)
+      root.pasteSeq++
+      root.pastePending = null
       root.pasteTarget = null
+      if (pasteProc.running) pasteProc.signal(9)
       if (kind !== "") {
         root.pasteErrorKind = kind
         root.pasteError = "The clipboard did not answer in time."
@@ -2371,6 +2397,7 @@ Panel {
 
                   GuardedInput {
                     id: prefixInput
+                    pasteLimit: root.pasteLimit
                     anchors.fill: parent
                     anchors.leftMargin: Style.space(9)
                     anchors.rightMargin: Style.space(9)
@@ -2879,6 +2906,7 @@ Panel {
 
               GuardedInput {
                 id: renameInput
+                pasteLimit: root.pasteLimit
                 anchors.fill: parent
                 anchors.leftMargin: Style.space(9)
                 anchors.rightMargin: Style.space(9)
@@ -2932,56 +2960,6 @@ Panel {
 
   // Reel owns the key map because h/l are vim-style movement while Shift+H
   // opens history. PanelKeyCatcher reserves h for vim-left, which swallowed it.
-  // A TextInput with Qt's native clipboard paths removed. Keyboard paste is
-  // routed to the bounded helper; the mouse is handled here so Qt never sees a
-  // middle click (synchronous PRIMARY paste) or a context paste. Drag and
-  // double-click selection are reimplemented on top of `positionAt`.
-  component GuardedInput: TextInput {
-    id: guardInput
-
-    signal boundedPaste()
-    selectByMouse: false
-    maximumLength: root.pasteLimit
-
-    Keys.onPressed: function(event) {
-      if (root.isPasteShortcut(event)) {
-        event.accepted = true
-        guardInput.boundedPaste()
-      }
-    }
-
-    MouseArea {
-      anchors.fill: parent
-      acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
-      cursorShape: Qt.IBeamCursor
-      property int pressPosition: 0
-      property bool dragging: false
-      onPressed: function(mouse) {
-        if (mouse.button !== Qt.LeftButton) {
-          mouse.accepted = true
-          return
-        }
-        guardInput.forceActiveFocus()
-        guardInput.cursorPosition = guardInput.positionAt(mouse.x, mouse.y)
-        pressPosition = guardInput.cursorPosition
-        dragging = true
-      }
-      onPositionChanged: function(mouse) {
-        if (!dragging) return
-        var position = guardInput.positionAt(mouse.x, mouse.y)
-        guardInput.select(Math.min(pressPosition, position), Math.max(pressPosition, position))
-      }
-      onReleased: function(mouse) {
-        dragging = false
-        mouse.accepted = true
-      }
-      onDoubleClicked: function(mouse) {
-        guardInput.cursorPosition = guardInput.positionAt(mouse.x, mouse.y)
-        guardInput.selectWord()
-      }
-    }
-  }
-
   component ReelKeyCatcher: Item {
     id: catcher
 

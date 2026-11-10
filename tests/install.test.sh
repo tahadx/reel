@@ -100,6 +100,9 @@ assert_file "$PLUGIN_DIR/bin/dist/reel-native"
 [[ -x "$PLUGIN_DIR/bin/dist/reel-native" ]] || fail "shipped engine is not executable"
 assert_file "$PLUGIN_DIR/bin/clipboard"
 [[ -x "$PLUGIN_DIR/bin/clipboard" ]] || fail "bounded clipboard helper is not executable"
+assert_file "$PLUGIN_DIR/GuardedInput.qml"
+assert_file "$PLUGIN_DIR/THIRD-PARTY.md"
+assert_file "$PLUGIN_DIR/licenses/rust-toolchain/NOTICE.md"
 [[ "$(reel --version)" == "$WANT_VERSION" ]] \
   || fail "reel --version does not report the manifest version"
 grep -qxF -- "$USER_BIND" "$BINDINGS" || fail "installer changed the user binding"
@@ -122,7 +125,13 @@ assert_no_file "$TEST_ROOT/hyprctl.log"
 
 BACKUPS_BEFORE="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.bak.*' | wc -l)"
 
+# Older installs left agent instruction files in the runtime tree. A rerun
+# must remove them.
+printf 'stale\n' >"$PLUGIN_DIR/AGENTS.md"
+printf 'stale\n' >"$PLUGIN_DIR/CLAUDE.md"
 "$REPO/install.sh" --yes >"$TEST_ROOT/install-2.log"
+assert_no_file "$PLUGIN_DIR/AGENTS.md"
+assert_no_file "$PLUGIN_DIR/CLAUDE.md"
 
 [[ "$(grep -c '^-- Reel: begin' "$BINDINGS")" -eq 1 ]] || fail "rerun duplicated the block"
 BACKUPS_AFTER="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.bak.*' | wc -l)"

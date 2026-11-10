@@ -54,6 +54,17 @@ fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
     serde_json::from_str(&text).ok()
 }
 
+/// Git's remote-helper form (`https::https://…`, `ext::…`) passes the inner
+/// address to a helper. The background check does not need that form, and
+/// parsing the inner URL differently from git is how credentials slip through;
+/// treat every helper-prefixed URL as unsafe.
+fn helper_transport(url: &str) -> bool {
+    let Some((prefix, _)) = url.split_once("::") else {
+        return false;
+    };
+    !prefix.contains("://") && !prefix.contains('/') && !prefix.contains('@')
+}
+
 /// Credentials embedded in a remote URL are passed to `git-remote-https` in
 /// its argv, where another local account can read them from the process list.
 /// The background check refuses such a remote; secrets belong in a credential
@@ -61,6 +72,9 @@ fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
 /// the URL git would actually use.
 fn credential_bearing_url(url: &str) -> bool {
     let url = url.trim();
+    if helper_transport(url) {
+        return true;
+    }
     let Some((scheme, rest)) = url.split_once("://") else {
         // `git@host:path` is an SSH user name, not a secret.
         return false;
@@ -1226,6 +1240,13 @@ mod tests {
         assert!(credential_bearing_url(
             "ssh://user:secret@example.com/reel.git"
         ));
+        assert!(credential_bearing_url(
+            "https::https://token@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https::https://github.com/tahadx/reel.git?access_token=abc"
+        ));
+        assert!(!credential_bearing_url("https://[::1]/reel.git"));
     }
 
     #[test]

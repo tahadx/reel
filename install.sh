@@ -86,11 +86,17 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   install -m 0644 "$HERE/Service.qml" "$PLUGIN_DIR/Service.qml"
   install -m 0644 "$HERE/Countdown.qml" "$PLUGIN_DIR/Countdown.qml"
   install -m 0644 "$HERE/Model.js" "$PLUGIN_DIR/Model.js"
+  install -m 0644 "$HERE/GuardedInput.qml" "$PLUGIN_DIR/GuardedInput.qml"
   install -m 0755 "$HERE/bin/reel" "$PLUGIN_DIR/bin/reel"
   install -m 0755 "$HERE/bin/clipboard" "$PLUGIN_DIR/bin/clipboard"
   install -m 0755 "$HERE/bin/configure" "$PLUGIN_DIR/bin/configure"
   install -m 0755 "$HERE/bin/uninstall" "$PLUGIN_DIR/bin/uninstall"
   install -m 0755 "$HERE/bin/dist/reel-native" "$PLUGIN_DIR/bin/dist/reel-native"
+  # The standalone engine is redistributed, so its notices travel with it.
+  install -m 0644 "$HERE/LICENSE" "$PLUGIN_DIR/LICENSE"
+  install -m 0644 "$HERE/THIRD-PARTY.md" "$PLUGIN_DIR/THIRD-PARTY.md"
+  rm -rf -- "$PLUGIN_DIR/licenses"
+  cp -a -- "$HERE/licenses" "$PLUGIN_DIR/licenses"
   # Older installs copied agent instruction files into the runtime tree. They
   # must not be auto-activated by the shell's agents; the checkout keeps its
   # guide under docs/contributing/ instead.

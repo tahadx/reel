@@ -53,7 +53,7 @@ jobs:
             install.sh \
             bin/configure bin/uninstall bin/refresh-dist bin/version \
             bin/stamp-version bin/check-release bin/lint-qml bin/test-qml \
-            bin/reel \
+            bin/reel bin/clipboard \
             tests/install.test.sh
 
       - name: Installer and uninstaller reruns

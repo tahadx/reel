@@ -14,12 +14,6 @@ Item {
   property var shell: null
 
   readonly property string home: Quickshell.env("HOME") || ""
-  readonly property string runtimeDir: {
-    var runtime = Quickshell.env("XDG_RUNTIME_DIR") || ""
-    if (runtime) return runtime + "/reel"
-    return (Quickshell.env("XDG_STATE_HOME") || root.home + "/.local/state") + "/omarchy/reel/run"
-  }
-  readonly property string statePath: root.runtimeDir + "/state.json"
 
   property string stateText: ""
   property var state: Model.emptyState()
@@ -61,8 +55,19 @@ Item {
     if (!root.configured) return
     root.refreshRecent()
     root.refreshOutputDir()
-    if (root.version === "" && !versionProc.running) versionProc.running = true
-    if (!statusProc.running) statusProc.running = true
+    if (root.version === "" && !versionProc.running) {
+      versionDeadline.restart()
+      versionProc.running = true
+    }
+    root.startStatus()
+  }
+
+  function startStatus() {
+    if (!root.configured || statusProc.running) return
+    // Start the deadline before the launch so a process that never starts is
+    // still recovered, not just one that hangs after starting.
+    statusDeadline.restart()
+    statusProc.running = true
   }
 
   function refreshRecent() {
@@ -72,12 +77,14 @@ Item {
       return
     }
     root.recentPending = false
+    recentDeadline.restart()
     recentProc.running = true
   }
 
   function refreshOutputDir() {
     if (!root.configured) return
     if (outputProc.running) return
+    outputDeadline.restart()
     outputProc.running = true
   }
 
@@ -92,7 +99,9 @@ Item {
     var command = ["reel", "update", "--check", "--json"]
     if (force) command.push("--force")
     root.updateChecking = true
+    updateProc.hasStarted = false
     updateProc.command = command
+    updateDeadline.restart()
     updateProc.running = true
   }
 
@@ -195,6 +204,10 @@ Item {
   // A finite engine call that outlives its deadline is killed rather than left
   // holding the service. The next poll can retry normally.
   function noteTimeout(label) {
+    if (label === "setup") {
+      root.configureFailedWith("Reel's setup step did not finish. Open the plugin's bin/configure or reinstall Reel.")
+      return
+    }
     if (!root.configured) return
     if (label === "update") {
       root.updateChecking = false
@@ -271,30 +284,20 @@ Item {
     onTriggered: if (!root.configured || root.configureFailed) root.startConfigure()
   }
 
-  FileView {
-    id: stateFile
-    path: root.statePath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: reload()
-    onLoaded: root.applyState(stateFile.text())
-    onLoadFailed: root.applyState("")
-  }
-
-  // The engine creates the runtime directory on first use, which can land
-  // after the shell starts. FileView cannot watch a path whose parent does not
-  // exist yet, and it never retries on its own, so the first take would stay
-  // invisible in the bar until the panel refreshed the service. Reload until
-  // the file is reachable; that also installs the watch.
+  // State is read through `reel status --json`, whose Rust reader is bounded,
+  // instead of pulling state.json straight into the shell. Poll slowly while
+  // idle and once a second while a take is live so the bar clock stays honest.
   Timer {
-    interval: 1000
+    id: statePoll
+    interval: root.active || root.starting || root.finalizing ? 1000 : 5000
     repeat: true
-    running: !stateFile.loaded
-    onTriggered: stateFile.reload()
+    running: root.configured
+    onTriggered: root.startStatus()
   }
 
   Process {
     id: statusProc
+    property bool hasStarted: false
     command: ["reel", "status", "--json"]
     stdout: StdioCollector {
       waitForEnd: true
@@ -307,7 +310,17 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
-    onStarted: statusDeadline.restart()
+    onStarted: {
+      statusProc.hasStarted = true
+      statusDeadline.restart()
+    }
+    onRunningChanged: {
+      if (statusProc.running) return
+      statusDeadline.stop()
+      if (!statusProc.hasStarted && root.configured && !root.configureFailed)
+        root.lastError = "Reel's status command could not start."
+      statusProc.hasStarted = false
+    }
     onExited: function(code) {
       statusDeadline.stop()
       // Configure owns the first failure message. Only report a missing
@@ -326,6 +339,7 @@ Item {
 
   Process {
     id: recentProc
+    property bool hasStarted: false
     command: ["reel", "recent", "--json", "--limit", "20"]
     stdout: StdioCollector {
       waitForEnd: true
@@ -338,7 +352,20 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
-    onStarted: recentDeadline.restart()
+    onStarted: {
+      recentProc.hasStarted = true
+      recentDeadline.restart()
+    }
+    onRunningChanged: {
+      if (recentProc.running) return
+      recentDeadline.stop()
+      if (!recentProc.hasStarted) {
+        root.recentPending = false
+        if (root.configured && !root.configureFailed)
+          root.lastError = "Reel's history command could not start."
+      }
+      recentProc.hasStarted = false
+    }
     onExited: function(code) {
       recentDeadline.stop()
       if (code === 127 && root.configured && root.lastError === "")
@@ -399,6 +426,7 @@ Item {
 
   Process {
     id: updateProc
+    property bool hasStarted: false
     running: false
     stdout: StdioCollector {
       waitForEnd: true
@@ -411,7 +439,26 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
-    onStarted: updateDeadline.restart()
+    onStarted: {
+      updateProc.hasStarted = true
+      updateDeadline.restart()
+    }
+    onRunningChanged: {
+      if (updateProc.running) return
+      updateDeadline.stop()
+      if (!updateProc.hasStarted) {
+        root.updateChecking = false
+        root.updateInfo = {
+          available: false,
+          current: root.version,
+          latest: "",
+          behind: 0,
+          checkedAt: 0,
+          error: "The update check could not start."
+        }
+      }
+      updateProc.hasStarted = false
+    }
     onExited: function(code) {
       updateDeadline.stop()
       root.updateChecking = false
@@ -451,15 +498,5 @@ Item {
     repeat: true
     running: root.active || root.capturing
     onTriggered: root.tick++
-  }
-
-  // The watcher normally sees every write. This poll closes the one gap that
-  // matters: a recorder that died and left its state file behind.
-  Timer {
-    id: pollTimer
-    interval: 3000
-    repeat: true
-    running: root.active || root.starting || root.finalizing
-    onTriggered: if (root.configured && !statusProc.running) statusProc.running = true
   }
 }
