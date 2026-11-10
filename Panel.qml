@@ -3784,6 +3784,11 @@ Panel {
     property string kind: "cycle"
     property string infoValue: ""
 
+    // Audio and camera names can run far past the row width. Bound the value
+    // chip so the label keeps readable space and the chip never escapes the
+    // row; the value inside elides with a trailing ellipsis instead.
+    readonly property int chipMaxWidth: Math.max(Style.space(96), width * 0.52)
+
     readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive
       && root.page === "home"
@@ -3831,10 +3836,10 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         anchors.verticalCenter: parent.verticalCenter
-        width: parent.width - Style.space(24)
+        width: Math.max(0, parent.width - Style.space(24)
           - (setting.switchRow ? Style.space(32)
             : setting.kind === "info" ? valueText.width : valueChip.width)
-          - parent.spacing * 2
+          - parent.spacing * 2)
         elide: Text.ElideRight
       }
 
@@ -3858,7 +3863,7 @@ Panel {
         id: valueChip
         visible: !setting.switchRow && setting.kind !== "info"
         anchors.verticalCenter: parent.verticalCenter
-        width: valueRow.implicitWidth + Style.space(16)
+        width: Math.min(valueRow.implicitWidth + Style.space(16), setting.chipMaxWidth)
         height: Style.space(20)
         radius: Style.space(4)
         color: setting.hasCursor ? Util.alpha(root.foreground, 0.10) : root.restFill
@@ -3878,9 +3883,16 @@ Panel {
             font.pixelSize: Style.font.bodySmall
             font.bold: true
             anchors.verticalCenter: parent.verticalCenter
+            // Size from the text's own natural width rather than the chip's,
+            // so the row and the chip do not end up in a binding loop that
+            // collapses the value to nothing.
+            width: Math.min(implicitWidth, Math.max(0, setting.chipMaxWidth
+              - Style.space(16) - valueRow.spacing - valueChevron.implicitWidth))
+            elide: Text.ElideRight
           }
 
           Text {
+            id: valueChevron
             textFormat: Text.PlainText
             text: "›"
             color: setting.hasCursor ? root.foreground : root.dim
