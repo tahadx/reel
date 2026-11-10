@@ -327,6 +327,13 @@ Rules:
   clock's advance, so the timer never clips. The bar widens from
   `Style.bar.iconSlot` to the pill when a take starts and keeps that width for
   the whole take, so the clock never moves the bar.
+- The panel centres its card on the widget, but never hangs it from the live
+  slot: the widget's slot is as wide as its drawing, so a take landing narrows
+  it and slides the whole section sideways, and a card anchored to the slot
+  would be dragged along in one frame. The card instead hangs from a point
+  pinned to the widget's centre when the panel opens, parked in the bar's own
+  surface. The bar may reflow under it; the card stays where it was raised,
+  under the mark if opened at rest and under the pill if opened mid-take.
 - A left or right bar is vertical, and the pill turns with it: the same
   capsule now `Style.space(20)` wide and running down the bar for the clock's
   advance, dot at the top, clock reading down the capsule. The bar's own

@@ -1463,6 +1463,8 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
+      root.pinPanelAnchor()
+      root.panelUp = true
       root.clearHover()
       // A new window placement makes the last scene point meaningless.
       root.lastPointerScene = Qt.point(-100000, -100000)
@@ -1489,6 +1491,7 @@ Panel {
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
     } else {
+      root.panelUp = false
       root.clearHover()
       root.carryingFile = false
       root.discardArmed = false
@@ -1545,6 +1548,44 @@ Panel {
   readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
     + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
 
+  // The room the bar gives this widget: the take's pill while frames run, the
+  // resting mark's icon slot otherwise. The bar lays its neighbours out around
+  // this width, so a take landing narrows the slot and moves everything beside
+  // it. The card is not hung from this slot (see panelAnchor below): it must
+  // not ride that reflow.
+  readonly property real barSlotWidth: root.busy ? root.barPillWidth
+    : Style.bar.iconSlot
+
+  // Where the card hangs from: a point pinned to the widget's centre at the
+  // moment the panel opens, parked in the bar's own surface so the bar's
+  // layout cannot carry it away. The widget's slot is as wide as its drawing,
+  // so a landing shrinks the slot by a third and slides everything in the
+  // section sideways; a card anchored to the widget itself would be dragged
+  // along in one frame. Pinned per open, so a card raised on the resting mark
+  // stays under the mark, and one raised during a take stays under the pill.
+  Item {
+    id: panelAnchor
+    parent: root.QsWindow.window ? root.QsWindow.window.contentItem : root
+    width: root.barVertical ? 1 : Style.bar.iconSlot
+    height: root.barVertical ? Style.bar.iconSlot : 1
+    visible: false
+  }
+
+  // The card's own open flag, set after the pin so the first frame it draws
+  // already hangs where it belongs.
+  property bool panelUp: false
+
+  function pinPanelAnchor() {
+    var window = root.QsWindow.window
+    if (!window || !window.contentItem) return
+    panelAnchor.parent = window.contentItem
+    var point = button.mapToItem(window.contentItem, 0, 0)
+    panelAnchor.x = Math.round(point.x + button.width / 2
+      - panelAnchor.width / 2)
+    panelAnchor.y = Math.round(point.y + button.height / 2
+      - panelAnchor.height / 2)
+  }
+
   // The colour the bar itself writes in. A transparent bar has no surface of
   // its own: Omarchy samples the strip behind it (omarchy-bar-text-color) and
   // hands the widgets a foreground that contrasts with that strip. The pill
@@ -1571,10 +1612,8 @@ Panel {
     bar: root.bar
     text: ""
     hasVisualContent: true
-    fixedWidth: root.barVertical ? -1
-      : (root.busy ? root.barPillWidth : Style.bar.iconSlot)
-    fixedHeight: root.barVertical
-      ? (root.busy ? root.barPillWidth : Style.bar.iconSlot) : -1
+    fixedWidth: root.barVertical ? -1 : root.barSlotWidth
+    fixedHeight: root.barVertical ? root.barSlotWidth : -1
     active: root.active || root.starting || root.finalizing
     tooltipText: root.barTooltip()
     onPressed: function(button) {
@@ -1714,10 +1753,10 @@ Panel {
 
   KeyboardPanel {
     id: keyboardPanel
-    anchorItem: button
+    anchorItem: panelAnchor
     owner: root
     bar: root.bar
-    open: root.opened
+    open: root.panelUp
     focusTarget: keyCatcher
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
     contentHeight: Style.space(410)
