@@ -5,7 +5,6 @@ import Quickshell.Io
 import Quickshell.Wayland
 import qs.Commons
 import qs.Commons as Commons
-import qs.Ui
 
 // A focused countdown ring shown between the capture picker and the encoder.
 // The recorder writes the countdown start to state.json; this overlay follows

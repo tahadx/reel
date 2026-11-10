@@ -7,10 +7,6 @@ function emptyState() {
   return { status: "idle", elapsed: 0, active: false }
 }
 
-function emptyRecent() {
-  return { recordings: [] }
-}
-
 function emptyUpdate() {
   return { current: "", latest: "", available: false, behind: 0, checkedAt: 0, error: "" }
 }
@@ -110,10 +106,6 @@ function isBusy(state) {
   return s === "starting" || s === "recording" || s === "paused" || s === "finalizing"
 }
 
-function canPause(state) {
-  return isActive(state)
-}
-
 function elapsed(state, tick) {
   // `tick` is read only so QML re-evaluates this once a second while the
   // service's clock runs.
@@ -178,47 +170,12 @@ function baseName(path) {
   return slash >= 0 ? value.slice(slash + 1) : value
 }
 
-function parentPath(path) {
-  var value = String(path || "")
-  var slash = value.lastIndexOf("/")
-  return slash > 0 ? value.slice(0, slash) : value
-}
-
 function shortPath(path, home) {
   var value = String(path || "")
   var base = String(home || "")
   if (base && value === base) return "~"
   if (base && value.indexOf(base + "/") === 0) return "~" + value.slice(base.length)
   return value
-}
-
-function stateTitle(state) {
-  switch (status(state)) {
-  case "starting":
-    return String(object(state).stage || "") === "capture" ? "Recording" : "Choose what to record"
-  case "recording": return "Recording"
-  case "paused": return "Paused"
-  case "finalizing": return "Saving the take"
-  default: return "Ready to record"
-  }
-}
-
-function stateMeta(state, elapsedSeconds) {
-  var s = object(state)
-  switch (status(s)) {
-  case "starting":
-    if (String(s.stage || "") === "capture") return clock(elapsedSeconds) + " · recording"
-    return String(s.stage || "select") === "countdown"
-      ? "starting in a moment" : "pick a window, area, or monitor"
-  case "recording":
-    return clock(elapsedSeconds) + " · " + (s.fps ? number(s.fps) + " fps" : "recording")
-  case "paused":
-    return "paused at " + clock(elapsedSeconds)
-  case "finalizing":
-    return "trimming and normalizing audio"
-  default:
-    return "ready · " + (s.fps ? number(s.fps) + " fps" : "60 fps")
-  }
 }
 
 function takeTitle(row) {
@@ -309,10 +266,6 @@ function cycle(list, current, direction) {
   if (index < 0) index = 0
   var step = direction < 0 ? -1 : 1
   return list[(index + step + list.length) % list.length]
-}
-
-function indexOf(list, value) {
-  return Array.isArray(list) ? list.indexOf(value) : -1
 }
 
 function clamp(value, low, high) {

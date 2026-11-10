@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -102,17 +101,14 @@ Panel {
   readonly property color accent: Commons.Color.accent
   readonly property color urgent: Commons.Color.urgent
   readonly property color dim: Commons.Color.muted
-  readonly property color accentSoft: Util.alpha(root.accent, 0.16)
   readonly property color urgentSoft: Util.alpha(root.urgent, 0.16)
   readonly property color restFill: Util.alpha(root.foreground, 0.04)
-  readonly property color hoverFill: Util.alpha(root.foreground, 0.08)
   readonly property color selectedFill: Util.alpha(root.foreground, 0.14)
   readonly property color hairline: Util.alpha(root.foreground, 0.12)
   readonly property color strongBorder: Util.alpha(root.foreground, 0.24)
   readonly property color secondary: Util.alpha(root.foreground, 0.72)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property color onAccent: root.inkOn(root.accent)
-  readonly property color onUrgent: root.inkOn(root.urgent)
 
   readonly property var defaults: ({
     "desktopAudio": "on",
@@ -249,7 +245,6 @@ Panel {
   property string notice: ""
   property bool noticeUrgent: false
   property int noticeSeq: 0
-  property string discardArmedPath: ""
   property string trashArmedPath: ""
   property var pendingTrash: ({})
   property var pendingRenames: ({})
@@ -319,7 +314,6 @@ Panel {
     repeat: false
     onTriggered: {
       root.discardArmed = false
-      root.discardArmedPath = ""
       root.trashArmedPath = ""
     }
   }
@@ -516,19 +510,6 @@ Panel {
   }
 
   // ---------- labels ------------------------------------------------------
-
-  function audioSummary() {
-    var desktop = root.currentValue("desktopAudio") === "on"
-    var mic = root.currentValue("microphoneAudio") === "on"
-    if (desktop && mic) return "System audio + microphone"
-    if (desktop) return "System audio"
-    if (mic) return "Microphone"
-    return "No audio"
-  }
-
-  function destinationLabel() {
-    return Model.shortPath(root.currentValue("outputDir") || root.outputDir, root.home)
-  }
 
   function barTooltip() {
     var text = "Reel · click to open, right-click to record"
@@ -2823,29 +2804,6 @@ Panel {
     }
   }
 
-  // A horizontal pair of chevrons keeps the cycle rows readable at a glance.
-  component CycleChevrons: Row {
-    property color foreground: root.foreground
-    spacing: Style.space(4)
-
-    Text {
-      textFormat: Text.PlainText
-      text: "‹"
-      color: parent.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      opacity: 0.6
-    }
-    Text {
-      textFormat: Text.PlainText
-      text: "›"
-      color: parent.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.body
-      opacity: 0.6
-    }
-  }
-
   component ActionButton: CursorSurface {
     id: action
     property int rowIndex: 0
@@ -3665,7 +3623,6 @@ Panel {
     property string label: ""
     property string glyph: ""
     property int rowIndex: 0
-    property bool quick: false
     property string kind: "cycle"
     property string infoValue: ""
 
