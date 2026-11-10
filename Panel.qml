@@ -1831,6 +1831,11 @@ Panel {
       id: idleMark
       visible: !root.busy
       anchors.centerIn: parent
+      // The drawn screen is flat-topped while icon-font neighbours carry
+      // ascender ink (the agents mark's antenna, the chevron's tip), so an
+      // ink-centred box reads a couple of pixels high. Drop it one point to
+      // line the mark's body up with the glyph mass beside it.
+      anchors.verticalCenterOffset: 1
       width: Math.min(Style.bar.iconCanvas, button.barSize - Style.space(4))
       height: width
       scale: button.pressScale
