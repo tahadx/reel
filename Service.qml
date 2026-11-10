@@ -43,6 +43,9 @@ Item {
   // Configure's own error is the useful one on a fresh install; later command
   // failures must not replace it with a generic "not on PATH" message.
   property bool configureFailed: false
+  property bool configuring: false
+  property bool configureStarted: false
+  property int configureAttempts: 0
 
   readonly property bool active: Model.isActive(root.state)
   readonly property bool finalizing: Model.status(root.state) === "finalizing"
@@ -135,12 +138,92 @@ Item {
 
   // First-run bootstrap: the plugin id is stable, so the installed path is
   // deterministic. The configure step links the shipped engine's wrapper into
-  // ~/.local/bin; nothing else runs until it exits.
-  Component.onCompleted: {
+  // ~/.local/bin; nothing else runs until it exits. A start failure or a hung
+  // configure must not leave every command gated forever, so it becomes a
+  // visible, retryable error instead.
+  Component.onCompleted: root.startConfigure()
+
+  function startConfigure() {
+    if (configureProc.running) return
+    root.configuring = true
+    root.configureStarted = false
+    root.configured = false
     configureProc.command = [
       root.home + "/.config/omarchy/plugins/io.github.tahadx.reel/bin/configure"
     ]
     configureProc.running = true
+    configureDeadline.restart()
+  }
+
+  function configureFailedWith(message) {
+    if (!root.configuring) return
+    configureDeadline.stop()
+    root.configuring = false
+    root.configureFailed = true
+    // Unblock the panel so it can show the error and offer a retry; a failed
+    // setup must not leave every command disabled with no explanation.
+    root.configured = true
+    root.lastError = message
+    if (root.configureAttempts < 3) {
+      root.configureAttempts++
+      configureRetry.interval = 2000 * Math.pow(2, root.configureAttempts - 1)
+      configureRetry.restart()
+    }
+    root.refresh()
+  }
+
+  function configureSucceeded() {
+    var wasFailed = root.configureFailed
+    configureDeadline.stop()
+    root.configuring = false
+    root.configureFailed = false
+    root.configureAttempts = 0
+    root.configured = true
+    if (wasFailed) root.lastError = ""
+    root.refresh()
+  }
+
+  // The panel calls this when it opens on a failed setup, so recovery does not
+  // require restarting the shell.
+  function retryConfigure() {
+    configureRetry.stop()
+    root.configureAttempts = 0
+    root.lastError = ""
+    root.startConfigure()
+  }
+
+  // A finite engine call that outlives its deadline is killed rather than left
+  // holding the service. The next poll can retry normally.
+  function noteTimeout(label) {
+    if (!root.configured) return
+    if (label === "update") {
+      root.updateChecking = false
+      root.updateInfo = {
+        available: false,
+        current: root.version,
+        latest: "",
+        behind: 0,
+        checkedAt: 0,
+        error: "The update check took too long."
+      }
+      return
+    }
+    if (label === "recent") root.recentPending = false
+    root.lastError = "Reel did not answer the " + label + " step in time."
+  }
+
+  component ProcessDeadline: Timer {
+    id: deadline
+    property var watched: null
+    property string label: ""
+    property int milliseconds: 5000
+    interval: milliseconds
+    repeat: false
+    onTriggered: {
+      if (!watched || !watched.running) return
+      watched.signal(9)
+      root.noteTimeout(label)
+    }
   }
 
   Process {
@@ -150,17 +233,42 @@ Item {
       id: configureError
       waitForEnd: true
     }
-    onExited: function(code) {
-      var message = String(configureError.text || "").trim()
-      if (code !== 0) root.configureFailed = true
-      if (message !== "") {
-        root.lastError = message
-      } else if (code !== 0) {
-        root.lastError = "Reel could not configure its command. Run the plugin's bin/configure for details."
-      }
-      root.configured = true
-      root.refresh()
+    onStarted: {
+      root.configureStarted = true
+      configureDeadline.restart()
     }
+    onRunningChanged: {
+      if (configureProc.running) return
+      configureDeadline.stop()
+      if (!root.configureStarted && root.configuring)
+        root.configureFailedWith("Reel could not start its setup step. Open the plugin's bin/configure or reinstall Reel.")
+      root.configureStarted = false
+    }
+    onExited: function(code) {
+      root.configureStarted = false
+      var message = String(configureError.text || "").trim()
+      if (code !== 0) {
+        root.configureFailedWith(message !== ""
+          ? message
+          : "Reel could not configure its command. Run the plugin's bin/configure for details.")
+        return
+      }
+      if (message !== "") root.lastError = message
+      root.configureSucceeded()
+    }
+  }
+
+  ProcessDeadline {
+    id: configureDeadline
+    watched: configureProc
+    label: "setup"
+    milliseconds: 15000
+  }
+
+  Timer {
+    id: configureRetry
+    repeat: false
+    onTriggered: if (!root.configured || root.configureFailed) root.startConfigure()
   }
 
   FileView {
@@ -199,12 +307,21 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
+    onStarted: statusDeadline.restart()
     onExited: function(code) {
+      statusDeadline.stop()
       // Configure owns the first failure message. Only report a missing
       // command once configure has succeeded (or left no error of its own).
       if (code === 127 && root.configured && root.lastError === "")
         root.lastError = "The reel command is not on PATH."
     }
+  }
+
+  ProcessDeadline {
+    id: statusDeadline
+    watched: statusProc
+    label: "status"
+    milliseconds: 5000
   }
 
   Process {
@@ -221,7 +338,9 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
+    onStarted: recentDeadline.restart()
     onExited: function(code) {
+      recentDeadline.stop()
       if (code === 127 && root.configured && root.lastError === "")
         root.lastError = "The reel command is not on PATH."
       if (root.recentPending) {
@@ -229,6 +348,13 @@ Item {
         root.refreshRecent()
       }
     }
+  }
+
+  ProcessDeadline {
+    id: recentDeadline
+    watched: recentProc
+    label: "history"
+    milliseconds: 8000
   }
 
   Process {
@@ -241,6 +367,15 @@ Item {
         if (value !== "") root.outputDir = value
       }
     }
+    onStarted: outputDeadline.restart()
+    onExited: outputDeadline.stop()
+  }
+
+  ProcessDeadline {
+    id: outputDeadline
+    watched: outputProc
+    label: "output folder"
+    milliseconds: 5000
   }
 
   Process {
@@ -251,6 +386,15 @@ Item {
       waitForEnd: true
       onStreamFinished: root.applyVersion(String(text || ""))
     }
+    onStarted: versionDeadline.restart()
+    onExited: versionDeadline.stop()
+  }
+
+  ProcessDeadline {
+    id: versionDeadline
+    watched: versionProc
+    label: "version"
+    milliseconds: 5000
   }
 
   Process {
@@ -267,7 +411,9 @@ Item {
         if (message !== "" && !root.configureFailed) root.lastError = message
       }
     }
+    onStarted: updateDeadline.restart()
     onExited: function(code) {
+      updateDeadline.stop()
       root.updateChecking = false
       // A check that was asked for while this one ran runs once more, so a
       // manual refresh always ends with a fresh answer.
@@ -276,6 +422,13 @@ Item {
         root.checkForUpdates(true)
       }
     }
+  }
+
+  ProcessDeadline {
+    id: updateDeadline
+    watched: updateProc
+    label: "update"
+    milliseconds: 35000
   }
 
   // Check once when the service is ready and then once an hour. The engine

@@ -35,7 +35,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Omarchy's `omarchy-capture-region` picker and `slurp` for selection.
 - `grim` for still previews.
 - `mpv` for history playback and the webcam overlay.
-- `wl-clipboard` if you want the history path-copy action.
+- `wl-clipboard` for the history path-copy action and bounded pastes in the
+  name fields.
 - LocalSend for sharing takes through `omarchy share`.
 - Optional: `omacut` for cutting takes.
 - Linux x86_64 for the prebuilt engine. Other architectures must build from
@@ -255,8 +256,13 @@ bin/test-qml
 
 The plugin ships `bin/dist/reel-native`, so users do not need a Rust toolchain.
 [Release builds and architecture notes](docs/development.md) cover
-`bin/refresh-dist` and the release process.
+`bin/refresh-dist` and the release process. Agent instructions live in
+[docs/contributing/agent-guide.md](docs/contributing/agent-guide.md); they are
+not a root `AGENTS.md`/`CLAUDE.md` because the plugin directory is copied
+verbatim at install time.
 
 ## License
 
-MIT.
+Reel is MIT. The static engine also links third-party crates, the Rust standard
+library, and musl; their notices are mapped in
+[THIRD-PARTY.md](THIRD-PARTY.md) and shipped under `licenses/`.

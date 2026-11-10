@@ -41,8 +41,23 @@ function parseVersion(text) {
 // that is ahead without a version bump keeps showing the running version, so
 // the slot never falls back to the word "Update". A failed check surfaces as
 // "Retry" instead of quietly falling back to the version.
-function updateCueLabel(info, version, checking) {
-  if (checking) return "Checking…"
+// A clipboard can carry arbitrary text. The name fields only accept one
+// printable line that fits in the field; anything else is refused before it is
+// inserted.
+function pasteText(raw, maxChars) {
+    var text = String(raw === undefined || raw === null ? "" : raw)
+    var limit = Math.max(1, Math.floor(Number(maxChars) || 1))
+    if (text === "") return { ok: true, text: "", error: "" }
+    if (/[\u0000-\u001f\u007f]/.test(text)) {
+        return { ok: false, text: "", error: "Paste has a line break or control character." }
+    }
+    if (text.length > limit) {
+        return { ok: false, text: "", error: "Paste is longer than " + limit + " characters." }
+    }
+    return { ok: true, text: text, error: "" }
+}
+
+function updateCueLabel(info, version, checking) {  if (checking) return "Checking…"
   var update = object(info)
   var current = String(version || update.current || "")
   var latest = String(update.latest || "")

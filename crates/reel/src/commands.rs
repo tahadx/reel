@@ -15,6 +15,11 @@ use std::time::{Duration, UNIX_EPOCH};
 
 const PLUGIN_ID: &str = "io.github.tahadx.reel";
 
+/// The largest recent list the panel can request. The service asks for 20; the
+/// cap keeps a bad `--limit` from producing an unbounded JSON document for the
+/// shell process.
+pub const MAX_RECENT_TAKES: usize = 100;
+
 /// How long a checked result is trusted. The shell asks once an hour; a restart
 /// inside that window reads the cache instead of fetching again.
 const UPDATE_CHECK_TTL: i64 = 3600;
@@ -47,6 +52,56 @@ fn update_cache_is_fresh(report: &UpdateReport, current: &str, now: i64) -> bool
 fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
     let text = fs::read_to_string(&paths.update).ok()?;
     serde_json::from_str(&text).ok()
+}
+
+/// Credentials embedded in a remote URL are passed to `git-remote-https` in
+/// its argv, where another local account can read them from the process list.
+/// The background check refuses such a remote; secrets belong in a credential
+/// helper. `git remote get-url` applies `url.*.insteadOf` rewrites, so this sees
+/// the URL git would actually use.
+fn credential_bearing_url(url: &str) -> bool {
+    let url = url.trim();
+    let Some((scheme, rest)) = url.split_once("://") else {
+        // `git@host:path` is an SSH user name, not a secret.
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let userinfo = authority.rsplit_once('@').map(|(user, _)| user);
+    let scheme = scheme.to_ascii_lowercase();
+    if matches!(scheme.as_str(), "http" | "https") {
+        // A token can be the user name even without a colon.
+        if userinfo.is_some_and(|user| !user.is_empty()) {
+            return true;
+        }
+        // Query strings often carry access tokens; never hand one to git.
+        if rest.contains('?') || rest.contains('#') {
+            return true;
+        }
+    }
+    // A password in an `ssh://` URL is exposed the same way.
+    if userinfo.is_some_and(|user| user.contains(':')) {
+        return true;
+    }
+    false
+}
+
+/// The effective fetch URLs after git's `insteadOf` rewrites. `None` means the
+/// URL could not be inspected, which is treated as unsafe for a background
+/// network operation.
+fn fetch_urls(dir: &Path, timeout: Duration) -> Option<Vec<String>> {
+    let dir_text = dir.display().to_string();
+    let out = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "remote", "get-url", "--all", "origin"],
+        timeout,
+    )?;
+    let urls: Vec<String> = out
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!urls.is_empty()).then_some(urls)
 }
 
 /// Read the version out of the fetched manifest, so the panel can name the
@@ -87,6 +142,15 @@ fn fetch_update_report(current: &str, checked_at: i64) -> UpdateReport {
     }
     if !dir.join(".git").exists() {
         report.error = "This install is not a git checkout.".into();
+        return report;
+    }
+
+    let Some(urls) = fetch_urls(&dir, Duration::from_secs(10)) else {
+        report.error = "The update check could not read this install's remote URL.".into();
+        return report;
+    };
+    if urls.iter().any(|url| credential_bearing_url(url)) {
+        report.error = "The update check is paused because this install's remote URL carries credentials. Move them to a git credential helper and remove them from the URL.".into();
         return report;
     }
 
@@ -383,7 +447,7 @@ pub fn thumbnails(paths: &Paths, limit: usize) -> Result<()> {
 }
 
 pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
-    let takes = recent_takes(paths, limit);
+    let takes = recent_takes(paths, limit.min(MAX_RECENT_TAKES));
     if as_json {
         let recordings: Vec<_> = takes
             .iter()
@@ -1139,6 +1203,35 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ))
+    }
+
+    #[test]
+    fn credential_urls_are_refused() {
+        assert!(!credential_bearing_url(
+            "https://github.com/tahadx/reel.git"
+        ));
+        assert!(!credential_bearing_url("git@github.com:tahadx/reel.git"));
+        assert!(!credential_bearing_url(
+            "ssh://git@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://token@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://user:secret@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://github.com/tahadx/reel.git?access_token=abc"
+        ));
+        assert!(credential_bearing_url(
+            "ssh://user:secret@example.com/reel.git"
+        ));
+    }
+
+    #[test]
+    fn recent_limit_is_bounded() {
+        assert_eq!(20usize.min(MAX_RECENT_TAKES), 20);
+        assert_eq!(1_000_000usize.min(MAX_RECENT_TAKES), MAX_RECENT_TAKES);
     }
 
     #[test]

@@ -1,4 +1,9 @@
-# CLAUDE.md
+# Agent guide
+
+This is the project guide for coding agents. It lives here instead of a root
+`CLAUDE.md`/`AGENTS.md` because the plugin repository is copied verbatim into
+the Omarchy plugin directory at install time; agent instruction files must not
+be auto-activated in the shipped tree. Point an agent at this file explicitly.
 
 Reel is an Omarchy bar plugin for screen recording (`io.github.tahadx.reel`): a QML bar widget and panel backed by a static Rust engine in `crates/reel`. The panel starts, pauses, discards, and manages takes; the engine owns capture, finalize, config, and state.
 
@@ -118,7 +123,7 @@ preview.png              marketplace preview (shows the panel only)
 3. **Panel, manifest, and engine stay in sync.** Every new setting requires a `manifest.json` schema entry, a `Panel.qml` row, and `crates/reel` support in the same change. Never render a UI row the engine cannot honor.
 4. **Pointer behavior is sacred.** `cursor` on keeps today's baked pointer and adds pointer telemetry; `cursor` off keeps today's no-pointer take. There is no capture mode. Cursor synthesis is a render choice (`cursorStyle=baked|synthetic`), and it strips the pointer only after telemetry starts.
 5. **Zero new heavy dependencies.** Keep the engine static and self-contained. Do not add `wgpu`, a new workspace crate, or external runtime dependencies without asking first.
-6. **No symlinks anywhere.** `omarchy plugin validate .` rejects symlinks inside the plugin tree (`AGENTS.md` must remain a plain file).
+6. **No symlinks anywhere.** `omarchy plugin validate .` rejects symlinks inside the plugin tree.
 7. **Never edit installed files.** Do not touch `/usr/share/omarchy` or `~/.config/omarchy/plugins/io.github.tahadx.reel/` directly. Edit the checkout and run `./install.sh`.
 8. **Git & push discipline.** Keep diffs small. Never push, force-push, or rewrite git history unless the user explicitly asks.
 9. **Sync docs in the same commit.** Update `docs/design.md` for panel/UI changes, and `docs/reference.md` + `README.md` for CLI, config, or user-facing behavior changes. If docs and code disagree, fix both.

@@ -98,6 +98,8 @@ assert_file "$HOME/.local/bin/reel"
   || fail "reel points at $(readlink -- "$HOME/.local/bin/reel"), not the plugin wrapper"
 assert_file "$PLUGIN_DIR/bin/dist/reel-native"
 [[ -x "$PLUGIN_DIR/bin/dist/reel-native" ]] || fail "shipped engine is not executable"
+assert_file "$PLUGIN_DIR/bin/clipboard"
+[[ -x "$PLUGIN_DIR/bin/clipboard" ]] || fail "bounded clipboard helper is not executable"
 [[ "$(reel --version)" == "$WANT_VERSION" ]] \
   || fail "reel --version does not report the manifest version"
 grep -qxF -- "$USER_BIND" "$BINDINGS" || fail "installer changed the user binding"
@@ -171,6 +173,32 @@ BACKUPS_AFTER="$(find "$XDG_CONFIG_HOME/hypr" -maxdepth 1 -name 'bindings.lua.ba
 ln -s -- "$TEST_ROOT/my-reel-helper" "$HOME/.local/bin/reel"
 "$REPO/bin/uninstall" >/dev/null
 [[ -L "$HOME/.local/bin/reel" ]] || fail "uninstaller removed an unrelated symlink"
+
+# The bounded clipboard helper must cap the bytes a fake owner can emit and
+# give up on a stalled owner.
+cat >"$TEST_ROOT/bin/wl-paste" <<'EOF'
+#!/bin/sh
+exec yes x
+EOF
+chmod 755 -- "$TEST_ROOT/bin/wl-paste"
+set +e
+"$REPO/bin/clipboard" >"$TEST_ROOT/clipboard.out" 2>/dev/null
+CLIP_CODE=$?
+set -e
+[[ "$CLIP_CODE" -eq 141 ]] || fail "bounded paste exited $CLIP_CODE for oversized text"
+[[ "$(wc -c <"$TEST_ROOT/clipboard.out")" -eq 4097 ]] \
+  || fail "bounded paste did not cap its output at 4097 bytes"
+cat >"$TEST_ROOT/bin/wl-paste" <<'EOF'
+#!/bin/sh
+sleep 3
+EOF
+chmod 755 -- "$TEST_ROOT/bin/wl-paste"
+set +e
+"$REPO/bin/clipboard" >/dev/null 2>&1
+CLIP_CODE=$?
+set -e
+[[ "$CLIP_CODE" -eq 124 ]] || fail "bounded paste exited $CLIP_CODE for a stalled clipboard"
+rm -f -- "$TEST_ROOT/bin/wl-paste"
 
 # The test must stay silent on the live desktop even if a probe fails.
 assert_no_file "$TEST_ROOT/notification.log"

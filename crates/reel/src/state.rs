@@ -2,7 +2,34 @@ use crate::paths::{self, Paths};
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::fs;
+use std::io::Read;
 use std::path::Path;
+
+/// The shell reads the status JSON from `reel status`. State files are tiny by
+/// design, so a larger one is corrupt or planted: never turn it into unbounded
+/// output for the shell.
+pub const MAX_STATE_BYTES: u64 = 256 * 1024;
+
+/// Read a state-shaped JSON object without ever loading more than
+/// `MAX_STATE_BYTES`. Returns `None` for an oversized, unreadable, or
+/// non-object file, which callers already treat as "no saved state".
+fn read_object(path: &Path) -> Option<Value> {
+    let metadata = fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_STATE_BYTES {
+        return None;
+    }
+    let file = fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(MAX_STATE_BYTES + 1)
+        .read_to_string(&mut text)
+        .ok()?;
+    if text.len() as u64 > MAX_STATE_BYTES {
+        return None;
+    }
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .filter(Value::is_object)
+}
 
 pub fn idle() -> Value {
     json!({ "status": "idle" })
@@ -13,10 +40,7 @@ pub fn idle_with_last(last: &Value) -> Value {
 }
 
 fn saved_last(paths: &Paths) -> Option<Value> {
-    let text = fs::read_to_string(&paths.last).ok()?;
-    serde_json::from_str::<Value>(&text)
-        .ok()
-        .filter(Value::is_object)
+    read_object(&paths.last)
 }
 
 /// Set idle without dropping the saved take. The panel uses its target to
@@ -68,10 +92,7 @@ pub fn read_or_idle(paths: &Paths) -> Value {
 }
 
 pub fn read(paths: &Paths) -> Option<Value> {
-    let text = fs::read_to_string(&paths.state).ok()?;
-    serde_json::from_str::<Value>(&text)
-        .ok()
-        .filter(Value::is_object)
+    read_object(&paths.state)
 }
 
 pub fn write(paths: &Paths, state: &Value) -> Result<()> {
@@ -350,6 +371,16 @@ mod tests {
         ));
         let _ = fs::create_dir_all(&root);
         Paths::for_test(&root)
+    }
+
+    #[test]
+    fn an_oversized_state_file_is_not_read() {
+        let paths = temp_paths();
+        fs::create_dir_all(&paths.runtime).unwrap();
+        let oversized = "x".repeat(MAX_STATE_BYTES as usize + 1);
+        fs::write(&paths.state, oversized).unwrap();
+        assert!(read(&paths).is_none(), "oversized state must not be read");
+        let _ = fs::remove_dir_all(paths.runtime);
     }
 
     #[test]

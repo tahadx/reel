@@ -265,6 +265,15 @@ Panel {
   property string controlAction: ""
   property string pendingNotice: ""
   property bool updateNoticePending: false
+  // Explicit paste for the two short name fields. Qt's native paste reads the
+  // whole clipboard synchronously inside the shell process; this asks the
+  // bounded helper instead, caps the result, and refuses control characters.
+  readonly property string pluginBin: root.home + "/.config/omarchy/plugins/io.github.tahadx.reel/bin"
+  property var pasteTarget: null
+  property string pasteBuffer: ""
+  property string pasteError: ""
+  property string pasteErrorKind: ""
+  readonly property int pasteLimit: 200
 
   // The take actions menu lives at panel level rather than inside each row so
   // the keyboard cursor keeps working while it is open. It anchors to the
@@ -345,6 +354,104 @@ Panel {
     root.noticeUrgent = !!urgent
     root.noticeSeq += 1
     if (root.notice !== "") noticeTimer.restart()
+  }
+
+  // A paste is read by bin/clipboard, which caps stdout at 4096 bytes and has
+  // a hard deadline. Nothing here hands an unbounded clipboard to Qt.
+  function isPasteShortcut(event) {
+    return (event.modifiers & Qt.ControlModifier && event.key === Qt.Key_V)
+      || (event.modifiers & Qt.ShiftModifier && event.key === Qt.Key_Insert)
+  }
+
+  function startPaste(kind, input, limit) {
+    if (pasteProc.running) pasteProc.signal(9)
+    pasteDeadline.stop()
+    root.pasteTarget = { kind: kind, input: input, limit: limit }
+    root.pasteBuffer = ""
+    root.pasteError = ""
+    root.pasteErrorKind = ""
+    pasteProc.command = [root.pluginBin + "/clipboard"]
+    pasteProc.running = true
+    pasteDeadline.restart()
+  }
+
+  function cancelPaste(kind) {
+    if (root.pasteTarget && (kind === "" || root.pasteTarget.kind === kind)) {
+      root.pasteTarget = null
+      if (pasteProc.running) pasteProc.signal(9)
+      pasteDeadline.stop()
+    }
+    if (kind === "" || root.pasteErrorKind === kind) root.clearPasteError(kind)
+  }
+
+  function clearPasteError(kind) {
+    if (kind === "" || root.pasteErrorKind === kind) {
+      root.pasteError = ""
+      root.pasteErrorKind = ""
+    }
+  }
+
+  function finishPaste(code) {
+    pasteDeadline.stop()
+    var target = root.pasteTarget
+    root.pasteTarget = null
+    if (!target) return
+    if (code !== 0) {
+      root.pasteErrorKind = target.kind
+      root.pasteError = code === 141
+        ? "Paste is longer than this field allows."
+        : (code === 124 || code === 137)
+          ? "The clipboard did not answer in time."
+          : "Could not read the clipboard."
+      return
+    }
+    var result = Model.pasteText(root.pasteBuffer, target.limit)
+    if (!result.ok) {
+      root.pasteErrorKind = target.kind
+      root.pasteError = result.error
+      return
+    }
+    if (result.text === "" || !target.input) return
+    var input = target.input
+    var start = input.selectionStart
+    var end = input.selectionEnd
+    if (start < 0 || end < 0) {
+      start = input.cursorPosition
+      end = start
+    }
+    if (start > end) {
+      var swap = start
+      start = end
+      end = swap
+    }
+    if (start !== end) input.remove(start, end)
+    input.insert(start, result.text)
+    root.clearPasteError(target.kind)
+  }
+
+  Process {
+    id: pasteProc
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.pasteBuffer = String(text || "")
+    }
+    onExited: function(code) { root.finishPaste(code) }
+  }
+
+  Timer {
+    id: pasteDeadline
+    interval: 1200
+    repeat: false
+    onTriggered: {
+      var kind = root.pasteTarget ? root.pasteTarget.kind : ""
+      if (pasteProc.running) pasteProc.signal(9)
+      root.pasteTarget = null
+      if (kind !== "") {
+        root.pasteErrorKind = kind
+        root.pasteError = "The clipboard did not answer in time."
+      }
+    }
   }
 
   // ---------- colours -----------------------------------------------------
@@ -1488,11 +1595,15 @@ Panel {
       root.renameText = ""
       root.renameBusy = false
       root.refreshCameras()
-      if (root.service) root.service.refresh()
+      if (root.service) {
+        if (root.service.configureFailed) root.service.retryConfigure()
+        root.service.refresh()
+      }
       Qt.callLater(root.resetScroll)
     } else {
       root.panelUp = false
       root.clearHover()
+      root.cancelPaste("")
       root.carryingFile = false
       root.discardArmed = false
       root.trashArmedPath = ""
@@ -2258,7 +2369,7 @@ Panel {
                     ColorAnimation { duration: 120 }
                   }
 
-                  TextInput {
+                  GuardedInput {
                     id: prefixInput
                     anchors.fill: parent
                     anchors.leftMargin: Style.space(9)
@@ -2270,19 +2381,24 @@ Panel {
                     selectedTextColor: root.inkOn(root.accent)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
-                    selectByMouse: true
                     clip: true
-                    onActiveFocusChanged: root.typingPrefix = activeFocus
+                    onActiveFocusChanged: {
+                      root.typingPrefix = activeFocus
+                      if (!activeFocus) root.cancelPaste("prefix")
+                    }
+                    onTextEdited: root.clearPasteError("prefix")
                     onEditingFinished: root.writeSetting("filenamePrefix", text)
+                    onBoundedPaste: root.startPaste("prefix", prefixInput, root.pasteLimit)
                   }
                 }
 
                 Text {
                   textFormat: Text.PlainText
-                  text: root.currentValue("filenamePrefix") === ""
-                    ? "Empty uses reel-<date>. The date is added to every take."
-                    : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
-                  color: root.dim
+                  text: root.pasteErrorKind === "prefix" ? root.pasteError
+                    : root.currentValue("filenamePrefix") === ""
+                      ? "Empty uses reel-<date>. The date is added to every take."
+                      : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
+                  color: root.pasteErrorKind === "prefix" ? root.urgent : root.dim
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   wrapMode: Text.WordWrap
@@ -2761,7 +2877,7 @@ Panel {
                 ColorAnimation { duration: 120 }
               }
 
-              TextInput {
+              GuardedInput {
                 id: renameInput
                 anchors.fill: parent
                 anchors.leftMargin: Style.space(9)
@@ -2773,13 +2889,22 @@ Panel {
                 selectedTextColor: root.inkOn(root.accent)
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
-                selectByMouse: true
                 clip: true
                 enabled: !root.renameBusy
                 focus: root.takeMenuRenaming
-                onTextEdited: root.renameText = text
-                onActiveFocusChanged: if (activeFocus) selectAll()
+                onTextEdited: {
+                  root.renameText = text
+                  root.clearPasteError("rename")
+                }
+                onActiveFocusChanged: {
+                  if (activeFocus) {
+                    selectAll()
+                  } else {
+                    root.cancelPaste("rename")
+                  }
+                }
                 onAccepted: root.commitRename()
+                onBoundedPaste: root.startPaste("rename", renameInput, root.pasteLimit)
                 Keys.onEscapePressed: function(event) {
                   root.cancelRename()
                   event.accepted = true
@@ -2789,8 +2914,9 @@ Panel {
 
             Text {
               textFormat: Text.PlainText
-              text: root.renameBusy ? "Renaming…" : "Enter to rename · Esc to cancel"
-              color: root.dim
+              text: root.pasteErrorKind === "rename" ? root.pasteError
+                : root.renameBusy ? "Renaming…" : "Enter to rename · Esc to cancel"
+              color: root.pasteErrorKind === "rename" ? root.urgent : root.dim
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
@@ -2806,6 +2932,56 @@ Panel {
 
   // Reel owns the key map because h/l are vim-style movement while Shift+H
   // opens history. PanelKeyCatcher reserves h for vim-left, which swallowed it.
+  // A TextInput with Qt's native clipboard paths removed. Keyboard paste is
+  // routed to the bounded helper; the mouse is handled here so Qt never sees a
+  // middle click (synchronous PRIMARY paste) or a context paste. Drag and
+  // double-click selection are reimplemented on top of `positionAt`.
+  component GuardedInput: TextInput {
+    id: guardInput
+
+    signal boundedPaste()
+    selectByMouse: false
+    maximumLength: root.pasteLimit
+
+    Keys.onPressed: function(event) {
+      if (root.isPasteShortcut(event)) {
+        event.accepted = true
+        guardInput.boundedPaste()
+      }
+    }
+
+    MouseArea {
+      anchors.fill: parent
+      acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+      cursorShape: Qt.IBeamCursor
+      property int pressPosition: 0
+      property bool dragging: false
+      onPressed: function(mouse) {
+        if (mouse.button !== Qt.LeftButton) {
+          mouse.accepted = true
+          return
+        }
+        guardInput.forceActiveFocus()
+        guardInput.cursorPosition = guardInput.positionAt(mouse.x, mouse.y)
+        pressPosition = guardInput.cursorPosition
+        dragging = true
+      }
+      onPositionChanged: function(mouse) {
+        if (!dragging) return
+        var position = guardInput.positionAt(mouse.x, mouse.y)
+        guardInput.select(Math.min(pressPosition, position), Math.max(pressPosition, position))
+      }
+      onReleased: function(mouse) {
+        dragging = false
+        mouse.accepted = true
+      }
+      onDoubleClicked: function(mouse) {
+        guardInput.cursorPosition = guardInput.positionAt(mouse.x, mouse.y)
+        guardInput.selectWord()
+      }
+    }
+  }
+
   component ReelKeyCatcher: Item {
     id: catcher
 
@@ -4122,6 +4298,10 @@ Panel {
 
   Connections {
     target: root.service
+    function onLastErrorChanged() {
+      if (root.service && root.service.lastError !== "")
+        root.setNotice(root.service.lastError, true)
+    }
     function onUpdateInfoChanged() {
       if (!root.updateNoticePending) return
       root.updateNoticePending = false
