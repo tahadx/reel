@@ -11,6 +11,8 @@ pub fn defaults() -> Value {
         "desktopAudio": true,
         "microphoneAudio": false,
         "noiseCancellation": false,
+        "desktopDevice": "",
+        "microphoneDevice": "",
         "cursor": true,
         "webcam": "off",
         "countdown": 0,

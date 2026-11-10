@@ -41,6 +41,7 @@ fn run() -> anyhow::Result<u8> {
         Command::TogglePause => recorder::toggle_pause(&paths)?,
         Command::Status { json } => commands::status(&paths, json)?,
         Command::Recent { json, limit } => commands::recent(&paths, json, limit)?,
+        Command::AudioDevices { json } => commands::audio_devices(json)?,
         Command::Trash { file } => commands::trash(&paths, file)?,
         Command::Thumbnails { limit } => commands::thumbnails(&paths, limit)?,
         Command::Rename { file, name } => commands::rename(&paths, file, name)?,

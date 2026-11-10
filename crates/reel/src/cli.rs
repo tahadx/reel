@@ -43,6 +43,12 @@ pub enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
+    /// List audio capture devices available to gpu-screen-recorder.
+    #[command(name = "audio-devices")]
+    AudioDevices {
+        #[arg(long)]
+        json: bool,
+    },
     /// Move a take to the trash.
     Trash { file: PathBuf },
     /// Generate missing thumbnails for recent takes.
@@ -157,6 +163,12 @@ pub struct StartArgs {
     pub microphone_audio: Option<String>,
     #[arg(long = "noise-reduction", alias = "noise-cancellation")]
     pub noise_cancellation: Option<String>,
+    /// Audio device for desktop/system audio capture. Empty uses default_output.
+    #[arg(long = "desktop-device")]
+    pub desktop_device: Option<String>,
+    /// Audio device for microphone capture. Empty uses default_input.
+    #[arg(long = "microphone-device")]
+    pub microphone_device: Option<String>,
     #[arg(long)]
     pub cursor: Option<String>,
     #[arg(long)]

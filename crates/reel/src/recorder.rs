@@ -23,6 +23,8 @@ struct Settings {
     desktop: bool,
     mic: bool,
     noise_cancellation: bool,
+    desktop_device: String,
+    microphone_device: String,
     cursor: bool,
     webcam: String,
     webcam_device: String,
@@ -46,6 +48,8 @@ impl Settings {
             "desktopAudio": self.desktop,
             "microphoneAudio": self.mic,
             "noiseCancellation": self.noise_cancellation,
+            "desktopDevice": self.desktop_device,
+            "microphoneDevice": self.microphone_device,
             "cursor": self.cursor,
             "webcam": self.webcam,
             "webcamDevice": self.webcam_device,
@@ -62,6 +66,22 @@ impl Settings {
             "autoZoom": self.auto_zoom,
             "autoZoomDepth": self.auto_zoom_depth,
         })
+    }
+
+    fn effective_desktop_device(&self) -> &str {
+        if self.desktop_device.is_empty() {
+            "default_output"
+        } else {
+            &self.desktop_device
+        }
+    }
+
+    fn effective_microphone_device(&self) -> &str {
+        if self.microphone_device.is_empty() {
+            "default_input"
+        } else {
+            &self.microphone_device
+        }
     }
 }
 
@@ -143,6 +163,13 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         "noiseCancellation",
         "off",
     ));
+    let desktop_device = effective(&options.desktop_device, &stored, "desktopDevice", "");
+    let microphone_device = effective(
+        &options.microphone_device,
+        &stored,
+        "microphoneDevice",
+        "",
+    );
     let cursor = util::normalize_switch(&effective(&options.cursor, &stored, "cursor", "on"));
     let webcam = util::pick_choice(
         &effective(&options.webcam, &stored, "webcam", "off"),
@@ -208,6 +235,8 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         desktop,
         mic,
         noise_cancellation,
+        desktop_device,
+        microphone_device,
         cursor,
         webcam,
         webcam_device,
@@ -258,7 +287,14 @@ fn prepare_output_dir(dir: &str) -> Result<()> {
     }
 }
 
-fn available_audio() -> Option<String> {
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AudioDevice {
+    pub id: String,
+    pub label: String,
+    pub kind: String,
+}
+
+pub fn available_audio_raw() -> Option<String> {
     // Bounded: enumerating devices must never stall a take.
     util::run_stdout_within(
         "gpu-screen-recorder",
@@ -267,30 +303,75 @@ fn available_audio() -> Option<String> {
     )
 }
 
+pub fn list_audio_devices() -> Vec<AudioDevice> {
+    let Some(raw) = available_audio_raw() else {
+        return Vec::new();
+    };
+    raw.lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() {
+                return None;
+            }
+            let (id, label) = match line.split_once('|') {
+                Some((id, label)) => (id.trim().to_string(), label.trim().to_string()),
+                None => (line.to_string(), line.to_string()),
+            };
+            if id.is_empty() {
+                return None;
+            }
+            let kind = if id == "default_output" || id.ends_with(".monitor") || id.contains("output") {
+                "output"
+            } else if id == "default_input" || id.contains("input") || id.contains("source") || id.starts_with("alsa_input") || id.starts_with("bluez_input") {
+                "input"
+            } else {
+                "unknown"
+            }
+            .to_string();
+            Some(AudioDevice { id, label, kind })
+        })
+        .collect()
+}
+
+fn device_exists(devices: &str, id: &str) -> bool {
+    devices.lines().any(|line| {
+        let line = line.trim();
+        line == id || line.strip_prefix(id).is_some_and(|rest| rest.starts_with('|'))
+    })
+}
+
 fn validate_audio(settings: &Settings) -> Result<()> {
     if !settings.desktop && !settings.mic {
         return Ok(());
     }
-    let Some(devices) = available_audio() else {
+    let Some(devices) = available_audio_raw() else {
         return Ok(());
     };
-    if settings.desktop
-        && !devices
-            .lines()
-            .any(|line| line.starts_with("default_output|"))
-    {
-        anyhow::bail!(
-            "No system audio output is available. Choose another audio source or turn desktop audio off."
-        );
+    if settings.desktop {
+        let id = settings.effective_desktop_device();
+        if !device_exists(&devices, id) {
+            if settings.desktop_device.is_empty() {
+                anyhow::bail!(
+                    "No system audio output is available. Choose another audio source or turn desktop audio off."
+                );
+            }
+            anyhow::bail!(
+                "The selected desktop audio device is not available: {id}. Choose another device or turn desktop audio off."
+            );
+        }
     }
-    if settings.mic
-        && !devices
-            .lines()
-            .any(|line| line.starts_with("default_input|"))
-    {
-        anyhow::bail!(
-            "No microphone is available. Choose another audio source or turn the microphone off."
-        );
+    if settings.mic {
+        let id = settings.effective_microphone_device();
+        if !device_exists(&devices, id) {
+            if settings.microphone_device.is_empty() {
+                anyhow::bail!(
+                    "No microphone is available. Choose another audio source or turn the microphone off."
+                );
+            }
+            anyhow::bail!(
+                "The selected microphone device is not available: {id}. Choose another device or turn the microphone off."
+            );
+        }
     }
     Ok(())
 }
@@ -693,7 +774,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
 
     let mut devices = String::new();
     if settings.desktop {
-        devices.push_str("default_output");
+        devices.push_str(settings.effective_desktop_device());
     }
     if let Some(qp) = quality_qp_override(&settings.quality, &settings.codec) {
         capture.extend(["-ffmpeg-video-opts".into(), format!("qp={qp}")]);
@@ -703,7 +784,7 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         if !devices.is_empty() {
             devices.push('|');
         }
-        devices.push_str("default_input");
+        devices.push_str(settings.effective_microphone_device());
     }
     if !devices.is_empty() {
         capture.extend(["-a".into(), devices, "-ac".into(), "aac".into()]);

@@ -114,6 +114,8 @@ Panel {
     "desktopAudio": "on",
     "microphoneAudio": "off",
     "noiseCancellation": "off",
+    "desktopDevice": "",
+    "microphoneDevice": "",
     "cursor": "on",
     "webcam": "off",
     "countdown": 0,
@@ -129,9 +131,56 @@ Panel {
     "webcamDevice": ""
   })
 
+  property var audioDevices: []
+
+  readonly property var desktopDeviceOptions: {
+    var options = [""]
+    var list = root.audioDevices || []
+    for (var i = 0; i < list.length; i++) {
+      var device = list[i] || ({})
+      if (device.id === "default_output") continue
+      var kind = String(device.kind || "")
+      if (kind === "output" || kind === "unknown") options.push(String(device.id || ""))
+    }
+    return options
+  }
+
+  readonly property var microphoneDeviceOptions: {
+    var options = [""]
+    var list = root.audioDevices || []
+    for (var i = 0; i < list.length; i++) {
+      var device = list[i] || ({})
+      if (device.id === "default_input") continue
+      var kind = String(device.kind || "")
+      if (kind === "input" || kind === "unknown") options.push(String(device.id || ""))
+    }
+    return options
+  }
+
+  function audioDeviceLabel(id, fallbackKind) {
+    var value = String(id || "")
+    if (value === "") return fallbackKind === "output" ? "Default output" : "Default input"
+    var list = root.audioDevices || []
+    for (var i = 0; i < list.length; i++) {
+      var device = list[i] || ({})
+      if (String(device.id || "") === value) {
+        var label = String(device.label || value)
+        return label !== "" ? label : value
+      }
+    }
+    return value
+  }
+
+  function refreshAudioDevices() {
+    if (audioDevicesProc.running) return
+    audioDevicesProc.running = true
+  }
+
   readonly property var recordingSettingRows: [
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
+    { key: "desktopDevice", label: "Desktop audio device", glyph: "󰓃" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
+    { key: "microphoneDevice", label: "Microphone device", glyph: "󰍬" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
     { key: "fps", label: "Frame rate", glyph: "󰈰", section: "Video" },
     { key: "quality", label: "Quality", glyph: "󰓅" },
@@ -386,6 +435,8 @@ Panel {
     case "desktopAudio": return ["on", "off"]
     case "microphoneAudio": return ["on", "off"]
     case "noiseCancellation": return ["off", "on"]
+    case "desktopDevice": return root.desktopDeviceOptions
+    case "microphoneDevice": return root.microphoneDeviceOptions
     case "cursor": return ["on", "off"]
     case "webcam": return ["off", "small", "medium", "large"]
     case "webcamDevice": return Model.cameraChoices(root.cameras, root.valueString("webcamDevice", ""))
@@ -443,6 +494,10 @@ Panel {
     case "manualZoom":
     case "autoZoom":
       return value === "on" ? "On" : "Off"
+    case "desktopDevice":
+      return root.audioDeviceLabel(value, "output")
+    case "microphoneDevice":
+      return root.audioDeviceLabel(value, "input")
     case "webcam":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "webcamDevice":
@@ -599,6 +654,8 @@ Panel {
       "reel", "start",
       "--desktop-audio", root.currentValue("desktopAudio"),
       "--microphone-audio", root.currentValue("microphoneAudio"),
+      "--desktop-device", root.valueString("desktopDevice", ""),
+      "--microphone-device", root.valueString("microphoneDevice", ""),
       "--cursor", root.currentValue("cursor"),
       "--webcam", root.currentValue("webcam"),
       "--webcam-device", root.valueString("webcamDevice", ""),
@@ -1487,6 +1544,7 @@ Panel {
       root.renamePath = ""
       root.renameText = ""
       root.renameBusy = false
+      root.refreshAudioDevices()
       root.refreshCameras()
       if (root.service) root.service.refresh()
       Qt.callLater(root.resetScroll)
@@ -3960,6 +4018,26 @@ Panel {
   }
 
   Process {
+    id: audioDevicesProc
+    running: false
+    command: ["reel", "audio-devices", "--json"]
+    stdout: StdioCollector {
+      id: audioDevicesOut
+      waitForEnd: true
+      onStreamFinished: {
+        try {
+          var payload = JSON.parse(String(text || "{}") || "{}")
+          var list = payload.devices
+          root.audioDevices = Array.isArray(list) ? list : []
+        } catch (e) {
+          root.audioDevices = []
+        }
+      }
+    }
+    stderr: StdioCollector { waitForEnd: true }
+  }
+
+  Process {
     id: controlProc
     running: false
     stdout: StdioCollector { waitForEnd: true }
@@ -4129,6 +4207,7 @@ Panel {
 
   Component.onCompleted: {
     if (root.service) root.service.refresh()
+    root.refreshAudioDevices()
     if (!omacutProbe.running) omacutProbe.running = true
     // A shell restart in the middle of a save must still catch the handoff to
     // the finished take, so arm the hold as if finalizing had just started.
