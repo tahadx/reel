@@ -24,6 +24,8 @@
       "desktopAudio": "on",
       "microphoneAudio": "off",
       "noiseCancellation": "off",
+      "desktopDevice": "",
+      "microphoneDevice": "",
       "cursor": "on",
       "webcam": "off",
       "countdown": 0,
@@ -71,6 +73,20 @@
         ],
         "defaultValue": "off",
         "description": "Reduce steady background noise in the microphone mix during the save pass."
+      },
+      {
+        "key": "desktopDevice",
+        "type": "string",
+        "label": "Desktop audio device",
+        "defaultValue": "",
+        "description": "Audio device ID for system audio. Empty uses the default output (e.g. select an Easy Effects monitor for processed audio)."
+      },
+      {
+        "key": "microphoneDevice",
+        "type": "string",
+        "label": "Microphone device",
+        "defaultValue": "",
+        "description": "Audio device ID for microphone capture. Empty uses the default input (e.g. select an Easy Effects Source for noise suppression)."
       },
       {
         "key": "cursor",

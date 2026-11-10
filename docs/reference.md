@@ -19,6 +19,7 @@ its own:
 | `reel toggle-pause` | Pause or resume |
 | `reel status [--json]` | Print the current state |
 | `reel recent [--json] [--limit N]` | List recent takes; the default limit is 8 |
+| `reel audio-devices [--json]` | List audio capture devices available to `gpu-screen-recorder` |
 | `reel trash <file>` | Move a take to the trash |
 | `reel thumbnails [--limit N]` | Generate missing thumbnails for recent takes |
 | `reel rename <file> <name>` | Rename a take, keeping its preview and sidecars |
@@ -51,6 +52,8 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 | `--desktop-audio` | `on`, `off` | `on` |
 | `--microphone-audio` | `on`, `off` | `off` |
 | `--noise-reduction` | `on`, `off` | `off` |
+| `--desktop-device` | audio device ID from `reel audio-devices --json` | empty (`default_output`) |
+| `--microphone-device` | audio device ID from `reel audio-devices --json` | empty (`default_input`) |
 | `--cursor` | `on`, `off` | `on` |
 | `--webcam` | `off`, `small`, `medium`, `large` | `off` |
 | `--webcam-device` | camera path, such as `/dev/video0` | first camera |

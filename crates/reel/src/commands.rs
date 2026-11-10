@@ -489,6 +489,20 @@ pub fn recent(paths: &Paths, as_json: bool, limit: usize) -> Result<()> {
     Ok(())
 }
 
+pub fn audio_devices(as_json: bool) -> Result<()> {
+    let devices = crate::recorder::list_audio_devices();
+    if as_json {
+        println!("{}", serde_json::to_string(&json!({ "devices": devices }))?);
+    } else if devices.is_empty() {
+        println!("No audio devices found.");
+    } else {
+        for device in devices {
+            println!("{}\t{}\t{}", device.kind, device.id, device.label);
+        }
+    }
+    Ok(())
+}
+
 pub fn trash(paths: &Paths, file: PathBuf) -> Result<()> {
     let dir = config::output_dir(paths);
     let real_dir = fs::canonicalize(&dir).unwrap_or(dir.clone());
