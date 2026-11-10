@@ -244,7 +244,10 @@ function savingTitle(path) {
   return name !== "" ? name : "Saving take"
 }
 
-function takeMeta(row) {
+function takeMeta(row, tick) {
+  // `tick` is read only so QML re-evaluates the relative time while the
+  // history page is open; it carries no value of its own.
+  tick = tick || 0
   var r = object(row)
   var parts = []
   if (number(r.duration, 0) > 0) parts.push(duration(r.duration))

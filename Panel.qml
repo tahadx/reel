@@ -211,6 +211,10 @@ Panel {
   // ---------- panel state -------------------------------------------------
 
   property string page: "home"
+  // Relative take times only move as the clock does, so the history list needs
+  // a dependency that advances. takeMeta() reads this counter and re-runs its
+  // binding; the value itself is never used.
+  property int historyTick: 0
   property bool typingPrefix: false
   property string focusSection: "primary"
   property int selectedIndex: 0
@@ -316,6 +320,17 @@ Panel {
       root.discardArmed = false
       root.trashArmedPath = ""
     }
+  }
+
+  // Keep the history's "just now / 5m ago" labels honest while the page is
+  // visible. triggeredOnStart refreshes them the moment History opens.
+  Timer {
+    id: historyClock
+    interval: 30000
+    repeat: true
+    triggeredOnStart: true
+    running: root.opened && root.page === "history"
+    onTriggered: root.historyTick++
   }
 
   Timer {
@@ -3295,7 +3310,7 @@ Panel {
 
         Text {
           textFormat: Text.PlainText
-          text: Model.takeMeta(take.row)
+          text: Model.takeMeta(take.row, root.historyTick)
           color: take.armed ? root.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
