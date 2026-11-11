@@ -1,5 +1,6 @@
 use crate::util;
 use serde::Deserialize;
+use std::time::Duration;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Monitor {
@@ -79,6 +80,112 @@ fn clients() -> Vec<Client> {
         return Vec::new();
     };
     serde_json::from_str::<Vec<Client>>(&text).unwrap_or_default()
+}
+
+/// What gpu-screen-recorder can capture on this session. Monitor and region
+/// capture go through KMS, which only sees real DRM connectors: a headless
+/// output such as `hyprctl output create headless` has none, so the only
+/// usable source there is `portal`.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct CaptureOptions {
+    monitors: Vec<String>,
+    portal: bool,
+}
+
+/// `--list-capture-options` prints one entry per line: monitors as
+/// `NAME|WIDTHxHEIGHT`, cameras as `/dev/videoN|…`, and the literal `portal`
+/// when the desktop portal is available.
+fn parse_capture_options(text: &str) -> CaptureOptions {
+    let mut options = CaptureOptions::default();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        if line == "portal" {
+            options.portal = true;
+            continue;
+        }
+        if let Some((name, _)) = line.split_once('|') {
+            if !name.is_empty() && !name.starts_with("/dev/") {
+                options.monitors.push(name.to_string());
+            }
+        }
+    }
+    options
+}
+
+/// `None` means the options could not be read, so callers keep their old
+/// behaviour instead of guessing that a monitor is virtual.
+fn capture_options() -> Option<CaptureOptions> {
+    let text = util::run_stdout_within(
+        "gpu-screen-recorder",
+        &["--list-capture-options"],
+        Duration::from_secs(2),
+    )?;
+    let options = parse_capture_options(&text);
+    if options.monitors.is_empty() && !options.portal {
+        util::debug("target: gpu-screen-recorder listed no capture options");
+        return None;
+    }
+    Some(options)
+}
+
+/// A take the KMS path cannot record, routed through the desktop portal. The
+/// system dialog picks the source, so a picked area becomes a full-output take.
+fn portal_choice(monitor: &str, reason: &str) -> Choice {
+    Choice {
+        target: "portal".into(),
+        label: if monitor.is_empty() {
+            "Portal · pick a source in the system dialog".into()
+        } else {
+            format!("{monitor} · portal")
+        },
+        warning: if reason.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "{reason} Reel records through the system portal picker instead: choose the source there, and an area take records the whole output."
+            )
+        },
+        kind: "portal".into(),
+        monitor: monitor.to_string(),
+    }
+}
+
+/// Fall back to portal for an output that KMS cannot see. `Ok(None)` means the
+/// KMS path is fine; `Err` is the honest explanation when neither works.
+fn kms_fallback(name: &str, reason: &str) -> Result<Option<Choice>, String> {
+    let Some(options) = capture_options() else {
+        return Ok(None);
+    };
+    if options.monitors.iter().any(|monitor| monitor == name) {
+        return Ok(None);
+    }
+    if options.portal {
+        return Ok(Some(portal_choice(name, reason)));
+    }
+    Err(format!(
+        "{name} has no KMS connector, so gpu-screen-recorder cannot capture it, and portal capture is unavailable. Enable xdg-desktop-portal screen sharing or choose a physical output."
+    ))
+}
+
+/// Resolve an explicit target (`portal`, `monitor:NAME`, or a region) instead
+/// of opening the picker.
+pub fn resolve(raw: &str) -> Result<Choice, String> {
+    let normalized = normalize(raw).ok_or_else(|| {
+        "That capture target could not be read. Use portal, monitor:NAME, or region:WxH+X+Y."
+            .to_string()
+    })?;
+    if normalized == "portal" {
+        return Ok(portal_choice("", ""));
+    }
+    if let Some(name) = normalized.strip_prefix("monitor:") {
+        return monitor_choice(name);
+    }
+    let (width, height, x, y) =
+        parse_geometry(normalized.strip_prefix("region:").unwrap_or(&normalized))
+            .ok_or_else(|| "That capture target could not be read.".to_string())?;
+    if width < 16 || height < 16 {
+        return Err("That selection is too small to record.".into());
+    }
+    choice_from_rect(x, y, width as i64, height as i64)
 }
 
 /// Accept the shapes the Omarchy picker prints and the forms the CLI accepts.
@@ -207,6 +314,12 @@ fn monitor_choice(name: &str) -> Result<Choice, String> {
     if width <= 0 || height <= 0 {
         return Err(format!("{name} has no usable resolution."));
     }
+    if let Some(choice) = kms_fallback(
+        name,
+        &format!("{name} is a virtual output with no KMS connector."),
+    )? {
+        return Ok(choice);
+    }
     Ok(Choice {
         target: format!("monitor:{name}"),
         label: if monitor.focused {
@@ -284,11 +397,19 @@ fn client_for_rect(x: i64, y: i64, w: i64, h: i64) -> Option<Client> {
     })
 }
 
-fn choice_from_rect(x: i64, y: i64, w: i64, h: i64) -> Choice {
+fn choice_from_rect(x: i64, y: i64, w: i64, h: i64) -> Result<Choice, String> {
     let target = format!("region:{w}x{h}+{x}+{y}");
     let monitor = centre_monitor(x, y, w, h);
+    if !monitor.is_empty() {
+        if let Some(choice) = kms_fallback(
+            &monitor,
+            &format!("The selection is on {monitor}, a virtual output with no KMS connector."),
+        )? {
+            return Ok(choice);
+        }
+    }
     let (pixel_width, pixel_height) = physical_size(x, y, w, h);
-    match client_for_rect(x, y, w, h) {
+    Ok(match client_for_rect(x, y, w, h) {
         Some(client) => Choice {
             target,
             label: format!(
@@ -307,7 +428,7 @@ fn choice_from_rect(x: i64, y: i64, w: i64, h: i64) -> Choice {
             kind: "region".into(),
             monitor,
         },
-    }
+    })
 }
 
 /// Run the shared Omarchy picker. A cancelled pick is `Ok(None)`; a broken
@@ -345,7 +466,7 @@ pub fn pick() -> Result<Option<Choice>, String> {
     if w < 16 || h < 16 {
         return Err("That selection is too small to record.".into());
     }
-    Ok(Some(choice_from_rect(x, y, w as i64, h as i64)))
+    choice_from_rect(x, y, w as i64, h as i64).map(Some)
 }
 
 /// `(x, y, width, height)` in compositor coordinates.
@@ -425,5 +546,29 @@ mod tests {
         assert!(excluded("io.github.tahadx.reel", "Reel"));
         assert!(excluded("fuzzel", "launcher"));
         assert!(!excluded("firefox", "Inbox"));
+    }
+
+    #[test]
+    fn reads_kms_monitors_and_portal_from_capture_options() {
+        let options = parse_capture_options(
+            "eDP-2|2880x1620\nDP-1|2560x1440\n/dev/video0|1920x1080@30hz|mjpeg\nportal\n",
+        );
+        assert_eq!(options.monitors, vec!["eDP-2", "DP-1"]);
+        assert!(options.portal);
+    }
+
+    #[test]
+    fn a_headless_session_lists_only_the_portal() {
+        let options = parse_capture_options("portal\n");
+        assert!(options.monitors.is_empty());
+        assert!(options.portal);
+    }
+
+    #[test]
+    fn resolves_portal_without_the_picker() {
+        let choice = resolve("portal").unwrap();
+        assert_eq!(choice.target, "portal");
+        assert_eq!(choice.kind, "portal");
+        assert!(choice.warning.is_empty());
     }
 }

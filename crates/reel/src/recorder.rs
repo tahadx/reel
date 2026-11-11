@@ -553,8 +553,9 @@ fn start_guard(paths: &Paths) -> Result<String> {
     Ok(current)
 }
 
-/// Open the picker and return the choice. A cancelled pick is `Ok(None)`.
-fn choose_target(paths: &Paths) -> Result<Option<target::Choice>> {
+/// Resolve the chosen target. An explicit `--target` skips the picker; a
+/// cancelled pick is `Ok(None)`.
+fn choose_target(paths: &Paths, options: &StartArgs) -> Result<Option<target::Choice>> {
     {
         let _lock = Lock::acquire(paths)?;
         let now = paths::now_secs();
@@ -569,8 +570,17 @@ fn choose_target(paths: &Paths) -> Result<Option<target::Choice>> {
         );
     }
 
-    util::debug("start: opening the capture picker");
-    let choice = match target::pick() {
+    let picked = match options.target.as_deref() {
+        Some(raw) => {
+            util::debug(&format!("start: explicit target {raw}"));
+            target::resolve(raw).map(Some)
+        }
+        None => {
+            util::debug("start: opening the capture picker");
+            target::pick()
+        }
+    };
+    let choice = match picked {
         Ok(Some(choice)) => choice,
         Ok(None) => {
             paths::log(paths, "start: target selection cancelled");
@@ -644,6 +654,15 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     if let Err(err) = target::validate_target(target) {
         fail_start(paths, &err);
         return Err(anyhow::anyhow!(err));
+    }
+    // A portal fallback has a warning the picker never got to show, because
+    // the panel closes before recording. Say why the system dialog appears.
+    if choice.kind == "portal" && !choice.warning.is_empty() {
+        util::notify(
+            "Reel",
+            Some("This output has no KMS connector, so Reel records through the system portal picker."),
+            "normal",
+        );
     }
 
     paths::remove_quiet(&paths.cancel);
@@ -1121,7 +1140,7 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     }
     restore_cursor_mode(paths);
 
-    match choose_target(paths)? {
+    match choose_target(paths, &options)? {
         Some(choice) => run_take(paths, &settings, &choice),
         None => Ok(false),
     }

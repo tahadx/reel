@@ -157,6 +157,10 @@ pub enum Command {
 
 #[derive(Args, Debug, Default, Clone)]
 pub struct StartArgs {
+    /// Capture target, skipping the picker: `portal`, `monitor:NAME`, or
+    /// `region:WxH+X+Y`.
+    #[arg(long)]
+    pub target: Option<String>,
     #[arg(long = "desktop-audio")]
     pub desktop_audio: Option<String>,
     #[arg(long = "microphone-audio", alias = "mic")]

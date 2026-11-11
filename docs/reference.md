@@ -49,6 +49,7 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 
 | Option | Values | Default |
 | --- | --- | --- |
+| `--target` | `portal`, `monitor:NAME`, or `region:WxH+X+Y` | picker |
 | `--desktop-audio` | `on`, `off` | `on` |
 | `--microphone-audio` | `on`, `off` | `off` |
 | `--noise-reduction` | `on`, `off` | `off` |
@@ -101,11 +102,19 @@ panel header; that readout checks again when the install is current, and reads
 `--microphone-audio` also has the alias `--mic`.
 `reel preview --note-only` resolves the monitor and note without writing a still.
 
+`--target` skips the picker. Without it, Reel opens the picker, and an output
+that `gpu-screen-recorder --list-capture-options` does not list as a KMS
+monitor falls back to `portal`: the system dialog chooses the source, and an
+area take records the whole output. This is the path for a headless Hyprland
+output created with `hyprctl output create headless`. `--target portal` selects
+it explicitly, which is also useful in scripts.
+
 Examples:
 
 ```sh
 reel start --countdown 3
 reel start --microphone-audio on
+reel start --target portal
 reel toggle-pause
 reel stop
 ```
@@ -410,6 +419,13 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **`reel start` refuses to start** — it validates the output folder and audio
   devices before opening the picker. Check `reel output` and the error shown in
   the panel.
+- **Takes fail on a headless output** — KMS capture only sees real DRM
+  connectors, so a headless output has nothing to capture. Reel detects an
+  output missing from `gpu-screen-recorder --list-capture-options` and records
+  through the desktop portal instead: choose the output in the system dialog,
+  and an area take becomes a full-output take. If the portal is unavailable,
+  enable xdg-desktop-portal screen sharing or use a physical output. To skip the
+  picker entirely, run `reel start --target portal`.
 - **A save-pass effect has no pointer data** — pointer telemetry could not read
   `/dev/input`. Add your user to the `input` group and log in again. The reason
   is written to the log and the take stays usable.
