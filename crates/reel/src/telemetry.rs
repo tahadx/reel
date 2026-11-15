@@ -9,6 +9,7 @@
 //! process stays alive while telemetry is active (see `recorder::run_take`) so
 //! the listener can stop on the same clock as the video.
 
+use crate::autozoom::CaptureBounds;
 use crate::paths::{self, Paths};
 use crate::target;
 use crate::util;
@@ -33,6 +34,8 @@ const EV_REL: u16 = 0x02;
 const EV_ABS: u16 = 0x03;
 const REL_X: u16 = 0x00;
 const REL_Y: u16 = 0x01;
+const REL_WHEEL: u16 = 0x08;
+const REL_WHEEL_HI_RES: u16 = 0x0b;
 const ABS_X: u16 = 0x00;
 const ABS_Y: u16 = 0x01;
 const ABS_MT_POSITION_X: u16 = 0x35;
@@ -221,6 +224,13 @@ impl CaptureSpace {
         let x = local_x * self.width as f64 / self.source_width;
         let y = local_y * self.height as f64 / self.source_height;
         (round_px(x), round_px(y))
+    }
+
+    /// The encoded frame in capture-local pixels. A window or area take uses
+    /// the same local frame; it is the rectangle the recorder actually encoded,
+    /// not the window's live position on the desktop.
+    pub fn bounds(&self) -> CaptureBounds {
+        CaptureBounds::frame(self.width as f64, self.height as f64)
     }
 
     /// A sane starting point when the compositor cannot report the pointer.
@@ -817,6 +827,74 @@ impl PointerTracker {
     }
 }
 
+/// Events gathered between two `SYN_REPORT`s. A pointer report can carry
+/// movement, a wheel notch, or both, and each becomes one telemetry line.
+#[derive(Debug, Default)]
+struct PendingInput {
+    dx: f64,
+    dy: f64,
+    wheel: f64,
+    wheel_hi: f64,
+    /// A press that started inside the capture must still report its release,
+    /// even when the pointer was dragged out of frame. Otherwise a drag that
+    /// leaves a window looks like an interrupted click.
+    pressed: [bool; 3],
+}
+
+impl PendingInput {
+    fn flush_move(
+        &mut self,
+        tracker: &mut PointerTracker,
+        space: &CaptureSpace,
+        writer: &Arc<Mutex<TelemetryWriter>>,
+    ) {
+        if self.dx == 0.0 && self.dy == 0.0 {
+            return;
+        }
+        tracker.apply(self.dx, self.dy);
+        let (x, y) = tracker.position();
+        let (x, y) = space.to_capture(x, y);
+        let mut writer = writer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let t = writer.t();
+        writer.write(&move_value(t, x, y));
+        self.dx = 0.0;
+        self.dy = 0.0;
+    }
+
+    fn flush_scroll(
+        &mut self,
+        tracker: &PointerTracker,
+        space: &CaptureSpace,
+        writer: &Arc<Mutex<TelemetryWriter>>,
+    ) {
+        if self.wheel == 0.0 && self.wheel_hi == 0.0 {
+            return;
+        }
+        let delta = if self.wheel_hi != 0.0 {
+            self.wheel_hi / 120.0
+        } else {
+            self.wheel
+        };
+        self.wheel = 0.0;
+        self.wheel_hi = 0.0;
+        // The 10 Hz compositor resync keeps the tracked position current; a
+        // wheel report does not need a fresh process per notch.
+        let (x, y) = tracker.position();
+        let (x, y) = space.to_capture(x, y);
+        if !space.bounds().contains(x, y) {
+            // A wheel event on another monitor is not part of this take.
+            return;
+        }
+        let mut writer = writer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let t = writer.t();
+        writer.write(&scroll_value(t, x, y, delta));
+    }
+}
+
 fn run_listener(
     mut devices: Vec<Device>,
     space: CaptureSpace,
@@ -843,8 +921,7 @@ fn run_listener(
     }
 
     let mut next_sync = Instant::now();
-    let mut dx = 0.0;
-    let mut dy = 0.0;
+    let mut input = PendingInput::default();
     // Taps are synthesized above evdev by the compositor, so only look for
     // them when the compositor turns taps into clicks.
     let taps_enabled = tap_to_click();
@@ -891,8 +968,7 @@ fn run_listener(
                             taps_enabled,
                             &writer,
                             &cursor_position,
-                            &mut dx,
-                            &mut dy,
+                            &mut input,
                         );
                     }
                 }
@@ -947,13 +1023,14 @@ fn handle_event(
     taps_enabled: bool,
     writer: &Arc<Mutex<TelemetryWriter>>,
     cursor: &dyn Fn() -> Option<(f64, f64)>,
-    dx: &mut f64,
-    dy: &mut f64,
+    input: &mut PendingInput,
 ) {
     match event.kind {
         EV_REL => match event.code {
-            REL_X => *dx += f64::from(event.value),
-            REL_Y => *dy += f64::from(event.value),
+            REL_X => input.dx += f64::from(event.value),
+            REL_Y => input.dy += f64::from(event.value),
+            REL_WHEEL => input.wheel += f64::from(event.value),
+            REL_WHEEL_HI_RES => input.wheel_hi += f64::from(event.value),
             _ => {}
         },
         EV_ABS => match event.code {
@@ -990,6 +1067,11 @@ fn handle_event(
             let Some(button) = button_name(event.code) else {
                 return;
             };
+            let slot = match button {
+                "left" => 0,
+                "right" => 1,
+                _ => 2,
+            };
             let state = match event.value {
                 0 => "up",
                 1 => "down",
@@ -998,10 +1080,19 @@ fn handle_event(
             if state == "down" {
                 tap.physical = true;
             }
-            flush_move(*dx, *dy, tracker, space, writer);
-            *dx = 0.0;
-            *dy = 0.0;
+            input.flush_move(tracker, space, writer);
             let (x, y) = pointer_position(tracker, space, caps.absolute && !caps.relative, cursor);
+            if state == "down" {
+                // A press outside a window/area take, or on another monitor,
+                // must never become a zoom target inside the recorded frame.
+                if !space.bounds().contains(x, y) {
+                    return;
+                }
+                input.pressed[slot] = true;
+            } else if !std::mem::take(&mut input.pressed[slot]) {
+                // An orphan release (the press was outside the capture).
+                return;
+            }
             let mut writer = writer
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -1009,9 +1100,8 @@ fn handle_event(
             writer.write(&button_value(t, button, state, x, y));
         }
         EV_SYN if event.code == SYN_REPORT => {
-            flush_move(*dx, *dy, tracker, space, writer);
-            *dx = 0.0;
-            *dy = 0.0;
+            input.flush_move(tracker, space, writer);
+            input.flush_scroll(tracker, space, writer);
         }
         _ => {}
     }
@@ -1071,26 +1161,6 @@ fn tap_to_click() -> bool {
     )
     .map(|output| output.contains("bool: true"))
     .unwrap_or(false)
-}
-
-fn flush_move(
-    dx: f64,
-    dy: f64,
-    tracker: &mut PointerTracker,
-    space: &CaptureSpace,
-    writer: &Arc<Mutex<TelemetryWriter>>,
-) {
-    if dx == 0.0 && dy == 0.0 {
-        return;
-    }
-    tracker.apply(dx, dy);
-    let (x, y) = tracker.position();
-    let (x, y) = space.to_capture(x, y);
-    let mut writer = writer
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let t = writer.t();
-    writer.write(&move_value(t, x, y));
 }
 
 fn button_name(code: u16) -> Option<&'static str> {
@@ -1186,6 +1256,17 @@ fn button_value(t: f64, button: &str, state: &str, x: f64, y: f64) -> Value {
         "state": state,
         "x": x,
         "y": y,
+    })
+}
+
+fn scroll_value(t: f64, x: f64, y: f64, delta: f64) -> Value {
+    json!({
+        "v": VERSION,
+        "type": "scroll",
+        "t": seconds(t),
+        "x": x,
+        "y": y,
+        "delta": round_px(delta),
     })
 }
 
@@ -1303,7 +1384,10 @@ mod tests {
             .iter()
             .map(|line| line["type"].as_str().unwrap())
             .collect();
-        assert_eq!(kinds, vec!["start", "move", "button", "sync", "stop"]);
+        assert_eq!(
+            kinds,
+            vec!["start", "move", "button", "button", "sync", "scroll", "stop"]
+        );
         assert!(lines
             .iter()
             .all(|line| { line["t"].as_f64().map(|t| t >= 0.0).unwrap_or(false) }));
@@ -1457,11 +1541,126 @@ mod tests {
     }
 
     #[test]
+    fn a_wheel_report_becomes_one_normalized_scroll_line() {
+        let (path, writer) = test_writer("scroll");
+        let space = flat_space();
+        let mut tracker = PointerTracker::known(100.0, 200.0);
+        let mut input = PendingInput::default();
+        let mut tap = TapState::default();
+        let cursor = || None;
+
+        for event in [
+            event(EV_REL, REL_WHEEL_HI_RES, 120),
+            event(EV_SYN, SYN_REPORT, 0),
+            event(EV_REL, REL_WHEEL_HI_RES, -240),
+            event(EV_SYN, SYN_REPORT, 0),
+        ] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                mouse_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut input,
+            );
+        }
+        drop(writer);
+
+        let lines = read_lines(&path);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0]["type"], "scroll");
+        assert_eq!(lines[0]["delta"], 1.0);
+        assert_eq!(lines[0]["x"], 100.0);
+        assert_eq!(lines[1]["delta"], -2.0);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_press_inside_the_capture_reports_a_release_outside_it() {
+        // A drag out of a window must still close the press, or the save pass
+        // sees an interrupted click instead of a drag.
+        let (path, writer) = test_writer("release-outside");
+        let mut space = flat_space();
+        space.width = 640;
+        space.height = 360;
+        space.source_width = 640.0;
+        space.source_height = 360.0;
+        let mut tracker = PointerTracker::known(600.0, 300.0);
+        let mut input = PendingInput::default();
+        let mut tap = TapState::default();
+        let cursor = || None;
+
+        for event in [
+            event(EV_KEY, BTN_LEFT, 1),
+            event(EV_REL, REL_X, 200),
+            event(EV_SYN, SYN_REPORT, 0),
+            event(EV_KEY, BTN_LEFT, 0),
+        ] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                mouse_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut input,
+            );
+        }
+        drop(writer);
+
+        let lines = read_lines(&path);
+        let states: Vec<&str> = lines
+            .iter()
+            .filter(|line| line["type"] == "button")
+            .map(|line| line["state"].as_str().unwrap())
+            .collect();
+        assert_eq!(states, vec!["down", "up"]);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn a_click_outside_the_capture_is_not_recorded() {
+        let (path, writer) = test_writer("outside");
+        let mut space = flat_space();
+        space.width = 640;
+        space.height = 360;
+        space.source_width = 640.0;
+        space.source_height = 360.0;
+        let mut tracker = PointerTracker::known(900.0, 500.0);
+        let mut input = PendingInput::default();
+        let mut tap = TapState::default();
+        let cursor = || None;
+
+        for event in [event(EV_KEY, BTN_LEFT, 1), event(EV_KEY, BTN_LEFT, 0)] {
+            handle_event(
+                &event,
+                &space,
+                &mut tracker,
+                &mut tap,
+                mouse_caps(),
+                true,
+                &writer,
+                &cursor,
+                &mut input,
+            );
+        }
+        drop(writer);
+
+        assert!(read_lines(&path).is_empty());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
     fn relative_events_and_a_click_become_move_and_button_lines() {
         let (path, writer) = test_writer("events");
         let space = flat_space();
         let mut tracker = PointerTracker::known(100.0, 200.0);
-        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || None;
 
@@ -1480,8 +1679,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
-                &mut dx,
-                &mut dy,
+                &mut input,
             );
         }
         drop(writer);
@@ -1506,7 +1704,7 @@ mod tests {
         let (path, writer) = test_writer("tap");
         let space = flat_space();
         let mut tracker = PointerTracker::known(0.0, 0.0);
-        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
 
@@ -1527,8 +1725,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
-                &mut dx,
-                &mut dy,
+                &mut input,
             );
         }
         drop(writer);
@@ -1555,7 +1752,7 @@ mod tests {
             let (path, writer) = test_writer(label);
             let space = flat_space();
             let mut tracker = PointerTracker::known(0.0, 0.0);
-            let (mut dx, mut dy) = (0.0, 0.0);
+            let mut input = PendingInput::default();
             let mut tap = TapState::default();
             let cursor = || Some((640.0, 480.0));
 
@@ -1572,8 +1769,7 @@ mod tests {
                     true,
                     &writer,
                     &cursor,
-                    &mut dx,
-                    &mut dy,
+                    &mut input,
                 );
             }
             drop(writer);
@@ -1590,7 +1786,7 @@ mod tests {
         let (path, writer) = test_writer("physical");
         let space = flat_space();
         let mut tracker = PointerTracker::known(0.0, 0.0);
-        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
 
@@ -1609,8 +1805,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
-                &mut dx,
-                &mut dy,
+                &mut input,
             );
         }
         drop(writer);
@@ -1627,7 +1822,7 @@ mod tests {
         let (path, writer) = test_writer("tap-off");
         let space = flat_space();
         let mut tracker = PointerTracker::known(0.0, 0.0);
-        let (mut dx, mut dy) = (0.0, 0.0);
+        let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
 
@@ -1641,8 +1836,7 @@ mod tests {
                 false,
                 &writer,
                 &cursor,
-                &mut dx,
-                &mut dy,
+                &mut input,
             );
         }
         drop(writer);

@@ -1,3 +1,4 @@
+use crate::autozoom::{self, Spring};
 use crate::paths::Paths;
 use crate::util;
 use std::time::Duration;
@@ -257,14 +258,20 @@ pub fn animate_compositor_zoom(target: f64, immediate: bool, follow: bool) -> f6
         return target;
     }
 
-    // 6-step smooth ease-out micro-animation (~84ms total)
-    let steps = 6;
-    for i in 1..steps {
-        let f = i as f64 / steps as f64;
-        let t = 3.0 * f * f - 2.0 * f * f * f; // smoothstep
-        let z = current + (target - current) * t;
-        set_compositor_zoom(z, follow);
-        std::thread::sleep(Duration::from_millis(14));
+    // Critically damped spring, not a fixed step count: the camera has one
+    // velocity through the whole move, so a new key press during a zoom-out
+    // changes only where it is heading. The loop is bounded so a compositor
+    // that stops answering cannot hold the command forever.
+    let half_life = autozoom::zoom_half_life(current, target);
+    let mut spring = Spring::new(current, half_life);
+    spring.retarget(target, half_life);
+    let step = Duration::from_millis(14);
+    let mut elapsed = Duration::ZERO;
+    while !spring.settled(autozoom::SPRING_EPSILON) && elapsed < Duration::from_millis(1200) {
+        spring.step(step.as_secs_f64());
+        set_compositor_zoom(spring.value(), follow);
+        std::thread::sleep(step);
+        elapsed += step;
     }
     set_compositor_zoom(target, follow);
     target

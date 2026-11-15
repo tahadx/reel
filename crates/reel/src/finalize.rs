@@ -1,4 +1,5 @@
 use crate::activity;
+use crate::autozoom;
 use crate::cli::FinalizeArgs;
 use crate::config;
 use crate::paths::{self, Paths};
@@ -612,13 +613,14 @@ fn project_from_telemetry(
     let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<Vec<(f64, f64, f64)>> {
         refiner.targets(enter, hold, cx, cy, width as f64, height as f64)
     };
-    project.camera = project::build_camera(
+    project.camera = project::build_camera_for_capture(
         &telemetry.clicks,
         options.enabled,
         options.depth,
-        width as f64,
-        height as f64,
+        autozoom::CaptureBounds::frame(width as f64, height as f64),
+        autozoom::CaptureMode::from_kind(&project.capture.kind),
         trim,
+        &telemetry.scrolls,
         Some(&refine),
     );
     Ok(project)

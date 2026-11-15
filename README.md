@@ -219,10 +219,13 @@ devices cannot be read, the take still records without pointer telemetry.
 
 **Auto zoom** sits below **Manual zoom** in Settings → **Visuals**, a single
 on/off switch that is off by default. Turn it on and clicks (or touchpad taps,
-when tap-to-click is on) become short 2× zoom blocks in the saved file. When a
-click only focuses a window, the block follows the part of the screen that
-changes — the text you are typing and the caret next to it — instead of zooming
-into an empty area.
+when tap-to-click is on) become short 2× zoom blocks in the saved file. A click
+only counts when it is released within 280 ms and stays within 15 px, so
+dragging a window, scrubbing a slider, or selecting text does not start a zoom.
+Clicks outside a window or area take are ignored, and the zoomed crop is always
+clamped inside the capture. When a click only focuses a window, the block
+follows the part of the screen that changes — the text you are typing and the
+caret next to it — instead of zooming into an empty area.
 The pointer is still recorded in this version and scales with the zoom. Reel
 needs read access to `/dev/input` to see the clicks; without it the take still
 saves, just without the automatic zoom. If the camera pass itself fails, the

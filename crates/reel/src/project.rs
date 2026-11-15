@@ -6,6 +6,7 @@
 //! without opening the panel. Unknown fields are kept when a project is loaded
 //! and written back.
 
+use crate::autozoom::{self, CaptureBounds, CaptureMode, Press, ScrollTick};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -197,18 +198,10 @@ impl Keyframe {
         if !self.y.is_finite() {
             self.y = height / 2.0;
         }
-        let half_w = width / (2.0 * self.zoom);
-        let half_h = height / (2.0 * self.zoom);
-        self.x = if width >= half_w * 2.0 {
-            self.x.clamp(half_w, width - half_w)
-        } else {
-            width / 2.0
-        };
-        self.y = if height >= half_h * 2.0 {
-            self.y.clamp(half_h, height - half_h)
-        } else {
-            height / 2.0
-        };
+        let bounds = CaptureBounds::frame(width, height);
+        let (x, y) = bounds.clamp_center(self.x, self.y, self.zoom);
+        self.x = x;
+        self.y = y;
     }
 }
 
@@ -343,6 +336,9 @@ pub struct Telemetry {
     /// Every pointer position in telemetry time: `(t, x, y)`. Used to follow a
     /// drag instead of snapping between reported clicks.
     pub samples: Vec<(f64, f64, f64)>,
+    /// Scroll-wheel and touchpad scroll reports. A scroll inside a zoomed block
+    /// keeps the camera in place while the user reads.
+    pub scrolls: Vec<ScrollTick>,
     pub capture: Capture,
     /// Encoded video dimensions from the `start` record. `0` when absent.
     pub width: u32,
@@ -363,12 +359,16 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
     let mut telemetry = Telemetry {
         clicks: Vec::new(),
         samples: Vec::new(),
+        scrolls: Vec::new(),
         capture: Capture::default(),
         width: 0,
         height: 0,
         fps: 0.0,
         stop_t: 0.0,
     };
+    // Only left and right clicks arm a zoom. Middle-click paste and browser
+    // shortcuts are not something the viewer should be pulled toward.
+    let mut pending: [Option<Press>; 2] = [None, None];
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -392,9 +392,15 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 }
             }
             Some("button") => {
-                if record.get("state").and_then(Value::as_str) != Some("down") {
+                // Older logs wrote a press without a button name; those are
+                // left clicks by construction.
+                let button = record
+                    .get("button")
+                    .and_then(Value::as_str)
+                    .unwrap_or("left");
+                let Some(index) = click_button_index(button) else {
                     continue;
-                }
+                };
                 let Some(t) = record.get("t").and_then(Value::as_f64) else {
                     continue;
                 };
@@ -404,7 +410,23 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 let Some(y) = record.get("y").and_then(Value::as_f64) else {
                     continue;
                 };
-                telemetry.clicks.push(Click { t, x, y });
+                let point = Press::new(t, x, y);
+                match record.get("state").and_then(Value::as_str) {
+                    Some("down") => pending[index] = Some(point),
+                    Some("up") => {
+                        let Some(press) = pending[index].take() else {
+                            continue;
+                        };
+                        if autozoom::qualifies_as_click(press, point) {
+                            telemetry.clicks.push(Click {
+                                t: press.t,
+                                x: press.x,
+                                y: press.y,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
             }
             Some("move") | Some("sync") => {
                 let Some(t) = record.get("t").and_then(Value::as_f64) else {
@@ -420,6 +442,21 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                     telemetry.samples.push((t, x, y));
                 }
             }
+            Some("scroll") => {
+                let Some(t) = record.get("t").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(x) = record.get("x").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let Some(y) = record.get("y").and_then(Value::as_f64) else {
+                    continue;
+                };
+                let delta = record.get("delta").and_then(Value::as_f64).unwrap_or(0.0);
+                if t.is_finite() && x.is_finite() && y.is_finite() && delta.is_finite() {
+                    telemetry.scrolls.push(ScrollTick { t, x, y, delta });
+                }
+            }
             Some("stop") => {
                 telemetry.stop_t = record.get("t").and_then(Value::as_f64).unwrap_or(0.0);
             }
@@ -427,7 +464,29 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         }
     }
     telemetry.samples.sort_by(|a, b| a.0.total_cmp(&b.0));
+    telemetry.scrolls.sort_by(|a, b| a.t.total_cmp(&b.t));
+    // A log cut in the middle of a click has no release line. Keep the press
+    // only when the recorded pointer never left the click slop, so a truncated
+    // drag is still a drag.
+    for press in pending.into_iter().flatten() {
+        if autozoom::unpaired_press_is_click(press, &telemetry.samples) {
+            telemetry.clicks.push(Click {
+                t: press.t,
+                x: press.x,
+                y: press.y,
+            });
+        }
+    }
+    telemetry.clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
     Ok(telemetry)
+}
+
+fn click_button_index(button: &str) -> Option<usize> {
+    match button {
+        "left" => Some(0),
+        "right" => Some(1),
+        _ => None,
+    }
 }
 
 fn number(record: &Value, object: &str, key: &str) -> u32 {
@@ -454,22 +513,20 @@ fn string(record: &Map<String, Value>, key: &str) -> String {
 /// `enter`, or `None` to keep the click.
 pub type TargetRefiner<'a> = &'a dyn Fn(f64, f64, f64, f64) -> Option<Vec<(f64, f64, f64)>>;
 
-/// Clamp a camera centre the same way a keyframe would at this depth.
-fn clamped_center(x: f64, y: f64, width: f64, height: f64, depth: f64) -> (f64, f64) {
-    let mut frame = Keyframe::new(0.0, depth, x, y);
-    frame.clamp_center(width, height);
-    (frame.x, frame.y)
+/// Clamp a camera centre to a capture rectangle at a depth.
+fn clamp_center_in(bounds: CaptureBounds, x: f64, y: f64, depth: f64) -> (f64, f64) {
+    bounds.clamp_center(x, y, depth)
 }
 
 /// The camera for a project, built from clicks.
 ///
-/// The save pass feeds this from the take's telemetry; `reel render` then reads
-/// the resulting keyframes from `project.json`. Auto zoom is one on/off choice,
-/// so `enabled` is the only mode there is; `depth` is the magnification.
+/// This is the monitor-only entry point used by the camera tests. The save pass
+/// uses [`build_camera_for_capture`] so window and area bounds are explicit.
 ///
 /// `refine` can re-aim a block at the part of the picture that actually
 /// changed. The save pass uses it to follow the caret when a click lands on an
 /// empty area; callers that only have clicks pass `None`.
+#[cfg(test)]
 pub fn build_camera(
     clicks: &[Click],
     enabled: bool,
@@ -477,6 +534,32 @@ pub fn build_camera(
     width: f64,
     height: f64,
     trim_start: f64,
+    refine: Option<TargetRefiner>,
+) -> Camera {
+    build_camera_for_capture(
+        clicks,
+        enabled,
+        depth,
+        CaptureBounds::frame(width, height),
+        CaptureMode::Monitor,
+        trim_start,
+        &[],
+        refine,
+    )
+}
+
+/// The save pass entry point. `bounds` is the encoded frame in capture-local
+/// pixels; `mode` names the monitor, window, or area take so a window/area click
+/// outside its rectangle is rejected instead of pulling the camera off-frame.
+#[allow(clippy::too_many_arguments)]
+pub fn build_camera_for_capture(
+    clicks: &[Click],
+    enabled: bool,
+    depth: f64,
+    bounds: CaptureBounds,
+    mode: CaptureMode,
+    trim_start: f64,
+    scrolls: &[ScrollTick],
     refine: Option<TargetRefiner>,
 ) -> Camera {
     let style = if enabled { "auto" } else { "off" };
@@ -492,19 +575,26 @@ pub fn build_camera(
         return camera;
     }
 
+    // The monitor frame is the encoded video. Window and area takes carry their
+    // own rectangle; a caller that cannot resolve it falls back to the frame.
+    let bounds = match mode {
+        CaptureMode::Monitor => CaptureBounds::frame(bounds.width, bounds.height),
+        CaptureMode::Window | CaptureMode::Area if bounds.is_valid() => bounds,
+        CaptureMode::Window | CaptureMode::Area => {
+            CaptureBounds::frame(bounds.width, bounds.height)
+        }
+    };
+    let width = bounds.width;
+    let height = bounds.height;
+    if width <= 0.0 || height <= 0.0 {
+        return camera;
+    }
+
     // Telemetry time is raw take time; keyframes use saved-take time.
     let trim = trim_start.max(0.0);
     let mut clicks: Vec<Click> = clicks
         .iter()
-        .filter(|click| {
-            click.t.is_finite()
-                && click.x.is_finite()
-                && click.y.is_finite()
-                && click.x >= 0.0
-                && click.x < width
-                && click.y >= 0.0
-                && click.y < height
-        })
+        .filter(|click| click.t.is_finite() && bounds.contains(click.x, click.y))
         .map(|click| Click {
             t: (click.t - trim).max(0.0),
             x: click.x,
@@ -512,6 +602,22 @@ pub fn build_camera(
         })
         .collect();
     clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
+    let scrolls: Vec<ScrollTick> = scrolls
+        .iter()
+        .filter(|scroll| {
+            scroll.t.is_finite()
+                && scroll.x.is_finite()
+                && scroll.y.is_finite()
+                && scroll.delta.is_finite()
+                && bounds.contains(scroll.x, scroll.y)
+        })
+        .map(|scroll| ScrollTick {
+            t: (scroll.t - trim).max(0.0),
+            x: scroll.x,
+            y: scroll.y,
+            delta: scroll.delta,
+        })
+        .collect();
 
     if clicks.is_empty() {
         return camera;
@@ -557,14 +663,42 @@ pub fn build_camera(
                 // The block must be aimed when it eases in, not part-way.
                 targets[0].0 = enter;
             }
+            // A drag is followed only while it is still the same shot. The
+            // deadzone keeps a small pointer wobble from nudging the camera,
+            // and a pointer that travels far away without another click ends
+            // the shot instead of dragging the view across the screen.
+            let abandoned = apply_follow_policy(
+                &mut targets,
+                (click_x, click_y),
+                last.t,
+                camera.depth,
+                bounds,
+            );
             // A continuing change (a selection being dragged, a typing burst)
             // can outlast the usual hold; keep the block alive for it.
             let last = targets.last().map(|target| target.0).unwrap_or(enter);
-            let hold = if last > hold + 0.01 {
+            let mut hold = if last > hold + 0.01 {
                 last + HOLD_AFTER_LAST_SECS / 2.0
             } else {
                 hold
             };
+            if let Some(abandoned) = abandoned {
+                // Leave as soon as the follow is abandoned, not after the
+                // pointer has already left the interesting part of the frame.
+                hold = hold.min(abandoned.max(enter));
+            }
+            let center = targets
+                .last()
+                .map(|(_, x, y)| clamp_center_in(bounds, *x, *y, camera.depth))
+                .unwrap_or_else(|| (bounds.x + width / 2.0, bounds.y + height / 2.0));
+            hold = autozoom::extend_hold_for_scrolls(
+                enter,
+                hold,
+                center,
+                camera.depth,
+                bounds,
+                &scrolls,
+            );
             Block {
                 start: (enter - EASE_IN_SECS).max(0.0),
                 enter,
@@ -578,7 +712,7 @@ pub fn build_camera(
     // Blocks whose eased windows overlap would cut back to 1x and snap in
     // again a millisecond later. Stay zoomed and pan between their centres
     // instead, then leave once when the last of them is done.
-    let (centre_x, centre_y) = (width / 2.0, height / 2.0);
+    let (centre_x, centre_y) = (bounds.x + width / 2.0, bounds.y + height / 2.0);
     let deadband = width.min(height) / camera.depth * PAN_DEADBAND;
     let mut frames: Vec<Keyframe> = Vec::new();
     let mut index = 0;
@@ -590,7 +724,7 @@ pub fn build_camera(
         );
         let at = first.enter.max(first.start + 0.001);
         let (_, first_x, first_y) = *first.targets.first().expect("targets is never empty");
-        let mut current = clamped_center(first_x, first_y, width, height, camera.depth);
+        let mut current = clamp_center_in(bounds, first_x, first_y, camera.depth);
         push_frame(
             &mut frames,
             Keyframe::new(at, camera.depth, current.0, current.1),
@@ -601,8 +735,7 @@ pub fn build_camera(
             &first.targets,
             &mut current,
             &mut last_t,
-            width,
-            height,
+            bounds,
             camera.depth,
             deadband,
         );
@@ -613,7 +746,7 @@ pub fn build_camera(
             let next = &blocks[last];
             let next_enter = next.enter.max(last_t + 0.001);
             let (_, next_x, next_y) = *next.targets.first().expect("targets is never empty");
-            let next_centre = clamped_center(next_x, next_y, width, height, camera.depth);
+            let next_centre = clamp_center_in(bounds, next_x, next_y, camera.depth);
             let dx = next_centre.0 - current.0;
             let dy = next_centre.1 - current.1;
             if (dx * dx + dy * dy).sqrt() > deadband {
@@ -638,8 +771,7 @@ pub fn build_camera(
                 &next.targets,
                 &mut current,
                 &mut last_t,
-                width,
-                height,
+                bounds,
                 camera.depth,
                 deadband,
             );
@@ -659,8 +791,66 @@ pub fn build_camera(
     }
 
     camera.keyframes = frames;
-    camera.normalize(width, height);
+    camera.normalize_in(bounds);
     camera
+}
+
+/// Filter a follow track before it becomes keyframes.
+///
+/// Dense points are a pointer drag. They are kept only while they are still
+/// part of the same shot: a point inside the inner deadzone leaves the camera
+/// exactly where it is, a point outside it moves the camera just enough to put
+/// the pointer back inside, and a point far from the click anchor after the
+/// grace period abandons the follow. Sparse points are deliberate re-aims (a
+/// caret or a panel) and keep their exact centre.
+///
+/// Returns the saved-take time at which the follow was abandoned, if it was.
+fn apply_follow_policy(
+    targets: &mut Vec<(f64, f64, f64)>,
+    anchor: (f64, f64),
+    last_click: f64,
+    depth: f64,
+    bounds: CaptureBounds,
+) -> Option<f64> {
+    if targets.len() < 2 {
+        return None;
+    }
+    let mut kept = Vec::with_capacity(targets.len());
+    kept.push(targets[0]);
+    let mut camera = clamp_center_in(bounds, targets[0].1, targets[0].2, depth);
+    let mut previous_t = targets[0].0;
+    let mut previous_point = (targets[0].1, targets[0].2);
+    let mut abandoned = None;
+    for &(t, x, y) in targets.iter().skip(1) {
+        let dense = t - previous_t <= PAN_SECS + 0.02;
+        let dt = t - previous_t;
+        if dense {
+            if autozoom::should_abandon(anchor, previous_point, (x, y), t - last_click, dt) {
+                abandoned = Some(t);
+                break;
+            }
+            if autozoom::inside_deadzone(camera, (x, y), depth, bounds) {
+                // A stationary keyframe advances the dense-follow clock even
+                // though the camera does not move, so the first real edge
+                // crossing is still a glide and not a 450 ms pan.
+                kept.push((t, camera.0, camera.1));
+                previous_t = t;
+                previous_point = (x, y);
+                continue;
+            }
+            if let Some(next) = autozoom::deadzone_target(camera, (x, y), depth, bounds) {
+                camera = next;
+                kept.push((t, next.0, next.1));
+            }
+        } else {
+            camera = clamp_center_in(bounds, x, y, depth);
+            kept.push((t, camera.0, camera.1));
+        }
+        previous_t = t;
+        previous_point = (x, y);
+    }
+    *targets = kept;
+    abandoned
 }
 
 /// Append the later points of one block, panning between them.
@@ -673,14 +863,13 @@ fn push_targets(
     targets: &[(f64, f64, f64)],
     current: &mut (f64, f64),
     last_t: &mut f64,
-    width: f64,
-    height: f64,
+    bounds: CaptureBounds,
     depth: f64,
     deadband: f64,
 ) {
     for &(t, x, y) in targets.iter().skip(1) {
         let at = t.max(*last_t + 0.001);
-        let next = clamped_center(x, y, width, height, depth);
+        let next = clamp_center_in(bounds, x, y, depth);
         let dx = next.0 - current.0;
         let dy = next.1 - current.1;
         let moved = (dx * dx + dy * dy).sqrt();
@@ -688,6 +877,9 @@ fn push_targets(
         // point is a click/jump: hold the old view, then pan over PAN_SECS.
         if at - *last_t > PAN_SECS + 0.02 {
             if moved <= deadband {
+                // A suppressed pan still consumed this point in time; the next
+                // point is not suddenly a sparse jump.
+                *last_t = at;
                 continue;
             }
             let pan_start = at - PAN_SECS;
@@ -700,6 +892,8 @@ fn push_targets(
             push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
         } else {
             if moved <= 1.0 {
+                // A deadzone hold still counts as time inside the drag.
+                *last_t = at;
                 continue;
             }
             push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
@@ -762,6 +956,13 @@ impl Camera {
 
     /// Sort keyframes, enforce zoom >= 1, and clamp every centre to the source.
     pub fn normalize(&mut self, width: f64, height: f64) {
+        self.normalize_in(CaptureBounds::frame(width, height));
+    }
+
+    /// The same normalization inside a capture rectangle. A window or area
+    /// take can carry a non-zero origin, and the camera must clamp to that
+    /// rectangle rather than to a zero-based frame.
+    fn normalize_in(&mut self, bounds: CaptureBounds) {
         self.style = valid_style(&self.style).to_string();
         self.depth = valid_depth(self.depth);
         self.easing = "smoothstep".into();
@@ -775,7 +976,11 @@ impl Camera {
         for mut frame in frames {
             frame.t = frame.t.max(0.0);
             frame.zoom = frame.zoom.max(1.0);
-            frame.clamp_center(width, height);
+            if bounds.is_valid() {
+                let (x, y) = bounds.clamp_center(frame.x, frame.y, frame.zoom);
+                frame.x = x;
+                frame.y = y;
+            }
             if let Some(last) = folded.last_mut() {
                 if (last.t - frame.t).abs() < 1e-9 {
                     // The last keyframe at a timestamp wins; hand edits often
@@ -1019,8 +1224,8 @@ mod tests {
         assert_eq!(telemetry.capture.target, "monitor:DP-1");
         assert_eq!(telemetry.capture.monitor, "DP-1");
         assert_eq!(telemetry.stop_t, 10.0);
-        // One `down` in the fixture: the `up` state is not a click, and the
-        // `move` and `sync` records are kept as pointer samples.
+        // One short press/release in the fixture: the release confirms it is a
+        // click, and the `move` and `sync` records are kept as pointer samples.
         assert_eq!(telemetry.clicks.len(), 1);
         assert_eq!(telemetry.clicks[0].t, 1.5);
         assert_eq!(telemetry.clicks[0].x, 100.5);
@@ -1029,6 +1234,48 @@ mod tests {
             telemetry.samples,
             vec![(1.234, 100.5, 200.25), (2.0, 100.0, 200.0)]
         );
+        assert_eq!(
+            telemetry.scrolls,
+            vec![autozoom::ScrollTick {
+                t: 2.5,
+                x: 100.0,
+                y: 200.0,
+                delta: 1.0,
+            }]
+        );
+    }
+
+    #[test]
+    fn telemetry_reader_keeps_short_clicks_and_drops_drags_and_holds() {
+        let dir = std::env::temp_dir().join(format!("reel-clicks-{}", std::process::id()));
+        let path = dir.join("take.telemetry.jsonl");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"width\":1000,\"height\":800},\"fps\":60}\n",
+                // A normal click.
+                "{\"v\":1,\"type\":\"button\",\"t\":1.0,\"button\":\"left\",\"state\":\"down\",\"x\":100.0,\"y\":100.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.1,\"button\":\"left\",\"state\":\"up\",\"x\":103.0,\"y\":102.0}\n",
+                // A long hold.
+                "{\"v\":1,\"type\":\"button\",\"t\":2.0,\"button\":\"left\",\"state\":\"down\",\"x\":200.0,\"y\":200.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":2.4,\"button\":\"left\",\"state\":\"up\",\"x\":200.0,\"y\":200.0}\n",
+                // A drag across a pane or a slider.
+                "{\"v\":1,\"type\":\"button\",\"t\":3.0,\"button\":\"left\",\"state\":\"down\",\"x\":300.0,\"y\":300.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.1,\"button\":\"left\",\"state\":\"up\",\"x\":360.0,\"y\":300.0}\n",
+                // A short right click is still a click.
+                "{\"v\":1,\"type\":\"button\",\"t\":4.0,\"button\":\"right\",\"state\":\"down\",\"x\":400.0,\"y\":400.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":4.05,\"button\":\"right\",\"state\":\"up\",\"x\":401.0,\"y\":401.0}\n"
+            ),
+        )
+        .unwrap();
+
+        let telemetry = read_telemetry(&path).unwrap();
+        assert_eq!(
+            telemetry.clicks,
+            vec![click(1.0, 100.0, 100.0), click(4.0, 400.0, 400.0)]
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -1362,9 +1609,10 @@ mod tests {
     }
 
     #[test]
-    fn dense_pointer_targets_follow_continuously() {
-        // One target every 0.23 s, like a pointer drag. No 450 ms hold may be
-        // inserted between them or the pan would stutter.
+    fn a_drag_holds_inside_the_deadzone_then_glides_to_the_edge() {
+        // A pointer drag that starts near the click: the camera must stay put
+        // while the pointer is inside the inner 55% box, then glide just enough
+        // to keep it in frame. It must not micro-pan on every sample.
         let refine = |enter: f64, _hold: f64, _x: f64, _y: f64| {
             let mut points = vec![(enter, 720.0, 660.0)];
             for step in 1..=10 {
@@ -1388,14 +1636,18 @@ mod tests {
             .iter()
             .filter(|frame| frame.zoom == 2.0)
             .collect();
-        assert!(zoomed.len() >= 10, "keyframes were {zoomed:?}");
+        assert!(zoomed.len() >= 5, "keyframes were {zoomed:?}");
         assert!(zoomed.windows(2).all(|pair| pair[0].t < pair[1].t));
-        // The final hold after the drag may be a normal 450 ms tail; the pan
-        // points before it must not be split by one.
-        let drag_frames = &zoomed[..zoomed.len().saturating_sub(1)];
-        assert!(!drag_frames
-            .windows(2)
-            .any(|pair| (pair[1].t - pair[0].t - PAN_SECS).abs() < 0.02));
+        // The first samples are inside the deadzone, so the camera is still at
+        // the click centre when the drag begins.
+        assert_eq!(zoomed[0].x, 720.0);
+        assert!(zoomed
+            .iter()
+            .any(|frame| frame.x > 720.0 && frame.x < 1080.0));
+        // Every followed point stays inside the source frame.
+        assert!(zoomed
+            .iter()
+            .all(|frame| frame.x >= 720.0 && frame.x <= 2160.0));
     }
 
     #[test]
@@ -1537,6 +1789,236 @@ mod tests {
         // clamped to zero rather than producing a negative keyframe.
         assert!(camera.keyframes.iter().all(|frame| frame.t >= 0.0));
         assert_eq!(camera.keyframes[0].t, 0.0);
+    }
+
+    #[test]
+    fn area_and_window_clicks_outside_the_capture_are_ignored() {
+        let area = build_camera_for_capture(
+            &[click(1.0, 900.0, 300.0)],
+            true,
+            2.0,
+            CaptureBounds::frame(800.0, 600.0),
+            CaptureMode::Area,
+            0.0,
+            &[],
+            None,
+        );
+        assert!(area.keyframes.is_empty());
+
+        let window = build_camera_for_capture(
+            &[click(1.0, 100.0, 300.0)],
+            true,
+            2.0,
+            CaptureBounds::new(200.0, 100.0, 640.0, 480.0),
+            CaptureMode::Window,
+            0.0,
+            &[],
+            None,
+        );
+        assert!(window.keyframes.is_empty());
+
+        // A click inside the window is clamped to the window's own edges, not
+        // to the monitor behind it.
+        let inside = build_camera_for_capture(
+            &[click(1.0, 210.0, 110.0)],
+            true,
+            2.0,
+            CaptureBounds::new(200.0, 100.0, 640.0, 480.0),
+            CaptureMode::Window,
+            0.0,
+            &[],
+            None,
+        );
+        let peak = inside
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        assert_eq!((peak.x, peak.y), (360.0, 220.0));
+
+        let right = build_camera_for_capture(
+            &[click(1.0, 830.0, 110.0)],
+            true,
+            2.0,
+            CaptureBounds::new(200.0, 100.0, 640.0, 480.0),
+            CaptureMode::Window,
+            0.0,
+            &[],
+            None,
+        );
+        let peak = right
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        // The right edge of the window, not the monitor: 200 + 640 - 160.
+        assert_eq!((peak.x, peak.y), (680.0, 220.0));
+    }
+
+    #[test]
+    fn a_click_on_the_corner_or_edge_never_crops_outside_the_source() {
+        let width = 1000.0;
+        let height = 800.0;
+        for (x, y, expected) in [
+            (0.0, 0.0, Some((250.0, 200.0))),
+            (999.0, 799.0, Some((750.0, 600.0))),
+            // The right/bottom edge is outside the half-open capture.
+            (width, height, None),
+        ] {
+            let camera = build_camera_for_capture(
+                &[click(1.0, x, y)],
+                true,
+                2.0,
+                CaptureBounds::frame(width, height),
+                CaptureMode::Monitor,
+                0.0,
+                &[],
+                None,
+            );
+            match expected {
+                Some((cx, cy)) => {
+                    let peak = camera
+                        .keyframes
+                        .iter()
+                        .find(|frame| frame.zoom == 2.0)
+                        .expect("a zoomed keyframe");
+                    assert_eq!((peak.x, peak.y), (cx, cy));
+                    for step in 0..=40 {
+                        let t = step as f64 / 20.0;
+                        let (zoom, x, y) = camera.viewport_at(t, width, height);
+                        let bounds = CaptureBounds::frame(width, height);
+                        let (left, top, crop_w, crop_h) = bounds.crop((x, y), zoom);
+                        assert!(left >= 0.0 && top >= 0.0);
+                        assert!(left + crop_w <= width + 1e-9);
+                        assert!(top + crop_h <= height + 1e-9);
+                    }
+                }
+                None => assert!(camera.keyframes.is_empty()),
+            }
+        }
+    }
+
+    #[test]
+    fn a_double_click_near_the_first_click_keeps_one_camera() {
+        let camera = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0), click(1.15, 520.0, 410.0)],
+            true,
+            2.0,
+            CaptureBounds::frame(1000.0, 800.0),
+            CaptureMode::Monitor,
+            0.0,
+            &[],
+            None,
+        );
+        let peak: Vec<&Keyframe> = camera
+            .keyframes
+            .iter()
+            .filter(|frame| frame.zoom == 2.0)
+            .collect();
+        // One block, one centre: no micro-pan between the two clicks and no
+        // dip back to 1x in the middle.
+        assert!(!peak.is_empty());
+        assert!(peak.windows(2).all(|pair| pair[0].x == pair[1].x));
+        assert!(peak.windows(2).all(|pair| pair[0].y == pair[1].y));
+        let first = peak.first().unwrap().t;
+        let last = peak.last().unwrap().t;
+        for step in 0..=20 {
+            let t = first + (last - first) * step as f64 / 20.0;
+            let (zoom, _, _) = camera.viewport_at(t, 1000.0, 800.0);
+            assert!(zoom >= 2.0 - 1e-9);
+        }
+    }
+
+    #[test]
+    fn a_click_during_zoom_out_holds_the_camera_zoomed() {
+        let camera = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0), click(2.6, 900.0, 500.0)],
+            true,
+            2.0,
+            CaptureBounds::frame(1000.0, 800.0),
+            CaptureMode::Monitor,
+            0.0,
+            &[],
+            None,
+        );
+        // The first block's ease-out would otherwise reach 1x at 2.4 s. The
+        // second click lands inside that window, so the camera stays zoomed and
+        // pans instead of dipping to 1x and snapping back.
+        for step in 24..=28 {
+            let t = step as f64 / 10.0;
+            let (zoom, x, y) = camera.viewport_at(t, 1000.0, 800.0);
+            assert!(zoom >= 2.0 - 1e-9, "zoom at {t} was {zoom}");
+            assert!(x.is_finite() && y.is_finite());
+        }
+    }
+
+    #[test]
+    fn scrolling_inside_the_crop_extends_the_block() {
+        let bounds = CaptureBounds::frame(1000.0, 800.0);
+        let no_scroll = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0)],
+            true,
+            2.0,
+            bounds,
+            CaptureMode::Monitor,
+            0.0,
+            &[],
+            None,
+        );
+        let with_scroll = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0)],
+            true,
+            2.0,
+            bounds,
+            CaptureMode::Monitor,
+            0.0,
+            &[autozoom::ScrollTick {
+                t: 1.5,
+                x: 500.0,
+                y: 400.0,
+                delta: 1.0,
+            }],
+            None,
+        );
+        let plain_end = no_scroll.keyframes.last().unwrap().t;
+        let scroll_end = with_scroll.keyframes.last().unwrap().t;
+        // One tick holds until 1.5 + 1.2 = 2.7, then eases out over 0.5 s.
+        assert!((scroll_end - 3.2).abs() < 1e-9, "ended at {scroll_end}");
+        assert!(scroll_end > plain_end);
+    }
+
+    #[test]
+    fn scrolling_outside_the_crop_does_not_extend_the_block() {
+        let bounds = CaptureBounds::frame(1000.0, 800.0);
+        let camera = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0)],
+            true,
+            2.0,
+            bounds,
+            CaptureMode::Monitor,
+            0.0,
+            &[autozoom::ScrollTick {
+                t: 1.5,
+                x: 20.0,
+                y: 20.0,
+                delta: 1.0,
+            }],
+            None,
+        );
+        let plain = build_camera_for_capture(
+            &[click(1.0, 500.0, 400.0)],
+            true,
+            2.0,
+            bounds,
+            CaptureMode::Monitor,
+            0.0,
+            &[],
+            None,
+        );
+        assert_eq!(
+            camera.keyframes.last().unwrap().t,
+            plain.keyframes.last().unwrap().t
+        );
     }
 
     #[test]

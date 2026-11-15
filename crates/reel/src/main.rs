@@ -1,4 +1,5 @@
 mod activity;
+mod autozoom;
 mod cli;
 mod commands;
 mod config;

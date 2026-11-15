@@ -188,6 +188,13 @@ belongs to the retired live-zoom build and is ignored.
 The save pass builds the camera from the take's telemetry, not from the live
 zoom:
 
+- A click counts on release, not on press: the button must come up within
+  280 ms and the pointer must stay within 15 px. A long press, a window drag, a
+  slider scrub, or a text selection therefore does not start a zoom. Left and
+  right clicks count; middle-click is ignored.
+- A click outside the recorded monitor, window, or area is ignored completely.
+  Window and area takes use the encoded rectangle, so moving the window during
+  the take cannot make an outside click pull the camera into the frame.
 - Clicks within 2.5 seconds and 350 pixels of each other become one block, and
   the block aims at their centroid.
 - If the click landed on a quiet patch while the screen changed in one compact
@@ -196,10 +203,17 @@ zoom:
   only focuses a window clicks wherever the pointer was parked, so this keeps
   the zoom on the work rather than on an empty area. A click that changes the
   picture where it landed keeps its place.
-- A drag that starts just after the click — selecting text, moving a window,
-  drawing a line — is followed continuously. The camera pans with the pointer
-  in small steps instead of snapping between clicks, so the selection stays in
-  frame. The follow ends when the pointer stops and the block then holds.
+- A drag that starts just after a qualifying click — selecting text, moving a
+  window, drawing a line — is followed continuously. The same follow covers a
+  context menu or dropdown: moving down to an item keeps the pointer in frame
+  without a held button. The pointer has an inner deadzone covering 55% of the
+  zoomed viewport: small movement does not move the camera at all, and leaving
+  the deadzone glides the view just enough to keep the pointer in frame. A fast
+  flick more than 450 px from the click anchor, with no new click for 400 ms,
+  ends the shot instead of chasing the pointer.
+- Scrolling inside the zoomed viewport keeps the block alive. Each wheel or
+  touchpad tick holds the camera until 1.2 s after the last tick, so reading
+  through a page does not zoom out mid-scroll.
 - Each block eases in over 500 ms before the first click, holds through the
   last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
   keyframe.
@@ -208,8 +222,12 @@ zoom:
   pan takes about 450 ms and ends on the new click; a shift smaller than 12% of
   the visible frame is ignored, so a click already inside the view cannot make
   the camera twitch.
-- The viewport is clamped inside the capture, so a zoom never shows empty
-  space.
+- The viewport is clamped inside the capture at every depth, including a click
+  on the top-left or bottom-right pixel. A click exactly on the right or bottom
+  edge is outside the half-open frame and is ignored rather than producing a
+  negative crop.
+- Keyframe times are saved-take time: the countdown is subtracted, so a zoom
+  stays on its click after trimming.
 - Keyframe times are saved-take time: the countdown is subtracted, so a zoom
   stays on its click after trimming.
 
@@ -360,6 +378,13 @@ acts while a take is recording. Pausing or stopping resets the compositor to
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
+- Scale changes use a critically damped spring, with a half-life of 180 ms
+  zooming in and 260 ms zooming out. A new step changes only the destination;
+  it never zeroes the velocity or snaps the current factor.
+- Manual zoom owns the camera while it is above 1×. An automatic timeout may
+  not reset it; only `Ctrl + Alt + 0`, or stepping manually back to 1×, returns
+  control to the automatic camera. The save-pass auto zoom is a separate
+  keyframe path and never touches the live compositor factor.
 - Zoom depth is 2× by default. `reel config set zoomMax 1.5` (or `2.5`, `3`)
   changes it; pinch, keyboard steps, and the toggle all stop at that depth. The
   engine clamps to 1×–4× regardless. Raising or lowering the depth never snaps
