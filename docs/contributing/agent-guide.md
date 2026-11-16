@@ -62,7 +62,7 @@ bin/reel wrapper → bin/dist/reel-native   (Rust engine, crates/reel)
 gpu-screen-recorder / ffmpeg   (capture, then finalize save pass)
         │
         └── config   ~/.config/omarchy/reel.json
-            runtime  $XDG_RUNTIME_DIR/reel/{state.json,reel.log,recorder.sock}
+            runtime  $XDG_RUNTIME_DIR/reel/{state.json,saves/,reel.log,recorder.sock}
             takes    output dir
 ```
 

@@ -349,24 +349,25 @@ Rules:
   raw luminance; theme inks sit well clear of it on either side.
 - The clock carries the take: `0:00` while the take is armed (the countdown is
   already on screen, so the bar does not echo it), the live time while frames
-  run, the frozen time while paused, and the take's last time while it is
-  written out. The resting mark returns when the save lands.
+  run, the frozen time while paused, and the take's last time while the encoder
+  is shutting down. Save jobs run outside the bar's state, so the resting mark
+  returns as soon as the next take is not recording; a save landing beside a
+  live take never borrows the pill.
 - The clock and the dot read exactly like the hour label: full
   `bar.barForeground`, never `muted` or an alpha of the ink. Accent belongs to
   frames running: the dot turns accent and pulses between `0.55` and full while
   recording or capturing.
-- Saving is the same pill sinking into dim and breathing between `0.60` and
-  `0.85` opacity until the save lands — dim enough to read as closing, bright
-  enough to keep the last time legible. Reduce motion holds it at `0.72`.
+- Closing keeps the same pill at full ink while the encoder stops and its save
+  job is published. There is no dim or disabled state: a new record press is
+  accepted immediately and the engine waits out the short shutdown.
 - The mark and the pill swap in place with no entrance animation: the bar's
-  width change is the state change, and the dot pulse and saving breath are the
-  only bar loops.
+  width change is the state change, and the dot pulse is the only bar loop.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
 - Updates belong to the panel, not the bar: the header readout carries the
   cue. The bar stays two drawings with one meaning.
-- `Style.reduceMotion` disables the two loops rather than shortening them: the
-  dot holds full and the saving pill holds a steady dim.
+- `Style.reduceMotion` disables the dot loop rather than shortening it: the dot
+  holds full.
 - Hover uses one shared bar hover fill. No per-state hover color.
 - Click opens the panel. Right-click records or pauses. Middle-click opens the
   recordings folder. Tooltips spell this out.
@@ -382,7 +383,8 @@ a place for identity text or metadata.
   - Idle: dim dot + `Ready` in secondary.
   - Recording: accent dot + live clock, foreground.
   - Paused: secondary dot + frozen clock, no pulse.
-  - Saving: dim dot + `Saving` in secondary while the save pass runs.
+  - Saving: dim dot + `Saving` in secondary while the encoder finishes the
+    take. Idle save jobs show `Saving N` here and as rows in history.
   - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
   - Fill `restFill`, hairline border.
 - Trailing control:
@@ -542,8 +544,9 @@ Rules:
 
 **Saving row**
 
-Shown above the finished takes while the save pass runs, so a take is never
-missing from history between Stop and the saved file.
+One row per live save job, shown above the finished takes, so a take is never
+missing from history between Stop and the saved file. Several rows stack while
+earlier takes are written beside a new recording.
 
 - Height `56`, radius `Style.cornerRadius`, transparent fill, clipped.
 - Thumbnail slot `84 × 48`, square, `0.04` foreground fill and a hairline. Three
@@ -762,7 +765,6 @@ Rules:
 | Countdown ring                          | `240` ms           | OutCubic           |
 | Status pill pulse                       | `900` ms each way  | InOutQuad          |
 | Bar take dot pulse                      | `1000` ms each way | InOutQuad          |
-| Bar saving dim pulse                    | `1000` ms each way | InOutQuad          |
 
 Rules:
 

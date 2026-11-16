@@ -32,11 +32,12 @@ its own:
 | `reel update [--binds]` | Update the plugin, rerun its installer, and restart the shell |
 | `reel update --check [--json] [--force]` | Check whether a newer commit is available |
 
-A take cannot start until the previous take has finished saving: while the
-save pass runs, `reel start` and `reel toggle` refuse with a message, the
-panel's record button sits dimmed, and every shortcut that would record is
-held. A crashed save job is released by the usual reconcile, so the gate never
-sticks.
+A finished take does not own the engine while it is saved. `reel stop` hands
+the take to its own save job and returns, so `reel start` and `reel toggle` can
+begin the next take immediately; any number of save jobs can run beside the
+recorder. `reel status --json` lists live jobs under `saves`, and `reel status`
+reports `Saving` while at least one job is still running. A crashed save job is
+released by the usual reconcile, so the panel never keeps a stale saving row.
 
 `reel toggle` accepts the same options as `reel start`. `reel stop` fails when
 no take is active. `reel trash` accepts only files inside the recordings folder.
@@ -311,6 +312,7 @@ whole file just to trim its head.
 | --- | --- |
 | `~/.config/omarchy/reel.json` | Settings shared by the panel and CLI |
 | `$XDG_RUNTIME_DIR/reel/state.json` | Live state the bar watches |
+| `$XDG_RUNTIME_DIR/reel/saves` | One small record per running save pass |
 | `$XDG_RUNTIME_DIR/reel/last.json` | Metadata for the last completed take |
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log; kept across takes and rotated to `reel.log.1` at 4 MB |
 | `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |

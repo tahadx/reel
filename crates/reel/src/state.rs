@@ -150,6 +150,7 @@ pub fn elapsed(paths: &Paths) -> i64 {
 /// denied earlier. The capture then moves aside and stops being withheld.
 pub fn reconcile(paths: &Paths) {
     let recovered = crate::quarantine::retry(paths);
+    crate::saves::reconcile(paths);
     let Some(mut state) = read(paths) else {
         return;
     };
@@ -185,6 +186,14 @@ pub fn reconcile(paths: &Paths) {
         return;
     }
     if status == "finalizing" {
+        // The encoder is gone even if `stop` died before it could return the
+        // state to idle. A live save job owns the capture now; release the
+        // engine without touching that file.
+        if crate::saves::count(paths) > 0 {
+            state["status"] = json!("idle");
+            let _ = write(paths, &state);
+            return;
+        }
         let pid = field_i64(&state, "finalizePid").unwrap_or(0) as i32;
         let at = field_i64(&state, "finalizeAt").unwrap_or(0);
         let now = paths::now_secs();
@@ -337,6 +346,17 @@ pub fn set(state: &mut Value, key: &str, value: Value) {
 pub fn status_json(paths: &Paths) -> Value {
     reconcile(paths);
     let mut state = read_or_idle(paths);
+    let jobs = crate::saves::list(paths);
+    if !jobs.is_empty() {
+        set(&mut state, "saves", json!(jobs));
+    }
+    // A save publishes `last.json`; surface it while the engine is idle so the
+    // panel keeps the finished take after the recording state clears.
+    if field_str(&state, "status").as_deref() == Some("idle") && state.get("last").is_none() {
+        if let Some(last) = saved_last(paths) {
+            set(&mut state, "last", last);
+        }
+    }
     let now = paths::now_secs();
     let elapsed = elapsed(paths);
     let active = matches!(
@@ -521,6 +541,36 @@ mod tests {
         reconcile(&paths);
         let state = read(&paths).unwrap();
         assert_eq!(field_str(&state, "status").as_deref(), Some("finalizing"));
+        let _ = fs::remove_dir_all(paths.runtime);
+    }
+
+    #[test]
+    fn a_live_save_job_releases_a_stale_finalizing_state() {
+        let paths = temp_paths();
+        let file = paths.runtime.join("take.capture.mp4");
+        let output = paths.runtime.join("take.mp4");
+        let id = crate::saves::create(&paths, &file, &output, 0.0, paths::now_secs()).unwrap();
+        crate::saves::set_pid(&paths, &id, std::process::id());
+        write(
+            &paths,
+            &json!({
+                "status": "finalizing",
+                "file": file.display().to_string(),
+                "finalizePid": 0,
+                "finalizeAt": paths::now_secs() - 30,
+            }),
+        )
+        .unwrap();
+
+        reconcile(&paths);
+
+        let state = read(&paths).unwrap();
+        assert_eq!(field_str(&state, "status").as_deref(), Some("idle"));
+        assert_eq!(
+            field_str(&state, "file").as_deref(),
+            Some(file.display().to_string().as_str())
+        );
+        assert_eq!(crate::saves::count(&paths), 1);
         let _ = fs::remove_dir_all(paths.runtime);
     }
 

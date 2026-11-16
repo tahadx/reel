@@ -513,24 +513,36 @@ fn quarantine_before_save(
                  until it can be moved aside.",
                 file.display()
             );
-            let _ = state::write(
-                paths,
-                &state::idle_with_error_keeping_capture(paths, &message),
-            );
+            // A save runs beside the recorder now. Only touch a state that has
+            // no live take; a recording must never lose its state to a stale
+            // save error.
+            if matches!(state::status(paths).as_str(), "idle" | "finalizing") {
+                let _ = state::write(
+                    paths,
+                    &state::idle_with_error_keeping_capture(paths, &message),
+                );
+            }
             util::notify("Reel", Some(&message), "critical");
             anyhow::bail!(message);
         }
     }
 }
 
-/// The auto zoom choices for this take, read from its settings snapshot before
-/// the save pass touches state.
+/// The auto zoom choices for this take. `stop` resolves them with the take and
+/// passes them in, because a newer take may own the live settings by the time
+/// this save starts. The state fallback keeps a hand-run `__finalize` working.
 struct TakeOptions {
     enabled: bool,
     depth: f64,
 }
 
-fn take_options(paths: &Paths) -> TakeOptions {
+fn take_options(paths: &Paths, args: &FinalizeArgs) -> TakeOptions {
+    if args.auto_zoom_depth > 0.0 {
+        return TakeOptions {
+            enabled: args.auto_zoom,
+            depth: args.auto_zoom_depth,
+        };
+    }
     let settings = state::read(paths)
         .and_then(|state| state.get("settings").cloned())
         .unwrap_or(Value::Null);
@@ -659,11 +671,8 @@ fn write_project(paths: &Paths, take: &Path, project: &project::Project) -> Opti
 }
 
 /// Copy pointer telemetry beside a successfully saved take. A copy failure is
-/// logged and never fails the save; the runtime file stays for debugging.
-fn persist_telemetry(paths: &Paths, take: &Path, telemetry_ran: bool) -> bool {
-    if !telemetry_ran {
-        return false;
-    }
+/// logged and never fails the save.
+fn persist_telemetry(paths: &Paths, take: &Path, source: &Path) -> bool {
     if !take.is_file() {
         paths::log(
             paths,
@@ -674,7 +683,7 @@ fn persist_telemetry(paths: &Paths, take: &Path, telemetry_ran: bool) -> bool {
         );
         return false;
     }
-    match telemetry::persist(paths, take) {
+    match telemetry::persist_from(take, source) {
         Ok(path) => {
             paths::log(
                 paths,
@@ -695,8 +704,19 @@ fn persist_telemetry(paths: &Paths, take: &Path, telemetry_ran: bool) -> bool {
     }
 }
 
-/// The hidden `__finalize` process spawned by `stop`.
+/// The hidden `__finalize` process spawned by `stop`. Its job record is
+/// removed on every exit path; a process that dies without reaching here is
+/// cleaned by `saves::reconcile`.
 pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
+    let job = args.job.clone();
+    let result = run_job_inner(paths, args);
+    if let Some(id) = job.as_deref() {
+        crate::saves::remove(paths, id);
+    }
+    result
+}
+
+fn run_job_inner(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     // Keep the take's framing with its result so the panel can show the same
     // area after the recording has finished.
     let target = if args.target.is_empty() {
@@ -712,7 +732,7 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let target_label = if args.target_label.is_empty() {
         Value::Null
     } else {
-        Value::String(args.target_label)
+        Value::String(args.target_label.clone())
     };
 
     // Read the listener flag before touching state. The recording state is
@@ -720,10 +740,10 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     let telemetry_ran = state::read(paths)
         .and_then(|state| state.get("telemetry").and_then(Value::as_bool))
         .unwrap_or(false);
-    let options = take_options(paths);
-    // `--telemetry` is explicit; otherwise use the take's runtime log when the
-    // recorder actually started the listener. A missing file is not an error:
-    // the take simply saves without a camera.
+    let options = take_options(paths, &args);
+    // `--telemetry` is explicit (normally a per-job snapshot); otherwise fall
+    // back to the take's runtime log when the recorder started the listener. A
+    // missing file is not an error: the take simply saves without a camera.
     let telemetry_file = args
         .telemetry
         .clone()
@@ -735,7 +755,6 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
 
     let mut file = args.file;
     let mut output = args.output.unwrap_or_else(|| file.clone());
-    let original_file = file.display().to_string();
     let mut quarantined = output != file;
 
     // Defense in depth for a state file written before `output` existed: a
@@ -752,20 +771,12 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     )?;
 
     // Publish the job pid before touching ffmpeg. The service can then tell a
-    // live save from one that died and left the bar on "Saving".
-    if let Some(current) = state::read(paths) {
-        let status = state::field_str(&current, "status").unwrap_or_default();
-        let current_file = state::field_str(&current, "file").unwrap_or_default();
-        if status == "finalizing"
-            && (current_file == original_file || current_file == file.display().to_string())
-        {
-            let mut next = current;
-            if quarantined {
-                state::set(&mut next, "file", json!(file.display().to_string()));
-                state::set(&mut next, "output", json!(output.display().to_string()));
-            }
-            state::set(&mut next, "finalizePid", json!(std::process::id()));
-            let _ = state::write(paths, &next);
+    // live save from one that died, and a late quarantine rename is reflected
+    // in the row the panel shows.
+    if let Some(id) = args.job.as_deref() {
+        crate::saves::set_pid(paths, id, std::process::id());
+        if quarantined {
+            crate::saves::update_paths(paths, id, &file, &output);
         }
     }
 
@@ -936,12 +947,11 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
         if file != output {
             paths::remove_quiet(&file);
         }
-        // The work file has been validated and renamed into place. An explicit
-        // `--telemetry` file that is the runtime log is moved beside the take
-        // even when state no longer carries the listener flag.
-        let telemetry_recorded =
-            telemetry_ran || telemetry_file.as_deref() == Some(paths.session_telemetry.as_path());
-        telemetry_saved = persist_telemetry(paths, &output, telemetry_recorded);
+        // The work file has been validated and renamed into place. The
+        // per-job telemetry snapshot is copied beside the take.
+        if let Some(source) = telemetry_file.as_deref() {
+            telemetry_saved = persist_telemetry(paths, &output, source);
+        }
         // The project is written last: it points at the take and at the
         // telemetry file that was just copied, and a failed save must not
         // leave a project describing a take that was never produced.
@@ -987,12 +997,12 @@ pub fn run_job(paths: &Paths, args: FinalizeArgs) -> Result<()> {
     });
     paths::write_atomic(&paths.last, &serde_json::to_string(&last)?)?;
 
+    // A save runs beside the recorder. Only fill an idle state that is not
+    // already showing a withheld capture; a live take owns the file now.
     if let Some(current) = state::read(paths) {
         let status = state::field_str(&current, "status").unwrap_or_default();
         let current_file = state::field_str(&current, "file").unwrap_or_default();
-        let owns_state = (status == "finalizing" && current_file == file.display().to_string())
-            || (status == "idle" && current_file.is_empty());
-        if owns_state {
+        if status == "idle" && current_file.is_empty() {
             let next = state::idle_with_last(&last);
             let _ = state::write(paths, &next);
         }
@@ -1332,7 +1342,7 @@ mod tests {
         fs::write(&take, b"video").unwrap();
         fs::write(&paths.session_telemetry, b"{}\n").unwrap();
 
-        assert!(persist_telemetry(&paths, &take, true));
+        assert!(persist_telemetry(&paths, &take, &paths.session_telemetry));
         assert!(paths::telemetry_path(&take).is_file());
         assert!(
             paths.session_telemetry.is_file(),
@@ -1349,9 +1359,9 @@ mod tests {
         let paths = Paths::for_test(&root);
         let take = videos.join("reel-1.mp4");
         fs::write(&take, b"video").unwrap();
-        fs::write(&paths.session_telemetry, b"{}\n").unwrap();
+        let source = root.join("no-telemetry.jsonl");
 
-        assert!(!persist_telemetry(&paths, &take, false));
+        assert!(!persist_telemetry(&paths, &take, &source));
         assert!(!paths::telemetry_path(&take).exists());
         let _ = fs::remove_dir_all(root);
     }
@@ -1365,7 +1375,7 @@ mod tests {
         let take = videos.join("reel-1.mp4");
         fs::write(&take, b"video").unwrap();
 
-        assert!(!persist_telemetry(&paths, &take, true));
+        assert!(!persist_telemetry(&paths, &take, &paths.session_telemetry));
         assert!(!paths::telemetry_path(&take).exists());
         assert!(take.is_file(), "the take itself is untouched");
         let _ = fs::remove_dir_all(root);

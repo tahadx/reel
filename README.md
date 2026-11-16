@@ -20,7 +20,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.
-- A bar mark for the resting, recording, paused, and saving states.
+- A bar mark for the resting, recording, paused, and closing states.
+- Start the next take while earlier takes are still being saved; each save runs
+  as its own job, so several can land beside a recording.
 - Recording history with previews, open in `mpv`, cut in Omacut, an actions
   menu with rename, share, and trash, path copy, and drag-out to drop the video
   into another app. Missing thumbnails are rebuilt from the take.

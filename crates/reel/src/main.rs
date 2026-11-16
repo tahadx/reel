@@ -9,6 +9,7 @@ mod project;
 mod quarantine;
 mod recorder;
 mod render;
+mod saves;
 mod state;
 mod target;
 mod telemetry;

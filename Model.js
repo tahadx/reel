@@ -116,6 +116,31 @@ function isActive(state) {
   return s === "recording" || s === "paused"
 }
 
+// Save jobs are independent of the recording state. A new take may run while
+// any number of earlier takes are still being written.
+function saves(state) {
+  var list = object(state).saves
+  if (!Array.isArray(list)) return []
+  var clean = []
+  for (var i = 0; i < list.length; i++) {
+    var job = object(list[i])
+    var file = String(job.file || "")
+    var output = String(job.output || "")
+    if (file === "" && output === "") continue
+    clean.push({
+      id: String(job.id || ""),
+      file: file,
+      output: output,
+      startedAt: number(job.startedAt, 0)
+    })
+  }
+  return clean
+}
+
+function isSaving(state) {
+  return saves(state).length > 0 || status(state) === "finalizing"
+}
+
 function isBusy(state) {
   var s = status(state)
   return s === "starting" || s === "recording" || s === "paused" || s === "finalizing"
