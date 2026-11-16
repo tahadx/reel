@@ -378,8 +378,10 @@ The hero is the recording clock, the update cue, and history access. It is not
 a place for identity text or metadata.
 
 - Height: `22`, the pill height.
-- Leading control: **recording status pill** — `60 × 22` slot, pill radius,
-  always visible.
+- Leading control: **recording status pill** — at least `60 × 22`, pill radius,
+  always visible. The resting width is `60`; a label that cannot fit (the
+  save count, or a clock past an hour) widens the capsule instead of spilling
+  its last character over the border.
   - Idle: dim dot + `Ready` in secondary.
   - Recording: accent dot + live clock, foreground.
   - Paused: secondary dot + frozen clock, no pulse.
@@ -405,7 +407,9 @@ a place for identity text or metadata.
 - There is no history button in the hero: History is a destination in the
   navigation strip (§6.5).
 - There is no Reel mark or title in the hero. The bar keeps the drawn mark.
-- Do not let the clock label change the pill width. The `60` slot is reserved.
+- The `60` resting slot is reserved while the label fits, so the clock's
+  seconds do not move the pill. A label wider than the slot (`Saving 10`, or a
+  clock past an hour) grows the capsule and keeps its eight-point inset.
 
 ### 6.3 Primary actions (fixed)
 

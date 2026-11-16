@@ -2077,8 +2077,13 @@ Panel {
           iconComponent: Component {
             // The old recording pill, now always present on the left: it reads
             // 0:00 at rest and the live elapsed time while a take is running.
+            // It is allowed to grow past the resting 60 slot: the save count
+            // and an hour-long clock are wider than "Ready", and a fixed slot
+            // spilled their last digit outside the capsule. The label keeps
+            // the same eight-point inset at every width.
             Item {
-              width: Style.space(60)
+              width: Math.max(Style.space(60),
+                statusRow.implicitWidth + Style.space(16))
               height: Style.space(22)
 
               Rectangle {
@@ -2089,6 +2094,7 @@ Panel {
                 border.color: root.hairline
 
                 Row {
+                  id: statusRow
                   anchors.centerIn: parent
                   spacing: Style.space(5)
 
