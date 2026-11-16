@@ -260,8 +260,13 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     state::reconcile(paths);
     match state::status(paths).as_str() {
         "idle" => {}
-        "finalizing" => anyhow::bail!("Reel is still saving the last take. Try again in a moment."),
+        "finalizing" => {
+            anyhow::bail!("Reel is still finishing the last take. Try again in a moment.")
+        }
         _ => anyhow::bail!("Stop the current take before updating Reel."),
+    }
+    if crate::saves::count(paths) > 0 {
+        anyhow::bail!("Reel is still saving takes. Try again when they land.");
     }
 
     const ID: &str = PLUGIN_ID;
@@ -326,6 +331,7 @@ pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
         "paused" => println!("Paused {}", util::format_duration(state::elapsed(paths))),
         "finalizing" => println!("Saving"),
         "starting" => println!("Starting"),
+        _ if crate::saves::count(paths) > 0 => println!("Saving"),
         _ => println!("Idle"),
     }
     Ok(())

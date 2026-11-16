@@ -19,6 +19,9 @@ pub struct Paths {
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
     pub session_telemetry: PathBuf,
+    /// One small record per save pass. Saves run beside the recording state so
+    /// a new take can start while earlier takes are still being written.
+    pub saves: PathBuf,
     /// Cached result of the last update check, so restarts inside the hour do
     /// not touch the network.
     pub update: PathBuf,
@@ -48,6 +51,7 @@ impl Paths {
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
             session_telemetry: root.join("session.telemetry.jsonl"),
+            saves: root.join("saves"),
             update: root.join("update.json"),
             config_dir: root.join("config"),
             config: root.join("config.json"),
@@ -107,6 +111,7 @@ impl Paths {
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
             session_telemetry: runtime.join("session.telemetry.jsonl"),
+            saves: runtime.join("saves"),
             update: runtime.join("update.json"),
             config: config_dir.join("reel.json"),
             config_dir,
@@ -118,6 +123,8 @@ impl Paths {
 
         let _ = fs::create_dir_all(&paths.runtime);
         let _ = fs::set_permissions(&paths.runtime, fs::Permissions::from_mode(0o700));
+        let _ = fs::create_dir_all(&paths.saves);
+        let _ = fs::set_permissions(&paths.saves, fs::Permissions::from_mode(0o700));
         let _ = fs::create_dir_all(&paths.previews);
         if let Some(dir) = paths.previews.parent() {
             let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));

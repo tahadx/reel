@@ -561,11 +561,10 @@ impl Drop for Listener {
     }
 }
 
-/// Copy the runtime file into the take's hidden sidecar folder. The runtime
-/// copy is kept for debugging and cleared by the next take. The finalize pass
-/// calls this after a successful save.
-pub fn persist(paths: &Paths, take: &Path) -> Result<PathBuf> {
-    let source = &paths.session_telemetry;
+/// Copy a telemetry file into the take's hidden sidecar folder. A save job
+/// owns its own snapshot, so the runtime file may already belong to a newer
+/// take. The finalize pass calls this after a successful save.
+pub fn persist_from(take: &Path, source: &Path) -> Result<PathBuf> {
     if !source.is_file() {
         anyhow::bail!("no telemetry was recorded for this take");
     }
@@ -1913,7 +1912,7 @@ mod tests {
         let take = videos.join("reel-1.mp4");
         let legacy = paths::legacy_telemetry_path(&take);
         std::fs::write(&legacy, b"old\n").unwrap();
-        let saved = persist(&paths, &take).unwrap();
+        let saved = persist_from(&take, &paths.session_telemetry).unwrap();
         assert_eq!(saved, videos.join(".reel/reel-1.telemetry.jsonl"));
         assert!(!legacy.exists(), "old visible sidecar is cleaned up");
         assert!(saved.is_file());

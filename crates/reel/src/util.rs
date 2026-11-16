@@ -279,6 +279,9 @@ pub fn spawn_finalize(
     target_label: &str,
     noise_cancellation: bool,
     telemetry: Option<&Path>,
+    job: Option<&str>,
+    auto_zoom: bool,
+    auto_zoom_depth: f64,
 ) -> std::io::Result<u32> {
     let exe = std::env::current_exe()?;
     let log = std::fs::OpenOptions::new()
@@ -304,12 +307,20 @@ pub fn spawn_finalize(
         .arg("--target-kind")
         .arg(target_kind)
         .arg("--target-label")
-        .arg(target_label);
+        .arg(target_label)
+        .arg("--auto-zoom-depth")
+        .arg(format!("{auto_zoom_depth:.3}"));
     if noise_cancellation {
         command.arg("--noise-cancellation");
     }
+    if auto_zoom {
+        command.arg("--auto-zoom");
+    }
     if let Some(telemetry) = telemetry {
         command.arg("--telemetry").arg(telemetry);
+    }
+    if let Some(job) = job {
+        command.arg("--job").arg(job);
     }
     let child = command
         .stdin(Stdio::null())

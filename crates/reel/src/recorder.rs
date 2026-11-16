@@ -535,22 +535,38 @@ fn fail_start(paths: &Paths, message: &str) {
 }
 
 fn start_guard(paths: &Paths) -> Result<String> {
-    let _lock = Lock::acquire(paths)?;
-    // A finished take still owns the engine until its save pass lands. Clear a
-    // dead job first so a crashed finalize cannot block recording forever.
-    state::reconcile(paths);
-    let current = state::status(paths);
-    match current.as_str() {
-        "recording" | "paused" | "starting" => {
-            anyhow::bail!("Reel is already busy. Stop the current take first.")
+    start_guard_within(paths, Duration::from_secs(12))
+}
+
+fn start_guard_within(paths: &Paths, wait: Duration) -> Result<String> {
+    // "finalizing" is the short encoder shutdown before the save job exists.
+    // A record press during that beat waits for it instead of disabling the
+    // button: the lock is released between checks so `stop` can finish.
+    let deadline = Instant::now() + wait;
+    loop {
+        let lock = Lock::acquire(paths)?;
+        // Clear a dead job first so a crashed save cannot leave stale
+        // bookkeeping beside the engine. Live save jobs do not block a take.
+        state::reconcile(paths);
+        let current = state::status(paths);
+        match current.as_str() {
+            "recording" | "paused" | "starting" => {
+                anyhow::bail!("Reel is already busy. Stop the current take first.")
+            }
+            "finalizing" => {
+                drop(lock);
+                if Instant::now() >= deadline {
+                    anyhow::bail!("Reel is still finishing the last take. Try again in a moment.");
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+            _ => {
+                drop(lock);
+                paths::remove_quiet(&paths.cancel);
+                return Ok(current);
+            }
         }
-        "finalizing" => {
-            anyhow::bail!("Reel is still saving the last take. Try again in a moment.")
-        }
-        _ => {}
     }
-    paths::remove_quiet(&paths.cancel);
-    Ok(current)
 }
 
 /// Resolve the chosen target. An explicit `--target` skips the picker; a
@@ -1331,6 +1347,8 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         trim_start,
         noise_cancellation,
         telemetry_ran,
+        auto_zoom,
+        auto_zoom_depth,
     );
     {
         let _lock = Lock::acquire(paths)?;
@@ -1351,9 +1369,12 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
             .parse::<f64>()
             .unwrap_or(0.0);
 
-        // Noise reduction is a save-pass filter, so it only applies when this
-        // take actually captured the microphone.
+        // The save pass must not read the live settings later: a new take may
+        // already be running by the time it starts. Resolve this take's save
+        // options now and hand them over with the job.
         let take_settings = current.get("settings").cloned().unwrap_or(Value::Null);
+        auto_zoom = crate::config::auto_zoom(&take_settings);
+        auto_zoom_depth = crate::config::auto_zoom_depth(&take_settings);
         let enabled =
             |value: &Value, key: &str| value.get(key).and_then(Value::as_bool).unwrap_or(false);
         let mic_on =
@@ -1462,20 +1483,24 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         }
     };
 
-    // The save job owns the state by its `file` field. Point that at the
-    // quarantined capture before spawning so a failed job still reconciles to
-    // the recovery path instead of leaving the bar on "Saving".
-    {
-        let _lock = Lock::acquire(paths).ok();
-        if let Some(current) = state::read(paths) {
-            if state::field_str(&current, "status").as_deref() == Some("finalizing") {
-                let mut next = current;
-                state::set(&mut next, "file", serde_json::json!(file.clone()));
-                state::set(&mut next, "output", serde_json::json!(output.clone()));
-                let _ = state::write(paths, &next);
-            }
+    // Register the save before spawning it. The job record outlives this
+    // command, and a new take may start while several of these run together.
+    let job_id = crate::saves::create(
+        paths,
+        Path::new(&file),
+        Path::new(&output),
+        trim_start,
+        started_at,
+    )
+    .ok();
+    // The runtime telemetry file is cleared by the next take, so the save pass
+    // gets its own copy instead of reading a file the next recorder overwrites.
+    let telemetry = match job_id.as_deref() {
+        Some(id) if telemetry_ran && paths.session_telemetry.is_file() => {
+            crate::saves::snapshot_telemetry(paths, id)
         }
-    }
+        _ => None,
+    };
 
     // Do not render a preview here: it delayed the stop response for every
     // take. The finalize child renders one from the raw capture before its
@@ -1493,13 +1518,23 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         &target_kind,
         &target_label,
         noise_cancellation,
-        (telemetry_ran && paths.session_telemetry.is_file())
-            .then_some(paths.session_telemetry.as_path()),
+        telemetry.as_deref(),
+        job_id.as_deref(),
+        auto_zoom,
+        auto_zoom_depth,
     );
     match job {
-        Ok(job_pid) => paths::log(paths, &format!("stop: finalize job {job_pid} for {output}")),
+        Ok(job_pid) => {
+            if let Some(id) = job_id.as_deref() {
+                crate::saves::set_pid(paths, id, job_pid);
+            }
+            paths::log(paths, &format!("stop: save job {job_pid} for {output}"));
+        }
         Err(err) => {
-            paths::log(paths, &format!("stop: cannot spawn finalize: {err}"));
+            if let Some(id) = job_id.as_deref() {
+                crate::saves::remove(paths, id);
+            }
+            paths::log(paths, &format!("stop: cannot spawn save job: {err}"));
             let message = if output != file {
                 format!("The take could not be saved. Untrimmed footage is at {file}.")
             } else {
@@ -1510,6 +1545,17 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
                 &state::idle_with_error_preserving_last(paths, &message),
             );
             util::notify("Reel", Some(&message), "critical");
+        }
+    }
+    // The encoder is gone and the job owns the rest. Release the engine so the
+    // next take can start; the save keeps running in its own process.
+    {
+        let _lock = Lock::acquire(paths).ok();
+        if let Some(current) = state::read(paths) {
+            let status = state::field_str(&current, "status").unwrap_or_default();
+            if status == "finalizing" {
+                let _ = state::write(paths, &state::idle_preserving_last(paths));
+            }
         }
     }
     paths::remove_quiet(&paths.starting);
@@ -1594,7 +1640,7 @@ mod tests {
     }
 
     #[test]
-    fn a_take_waits_for_the_previous_save() {
+    fn a_take_waits_for_the_previous_encoder_to_stop() {
         let root = temp_root("finalizing");
         fs::create_dir_all(&root).unwrap();
         let paths = Paths::for_test(&root);
@@ -1609,8 +1655,55 @@ mod tests {
         )
         .unwrap();
 
-        let error = start_guard(&paths).unwrap_err().to_string();
-        assert!(error.contains("still saving"), "{error}");
+        let error = start_guard_within(&paths, Duration::from_millis(150))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("still finishing"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_start_press_waits_for_the_encoder_to_finish() {
+        let root = temp_root("start-waits");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        let alive = std::process::id() as i64;
+        state::write(
+            &paths,
+            &json!({
+                "status": "finalizing",
+                "finalizePid": alive,
+                "finalizeAt": paths::now_secs(),
+            }),
+        )
+        .unwrap();
+
+        let idle = Paths::for_test(&root);
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(250));
+            let _ = state::write(&idle, &state::idle());
+        });
+        let result = start_guard_within(&paths, Duration::from_secs(2));
+        releaser.join().unwrap();
+        assert!(result.is_ok(), "{result:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_running_save_does_not_block_a_new_take() {
+        let root = temp_root("saves");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        state::write(&paths, &state::idle()).unwrap();
+        let file = root.join("take.capture.mp4");
+        let output = root.join("take.mp4");
+        for _ in 0..10 {
+            let id = crate::saves::create(&paths, &file, &output, 0.0, paths::now_secs()).unwrap();
+            crate::saves::set_pid(&paths, &id, std::process::id());
+        }
+
+        assert_eq!(crate::saves::count(&paths), 10);
+        assert!(start_guard(&paths).is_ok());
         let _ = fs::remove_dir_all(root);
     }
 

@@ -40,6 +40,23 @@ TestCase {
     compare(Model.savingTitle(null), "Saving take")
   }
 
+  function test_saveJobsAreIndependentOfTheRecordingState() {
+    var jobs = Model.saves({
+      status: "recording",
+      saves: [
+        { id: "a", file: "/videos/a.capture.mp4", output: "/videos/a.mp4", startedAt: 5 },
+        { id: "b-output-only", output: "/videos/b.mp4" },
+        { id: "empty" }
+      ]
+    })
+    compare(jobs.length, 2)
+    compare(jobs[0].output, "/videos/a.mp4")
+    compare(jobs[1].output, "/videos/b.mp4")
+    compare(Model.isSaving({ status: "recording", saves: jobs }), true)
+    compare(Model.isSaving({ status: "idle", saves: [] }), false)
+    compare(Model.isSaving({ status: "finalizing" }), true)
+  }
+
   function test_takeStemDropsOnlyTheExtension() {
     compare(Model.takeStem("/videos/reel-2026-11-06_17-00-00.mp4"),
       "reel-2026-11-06_17-00-00")

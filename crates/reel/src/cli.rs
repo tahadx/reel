@@ -270,6 +270,16 @@ pub struct FinalizeArgs {
     /// unchanged and no project is written.
     #[arg(long)]
     pub telemetry: Option<PathBuf>,
+    /// Runtime save job this process owns. Its record is removed when the
+    /// process exits, and the next take does not depend on it.
+    #[arg(long)]
+    pub job: Option<String>,
+    /// Auto zoom this take was recorded with. Resolved by `stop` so the save
+    /// pass never reads settings that a newer take may already own.
+    #[arg(long = "auto-zoom")]
+    pub auto_zoom: bool,
+    #[arg(long = "auto-zoom-depth", default_value_t = 0.0)]
+    pub auto_zoom_depth: f64,
 }
 
 #[derive(Args, Debug)]

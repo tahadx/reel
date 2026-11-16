@@ -43,6 +43,8 @@ Item {
 
   readonly property bool active: Model.isActive(root.state)
   readonly property bool finalizing: Model.status(root.state) === "finalizing"
+  readonly property var saves: Model.saves(root.state)
+  readonly property bool saving: root.saves.length > 0
   readonly property bool busy: Model.isBusy(root.state)
   readonly property bool starting: Model.status(root.state) === "starting"
   // The encoder is launched and warming up; the take is running even though
@@ -120,6 +122,7 @@ Item {
 
   function applyState(text) {
     var previous = Model.status(root.state)
+    var previousSaves = Model.saves(root.state)
     var parsed = Model.parseStateSafe(text)
     var signature = JSON.stringify(parsed)
     root.stateText = String(text || "")
@@ -127,9 +130,13 @@ Item {
     root.stateSignature = signature
     root.state = parsed
     var next = Model.status(parsed)
-    if (previous !== next) {
+    var nextSaves = Model.saves(parsed)
+    if (previous !== next || previousSaves.length !== nextSaves.length) {
       root.tick = 0
-      if (next === "idle" || next === "finalizing") {
+      // A save that just landed is not in the history yet. Refresh on the
+      // transition so the placeholder row is replaced in the same beat.
+      if (next === "idle" || next === "finalizing"
+        || nextSaves.length < previousSaves.length) {
         root.refreshRecent()
         root.refreshOutputDir()
       }
@@ -286,10 +293,11 @@ Item {
 
   // State is read through `reel status --json`, whose Rust reader is bounded,
   // instead of pulling state.json straight into the shell. Poll slowly while
-  // idle and once a second while a take is live so the bar clock stays honest.
+  // nothing runs, and once a second while a take or save job is live so the
+  // bar clock and saving rows stay honest.
   Timer {
     id: statePoll
-    interval: root.active || root.starting || root.finalizing ? 1000 : 5000
+    interval: root.active || root.starting || root.finalizing || root.saving ? 1000 : 5000
     repeat: true
     running: root.configured
     onTriggered: root.startStatus()

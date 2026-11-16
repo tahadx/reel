@@ -34,11 +34,11 @@ Panel {
     && String(root.state.stage || "") === "capture"
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
-  // A take in the save pass already belongs to the user, so history lists it
-  // before it lands. The row is a placeholder: no pointer, no cursor, no
-  // actions. It is held for the beat between "saving" ending and the refreshed
-  // history carrying the take, so the row swaps in place instead of blinking
-  // out and dropping back in a moment later.
+  // A take in the save pass already belongs to the user, so history lists one
+  // placeholder row per live job before it lands. A row has no pointer, no
+  // cursor, and no actions. The last row is held for the beat between the job
+  // ending and the refreshed history carrying the take, so it swaps in place
+  // instead of blinking out and dropping back in a moment later.
   property bool savingHold: false
   property bool savingWasFinalizing: false
   property int savingHoldVersion: 0
@@ -46,15 +46,45 @@ Panel {
   property string savingHoldPath: ""
   property string savingTitleCache: ""
 
-  readonly property bool savingTake: root.finalizing || root.savingHold
+  readonly property var savingJobs: Model.saves(root.state)
+  property var previousSavingJobs: []
+  // Every save is its own row. `savingHold` remains the short bridge from the
+  // old one-at-a-time flow, and `finalizing` covers the beat where the encoder
+  // is still stopping before its job is published. A ListModel keeps the rows
+  // stable across status ticks so their pulse does not restart every second.
+  ListModel {
+    id: savingRowsModel
+  }
+  readonly property bool savingTake: savingRowsModel.count > 0
+  readonly property int savingCount: savingRowsModel.count
   readonly property string savingTakePath: String(root.state.file || "")
   readonly property int recentsVersion: root.service
     ? root.service.recentVersion : 0
-  readonly property string savingTakeTitle: {
-    if (!root.savingTake) return ""
-    if (root.finalizing) return Model.savingTitle(root.savingTakePath)
-    return root.savingTitleCache !== ""
-      ? root.savingTitleCache : Model.savingTitle(root.savingTakePath)
+
+  function syncSavingRows() {
+    var labels = []
+    for (var i = 0; i < root.savingJobs.length; i++) {
+      var job = root.savingJobs[i]
+      labels.push(Model.savingTitle(String(job.output || job.file || "")))
+    }
+    if (labels.length === 0 && root.savingHold)
+      labels.push(root.savingTitleCache !== ""
+        ? root.savingTitleCache : Model.savingTitle(root.savingHoldPath))
+    if (labels.length === 0 && root.finalizing)
+      labels.push(Model.savingTitle(root.savingTakePath))
+
+    var same = savingRowsModel.count === labels.length
+    if (same) {
+      for (var j = 0; j < labels.length; j++) {
+        if (String(savingRowsModel.get(j).label || "") !== labels[j]) {
+          same = false
+          break
+        }
+      }
+    }
+    if (same) return
+    savingRowsModel.clear()
+    for (var k = 0; k < labels.length; k++) savingRowsModel.append({ label: labels[k] })
   }
 
   function historyContains(path) {
@@ -73,6 +103,34 @@ Panel {
 
   onSavingTakePathChanged: {
     if (root.finalizing) root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+    root.syncSavingRows()
+  }
+
+  onSavingHoldChanged: root.syncSavingRows()
+  onSavingTitleCacheChanged: root.syncSavingRows()
+
+  onSavingJobsChanged: {
+    var previous = root.previousSavingJobs || []
+    root.previousSavingJobs = root.savingJobs
+    if (root.savingJobs.length > 0) {
+      if (root.savingHold) root.releaseSavingHold()
+    } else if (previous.length > 0) {
+      // The last save landed. Hold its row until the refreshed history carries
+      // the take, so the placeholder swaps instead of blinking out.
+      var last = previous[previous.length - 1]
+      var path = String(last.output || last.file || "")
+      if (path !== "") {
+        root.savingHoldPath = Model.publishedPath(path)
+        if (!root.historyContains(root.savingHoldPath)) {
+          root.savingTitleCache = Model.savingTitle(path)
+          root.savingHoldCount = root.visibleRecents.length
+          root.savingHoldVersion = root.recentsVersion
+          root.savingHold = true
+          savingHoldTimer.restart()
+        }
+      }
+    }
+    root.syncSavingRows()
   }
 
   onRecentsVersionChanged: {
@@ -716,11 +774,13 @@ Panel {
 
   function barTooltip() {
     var text = "Reel · click to open, right-click to record"
-    if (root.finalizing) text = "Reel · saving the take"
+    if (root.finalizing) text = "Reel · finishing the take"
     else if (root.paused) text = "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
     else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
     else if (root.starting) text = "Reel · waiting for a selection"
     else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
+    else if (root.savingJobs.length > 0) text = "Reel · saving " + root.savingJobs.length
+      + (root.savingJobs.length === 1 ? " take" : " takes") + " · right-click to record"
     if (root.updateAvailable) text += " · update available"
     return text
   }
@@ -808,10 +868,6 @@ Panel {
   // Open the picker, then count down and record. The panel closes first so the
   // picker owns the screen; it stays closed while the take runs.
   function start() {
-    if (root.finalizing) {
-      root.setNotice("Saving the last take. Recording opens when it lands.")
-      return
-    }
     if (controlProc.running) {
       root.setNotice("Reel is still finishing the last command.")
       return
@@ -819,9 +875,11 @@ Panel {
     root.startImmediate()
   }
 
-  // The IPC path goes through the same picker without a panel press.
+  // The IPC path goes through the same picker without a panel press. A press
+  // while the encoder is still shutting down is queued by the engine, never
+  // blocked here.
   function startImmediate() {
-    if (root.finalizing || controlProc.running) return
+    if (controlProc.running) return
     root.cancelling = false
     root.controlAction = "start"
     root.lastActionArgs = root.startArgs()
@@ -1623,28 +1681,41 @@ Panel {
 
   onFinalizingChanged: {
     if (root.finalizing) {
-      // Freeze the clock for the saving pill: the take is over, so its time
-      // must stop rather than keep counting through the write-out.
+      // Freeze the clock for the closing pill: the take is over, so its time
+      // must stop rather than keep counting while the encoder shuts down.
       root.savedElapsed = root.elapsed
-      root.setNotice("Saving the take…")
       root.savingHold = false
       root.savingWasFinalizing = true
       root.savingTitleCache = Model.savingTitle(root.savingTakePath)
+      root.syncSavingRows()
       return
     }
-    if (!root.savingWasFinalizing) return
+    if (!root.savingWasFinalizing) {
+      root.syncSavingRows()
+      return
+    }
     root.savingWasFinalizing = false
+    // Save jobs own their rows now; the old hold only bridges a state that has
+    // no job record.
+    if (root.savingJobs.length > 0 || root.savingTakePath === "") {
+      root.syncSavingRows()
+      return
+    }
     // A failed save publishes no take, so there is nothing to hand off to.
-    if (root.state.last && String(root.state.last.error || "") !== "") return
+    if (root.state.last && String(root.state.last.error || "") !== "") {
+      root.syncSavingRows()
+      return
+    }
     // Hold the row until the history refreshed for this take has landed: the
     // saved path is in the list, or the list gained the take. The service bumps
     // recentVersion on every refresh, so the placeholder and the real row then
     // change within one frame instead of leaving a gap.
-    root.savingHold = true
     root.savingHoldPath = Model.publishedPath(root.savingTakePath)
     root.savingHoldCount = root.visibleRecents.length
     root.savingHoldVersion = root.recentsVersion
+    root.savingHold = true
     savingHoldTimer.restart()
+    root.syncSavingRows()
   }
 
   onPendingTrashChanged: {
@@ -1795,8 +1866,6 @@ Panel {
   readonly property bool barOnLight: root.barInkLuminance < 0.5
   readonly property real barPillFillAlpha: root.barOnLight ? 0.10 : 0.05
   readonly property real barPillLineAlpha: root.barOnLight ? 0.30 : 0.14
-  readonly property real barPillSavingFillAlpha: root.barOnLight ? 0.10 : 0.04
-  readonly property real barPillSavingLineAlpha: root.barOnLight ? 0.30 : 0.12
 
   // The take's pill while a take is live, and the resting mark when nothing
   // runs. Both are drawings sized from the bar's own tokens, so the widget
@@ -1814,7 +1883,7 @@ Panel {
     onPressed: function(button) {
       if (button === Qt.RightButton) {
         if (root.active) root.togglePause()
-        else if (!root.starting && !root.finalizing) root.start()
+        else if (!root.starting) root.start()
         else root.toggle()
       } else if (button === Qt.MiddleButton) {
         root.openFolder()
@@ -1882,30 +1951,14 @@ Panel {
     }
 
     // The take's pill, for every state a live take can be in: armed at 0:00,
-    // counting while frames run, frozen when paused, dimmed while the save
-    // lands.
+    // counting while frames run, frozen when paused, dimmed while the encoder
+    // finishes and the save job takes over.
     Item {
       id: takePill
       visible: root.busy
       anchors.centerIn: parent
       width: root.barVertical ? root.barPillHeight : root.barPillWidth
       height: root.barVertical ? root.barPillWidth : root.barPillHeight
-
-      property real savingPulse: 0
-
-      // Saving is the same pill sinking into dim and breathing there until
-      // the save is done. The floor stays high enough that the clock is still
-      // readable — the dim is the message, not a fade out.
-      opacity: root.finalizing
-        ? (Style.reduceMotion ? 0.72 : 0.6 + 0.25 * savingPulse)
-        : 1
-
-      SequentialAnimation on savingPulse {
-        running: root.finalizing && !Style.reduceMotion
-        loops: Animation.Infinite
-        NumberAnimation { to: 1; duration: 1000; easing.type: Easing.InOutQuad }
-        NumberAnimation { to: 0; duration: 1000; easing.type: Easing.InOutQuad }
-      }
 
       // The pill is drawn along its long axis and then turned with the bar, so
       // the dot leads from the top edge and the clock runs down the capsule.
@@ -1919,11 +1972,9 @@ Panel {
         Rectangle {
           anchors.fill: parent
           radius: height / 2
-          color: Util.alpha(root.barInk,
-            root.finalizing ? root.barPillSavingFillAlpha : root.barPillFillAlpha)
+          color: Util.alpha(root.barInk, root.barPillFillAlpha)
           border.width: 1
-          border.color: Util.alpha(root.barInk,
-            root.finalizing ? root.barPillSavingLineAlpha : root.barPillLineAlpha)
+          border.color: Util.alpha(root.barInk, root.barPillLineAlpha)
         }
 
         Row {
@@ -2060,7 +2111,10 @@ Panel {
                   Text {
                     textFormat: Text.PlainText
                     text: root.active || root.capturing ? Model.clock(root.elapsed)
-                      : root.finalizing ? "Saving" : "Ready"
+                      : root.finalizing ? "Saving"
+                      : root.savingJobs.length > 0
+                        ? "Saving " + root.savingJobs.length
+                        : "Ready"
                     color: root.active
                       ? root.paused ? root.secondary : root.foreground
                       : root.secondary
@@ -2225,10 +2279,6 @@ Panel {
             glyph: root.primaryGlyph()
             tone: root.active || root.starting ? "urgent" : "accent"
             primary: true
-            // The last take owns the engine until its save lands: no second
-            // take, no picker, no shortcut can slip in front of it. The button
-            // stays legible and says why if pressed.
-            subdued: root.finalizing
             hint: "r"
           }
 
@@ -2524,7 +2574,9 @@ Panel {
                 PanelSectionHeader {
                   id: takesHeader
                   text: root.savingTake && root.visibleRecents.length === 0
-                    ? "Saving the take"
+                    ? root.savingCount === 1
+                      ? "Saving the take"
+                      : "Saving " + root.savingCount + " takes"
                     : root.visibleRecents.length === 0
                       ? "No takes yet"
                       : root.visibleRecents.length === 1
@@ -2540,7 +2592,7 @@ Panel {
                   id: takesHint
                   textFormat: Text.PlainText
                   text: root.savingTake && root.visibleRecents.length === 0
-                    ? "it appears here when the save ends"
+                    ? "they appear here when the saves end"
                     : root.visibleRecents.length > 0
                       ? "enter opens · t cuts · a actions · x trashes"
                       : "takes appear here after the first recording"
@@ -2557,10 +2609,14 @@ Panel {
                 rowIndex: 0
               }
 
-              SavingRow {
-                width: parent.width
-                visible: root.savingTake
-                title: root.savingTakeTitle
+              Repeater {
+                model: savingRowsModel
+
+                delegate: SavingRow {
+                  required property string label
+                  width: parent.width
+                  title: label
+                }
               }
 
               Repeater {
@@ -3143,9 +3199,6 @@ Panel {
     property string tone: "neutral"
     property bool primary: false
     property string hint: ""
-    // Blocked but not disabled: the button keeps its fill and label, and only
-    // sits back. Used while the previous take is still being saved.
-    property bool subdued: false
 
     readonly property color toneColor: tone === "urgent" ? root.urgent : tone === "accent" ? root.accent : root.foreground
     readonly property color toneInk: tone === "neutral" ? root.foreground : root.inkOn(action.toneColor)
@@ -3171,7 +3224,7 @@ Panel {
           keyboardCursor ? 1 : 0)
       : Border.flat(hasCursor ? root.accent : root.hairline, 1)
     implicitHeight: Style.space(38)
-    opacity: !enabled ? 0.35 : subdued ? 0.55 : 1.0
+    opacity: enabled ? 1.0 : 0.35
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
       NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
@@ -4395,6 +4448,7 @@ Panel {
   }
 
   Component.onCompleted: {
+    root.syncSavingRows()
     if (root.service) root.service.refresh()
     root.refreshAudioDevices()
     if (!omacutProbe.running) omacutProbe.running = true
