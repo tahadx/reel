@@ -666,7 +666,8 @@ Panel {
     if (list.indexOf(raw) >= 0) return raw
     // Older configs stored booleans. Read those as on/off rather than
     // snapping the row to its fallback.
-    if ((key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
+    if ((key === "desktopAudio" || key === "microphoneAudio"
+        || key === "noiseCancellation" || key === "cursor"
         || key === "notifications" || key === "manualZoom" || key === "autoZoom")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
@@ -847,6 +848,7 @@ Panel {
       "reel", "start",
       "--desktop-audio", root.currentValue("desktopAudio"),
       "--microphone-audio", root.currentValue("microphoneAudio"),
+      "--noise-reduction", root.currentValue("noiseCancellation"),
       "--desktop-device", root.valueString("desktopDevice", ""),
       "--microphone-device", root.valueString("microphoneDevice", ""),
       "--cursor", root.currentValue("cursor"),

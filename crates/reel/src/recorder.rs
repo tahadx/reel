@@ -1708,6 +1708,39 @@ mod tests {
     }
 
     #[test]
+    fn the_noise_reduction_argument_wins_over_a_stale_config() {
+        let root = temp_root("noise");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        fs::create_dir_all(&paths.config_dir).unwrap();
+        fs::write(
+            &paths.config,
+            r#"{"microphoneAudio":"on","noiseCancellation":"off"}"#,
+        )
+        .unwrap();
+
+        let options = StartArgs {
+            microphone_audio: Some("on".into()),
+            noise_cancellation: Some("on".into()),
+            ..Default::default()
+        };
+        let settings = resolve_settings(&paths, &options).unwrap();
+        assert!(settings.mic);
+        assert!(settings.noise_cancellation);
+
+        let stored = resolve_settings(
+            &paths,
+            &StartArgs {
+                microphone_audio: Some("on".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!stored.noise_cancellation);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn the_auto_zoom_argument_wins_over_a_stale_config() {
         let stored = json!({ "autoZoom": "on" });
         assert!(!auto_zoom_choice(&Some("off".into()), &stored));
