@@ -23,6 +23,7 @@ Item {
 
   property string stateText: ""
   property var state: Model.emptyState()
+  property string fileStateText: ""
   property var recents: []
   property int recentVersion: 0
   property string outputDir: ""
@@ -162,6 +163,18 @@ Item {
     root.applyState(text)
   }
 
+  // `reel status` enriches state.json with the save jobs and computed fields,
+  // but it is a process on PATH. When that call cannot run or misses its
+  // deadline, the watched file still knows the recorder's real status, so use
+  // it instead of leaving the panel on an old idle state. Keep the save jobs
+  // the last successful status carried.
+  function applyFileState(text) {
+    var parsed = Model.parseStateSafe(text)
+    var jobs = Model.saves(root.state)
+    if (jobs.length > 0 && !Array.isArray(parsed.saves)) parsed.saves = jobs
+    root.applyState(JSON.stringify(parsed))
+  }
+
   function applyRecent(text) {
     root.recents = Model.parseRecent(text)
     root.recentVersion++
@@ -244,6 +257,8 @@ Item {
       return
     }
     if (label === "recent") root.recentPending = false
+    if (label === "status" && root.fileStateText !== "")
+      root.applyFileState(root.fileStateText)
     root.lastError = "Reel did not answer the " + label + " step in time."
   }
 
@@ -332,9 +347,13 @@ Item {
     // Atomic state writes replace the file, so reload to watch the new one.
     onFileChanged: reload()
     onLoaded: {
+      root.fileStateText = stateFile.text()
+      // The poll is the richer answer; keep it running. The watched text is
+      // the fallback if that process cannot start or misses its deadline.
       if (root.configured) root.startStatus()
     }
     onLoadFailed: {
+      root.fileStateText = ""
       // The poll timer retries; the runtime file may not exist until the
       // first take.
     }
@@ -373,6 +392,8 @@ Item {
       statusDeadline.stop()
       if (!statusProc.hasStarted && root.configured && !root.configureFailed)
         root.lastError = "Reel's status command could not start."
+      if (!statusProc.hasStarted && root.fileStateText !== "")
+        root.applyFileState(root.fileStateText)
       statusProc.hasStarted = false
       // A state write landed while this answer was in flight. Ask again now
       // instead of waiting for the next poll, which can be five seconds away.

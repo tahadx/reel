@@ -35,6 +35,18 @@ Panel {
     && (root.stage === "warmup" || root.stage === "capture")
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
+  // `reel start` supervises the encoder for the whole take when pointer
+  // telemetry runs (the default), so a live start process is evidence of a
+  // take even when the last state poll is late. The engine state still wins;
+  // this keeps Stop and Pause usable instead of calling a recording take a
+  // pending command.
+  readonly property bool liveTake: root.active || root.starting
+    || (!root.finalizing && controlProc.running && root.controlAction === "start")
+  // Pause and discard act on a take that already has frames. While the take is
+  // being armed the primary control is Cancel, so they stay off.
+  readonly property bool controlsActive: root.active
+    || (!root.starting && !root.finalizing
+      && controlProc.running && root.controlAction === "start")
   // A take in the save pass already belongs to the user, so history lists one
   // placeholder row per live job before it lands. A row has no pointer, no
   // cursor, and no actions. The last row is held for the beat between the job
@@ -932,13 +944,13 @@ Panel {
 
   function primaryLabel() {
     if (root.starting) return "Cancel"
-    if (root.active) return "Stop"
+    if (root.liveTake) return "Stop"
     return "Record"
   }
 
   function primaryGlyph() {
     if (root.starting) return "󰜺"
-    if (root.active) return "󰓛"
+    if (root.liveTake) return "󰓛"
     return "󰻂"
   }
 
@@ -971,17 +983,30 @@ Panel {
   // Open the picker, then count down and record. The panel closes first so the
   // picker owns the screen; it stays closed while the take runs.
   function start() {
+    // The primary action should already have routed a live take to stop; keep
+    // this honest for IPC and keyboard callers.
+    if (root.liveTake) {
+      root.stop()
+      return
+    }
+    if (root.finalizing) {
+      root.setNotice("Reel is still saving the last take. Try again in a moment.", true)
+      return
+    }
     if (controlProc.running) {
-      root.setNotice("Reel is still finishing the last command.")
+      // A start process with no live take is between stop and exit, not a
+      // pending take. Asking again would be lost while that process finishes.
+      root.setNotice("Reel is still finishing the last take. Try again in a moment.", true)
       return
     }
     root.startImmediate()
   }
 
-  // The IPC path goes through the same picker without a panel press. A press
-  // while the encoder is still shutting down is queued by the engine, never
-  // blocked here.
+  // The IPC path goes through the same picker without a panel press. The
+  // engine still owns the real busy check and queues a press while the encoder
+  // is shutting down; this only avoids starting a second local supervisor.
   function startImmediate() {
+    if (root.liveTake || root.finalizing) return
     if (controlProc.running) return
     root.cancelling = false
     root.controlAction = "start"
@@ -1000,7 +1025,7 @@ Panel {
   }
 
   function discard() {
-    if (!root.active) return
+    if (!root.controlsActive) return
     if (!root.discardArmed) {
       root.discardArmed = true
       root.setNotice("Discard this take? Press discard again within a few seconds.", true)
@@ -1021,18 +1046,18 @@ Panel {
   }
 
   function togglePause() {
-    if (!root.active) return
-    if (pauseProc.running) {
-      root.setNotice("Reel is still finishing the last command.")
-      return
-    }
+    if (!root.controlsActive || root.starting) return
+    // A pause/resume already in flight is the current answer. Ignore a second
+    // press instead of claiming a recording take is finishing a command.
+    if (pauseProc.running) return
     root.cancelling = false
     pauseProc.command = ["reel", "toggle-pause"]
     pauseProc.running = true
+    pauseDeadline.restart()
   }
 
   function toggleRecording() {
-    if (root.active || root.starting) root.stop()
+    if (root.liveTake) root.stop()
     else root.start()
   }
 
@@ -1385,7 +1410,7 @@ Panel {
 
   function primaryAction(index) {
     if (index === 0) {
-      if (root.active || root.starting) root.stop()
+      if (root.liveTake) root.stop()
       else root.start()
     } else if (index === 1) {
       root.togglePause()
@@ -2030,7 +2055,7 @@ Panel {
     tooltipText: root.barTooltip()
     onPressed: function(button) {
       if (button === Qt.RightButton) {
-        if (root.active) root.togglePause()
+        if (root.controlsActive) root.togglePause()
         else if (!root.starting) root.start()
         else root.toggle()
       } else if (button === Qt.MiddleButton) {
@@ -2431,7 +2456,7 @@ Panel {
             rowIndex: 0
             label: root.primaryLabel()
             glyph: root.primaryGlyph()
-            tone: root.active || root.starting ? "urgent" : "accent"
+            tone: root.liveTake ? "urgent" : "accent"
             primary: true
             hint: "r"
           }
@@ -2442,7 +2467,7 @@ Panel {
             label: root.paused ? "Resume" : "Pause"
             glyph: root.paused ? "󰐊" : "󰏤"
             tone: "neutral"
-            enabled: root.active
+            enabled: root.controlsActive
             hint: "p"
           }
 
@@ -2452,7 +2477,7 @@ Panel {
             label: root.discardArmed ? "Discard?" : "Discard"
             glyph: "󰆴"
             tone: "neutral"
-            enabled: root.active
+            enabled: root.controlsActive
             hint: "d"
           }
         }
@@ -4604,13 +4629,26 @@ Panel {
   }
 
   // Pointer telemetry keeps `reel start` alive for the whole take, so pause
-  // uses its own process instead of waiting for controlProc to return.
+  // uses its own process instead of waiting for controlProc to return. A pause
+  // that never answers must not disable the button for the rest of the take.
+  Timer {
+    id: pauseDeadline
+    interval: 6000
+    repeat: false
+    onTriggered: {
+      if (!pauseProc.running) return
+      pauseProc.signal(9)
+      root.setNotice("Reel did not answer the pause command.", true)
+    }
+  }
+
   Process {
     id: pauseProc
     running: false
     stdout: StdioCollector { waitForEnd: true }
     stderr: StdioCollector { id: pauseErr; waitForEnd: true }
     onExited: function(code) {
+      pauseDeadline.stop()
       var message = String(pauseErr.text || "").trim()
       if (code !== 0 && !root.cancelling) {
         root.setNotice(message.replace(/^reel:\s*/, "") || "That action failed.", true)
