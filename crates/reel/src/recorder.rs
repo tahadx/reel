@@ -465,6 +465,98 @@ fn restore_cursor_mode(paths: &Paths) {
     }
 }
 
+/// Keep a desktop-audio monitor stream open while the target is being chosen.
+/// PipeWire suspends an idle sink monitor; when gpu-screen-recorder opens it
+/// at the last moment, the first frame can stall for seconds while the sink
+/// resumes. Starting the stream here overlaps that wake-up with the picker.
+struct AudioWarmup {
+    child: std::process::Child,
+    started: Instant,
+}
+
+impl AudioWarmup {
+    fn start(settings: &Settings) -> Option<Self> {
+        if !settings.desktop {
+            return None;
+        }
+        let target = desktop_monitor(settings)?;
+        // parec actually pulls samples from a monitor source, which resumes
+        // it. pw-cat (observed on PipeWire 1.6) attaches but leaves the
+        // source suspended, so it is only the fallback.
+        let mut command = if util::have("parec") {
+            let mut command = Command::new("parec");
+            command
+                .arg(format!("--device={target}"))
+                .arg("--raw")
+                .arg("--format=s16le")
+                .arg("--rate=48000")
+                .arg("--channels=2");
+            command
+        } else if util::have("pw-cat") {
+            let mut command = Command::new("pw-cat");
+            command
+                .arg("--record")
+                .arg("--target")
+                .arg(&target)
+                .arg("/dev/null");
+            command
+        } else {
+            return None;
+        };
+        let child = command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        util::debug(&format!("start: warming desktop audio on {target}"));
+        Some(Self {
+            child,
+            started: Instant::now(),
+        })
+    }
+
+    /// Long enough for a suspended sink to resume. When the picker took
+    /// longer than this the stream is already warm and this returns at once.
+    fn ready(&mut self) {
+        let minimum = Duration::from_millis(350);
+        let elapsed = self.started.elapsed();
+        if elapsed < minimum {
+            thread::sleep(minimum - elapsed);
+        }
+    }
+}
+
+impl Drop for AudioWarmup {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// The PipeWire source that matches the chosen desktop audio device. A
+/// monitor source is used directly; a sink is mapped to its monitor.
+fn desktop_monitor(settings: &Settings) -> Option<String> {
+    let device = settings.effective_desktop_device();
+    if device == "default_output" {
+        let sink = util::run_stdout_within("pactl", &["get-default-sink"], Duration::from_secs(1))?;
+        if sink.is_empty() {
+            return None;
+        }
+        return Some(format!("{sink}.monitor"));
+    }
+    // Application capture and combined sources have no single monitor to
+    // warm; the encoder's own path is still correct, just not pre-warmed.
+    if device.starts_with("app:") || device.contains('|') {
+        return None;
+    }
+    if device.ends_with(".monitor") {
+        Some(device.to_string())
+    } else {
+        Some(format!("{device}.monitor"))
+    }
+}
+
 fn cancelled(paths: &Paths) -> bool {
     paths.cancel.exists()
 }
@@ -501,14 +593,44 @@ fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> bool {
     wait_until(timeout, || matches!(child.try_wait(), Ok(Some(_))))
 }
 
-/// Wait until the recorder has produced its first file, exited, or the take
-/// was cancelled. A cold encoder can take a second or more to get there.
-fn wait_for_capture_file(paths: &Paths, file: &Path, pid: i32, timeout: Duration) -> bool {
-    // A dead recorder or an aborted take will never produce the file.
+/// Whether the installed recorder can tell us when the first frame lands.
+/// Older builds only create the container, which is not proof that capture
+/// has begun.
+fn first_frame_marker_supported() -> bool {
+    static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        util::run_stdout_within("gpu-screen-recorder", &["--help"], Duration::from_secs(2))
+            .is_some_and(|help| help.contains("write-first-frame-ts"))
+    })
+}
+
+fn capture_ready(file: &Path, first_frame: Option<&Path>) -> bool {
+    match first_frame {
+        Some(marker) => marker.exists(),
+        None => file.exists(),
+    }
+}
+
+/// Wait until the recorder has really captured its first frame, exited, or the
+/// take was cancelled. The container alone is written before any pixels, so
+/// only the first-frame marker proves the take is live. A cold encoder can
+/// take several seconds to get there.
+fn wait_for_capture_file(
+    paths: &Paths,
+    file: &Path,
+    first_frame: Option<&Path>,
+    pid: i32,
+    timeout: Duration,
+) -> bool {
+    // A dead recorder or an aborted take will never produce the marker.
     wait_until(timeout, || {
-        file.exists() || cancelled(paths) || !paths::alive(pid)
+        capture_ready(file, first_frame) || cancelled(paths) || !paths::alive(pid)
     });
-    file.exists()
+    let ready = capture_ready(file, first_frame);
+    if let Some(marker) = first_frame {
+        paths::remove_quiet(marker);
+    }
+    ready
 }
 
 /// Stop a recorder this process spawned: ask politely, then insist, and reap.
@@ -520,6 +642,15 @@ fn stop_child(child: &mut std::process::Child, grace: Duration) {
     }
     paths::kill(pid, libc::SIGKILL);
     // Reap it if it goes; do not block forever on an uninterruptible process.
+    let _ = wait_for_child(child, Duration::from_secs(1));
+}
+
+/// Kill a recorder that never produced a frame. gpu-screen-recorder
+/// segfaults in its encoder flush when interrupted before its first frame;
+/// there is no take to save at that point, so SIGKILL is both safe and quiet.
+fn kill_child(child: &mut std::process::Child) {
+    let pid = child.id() as i32;
+    paths::kill(pid, libc::SIGKILL);
     let _ = wait_for_child(child, Duration::from_secs(1));
 }
 
@@ -561,8 +692,21 @@ fn start_guard_within(paths: &Paths, wait: Duration) -> Result<String> {
                 thread::sleep(Duration::from_millis(100));
             }
             _ => {
-                drop(lock);
+                // Claim the take while the lock is still held. Releasing it
+                // first let two closely spaced presses both see "idle", run
+                // the picker, and launch two encoders for the same target.
+                // The second press now sees this reservation and is refused.
+                paths::write_pid(&paths.starting, std::process::id())?;
+                state::write(
+                    paths,
+                    &json!({
+                        "status": "starting",
+                        "stage": "select",
+                        "startedAt": paths::now_secs(),
+                    }),
+                )?;
                 paths::remove_quiet(&paths.cancel);
+                drop(lock);
                 return Ok(current);
             }
         }
@@ -572,20 +716,8 @@ fn start_guard_within(paths: &Paths, wait: Duration) -> Result<String> {
 /// Resolve the chosen target. An explicit `--target` skips the picker; a
 /// cancelled pick is `Ok(None)`.
 fn choose_target(paths: &Paths, options: &StartArgs) -> Result<Option<target::Choice>> {
-    {
-        let _lock = Lock::acquire(paths)?;
-        let now = paths::now_secs();
-        let _ = paths::write_pid(&paths.starting, std::process::id());
-        let _ = state::write(
-            paths,
-            &json!({
-                "status": "starting",
-                "stage": "select",
-                "startedAt": now,
-            }),
-        );
-    }
-
+    // `start_guard` already reserved the take and wrote the "select" state
+    // while holding the lock.
     let picked = match options.target.as_deref() {
         Some(raw) => {
             util::debug(&format!("start: explicit target {raw}"));
@@ -664,8 +796,14 @@ fn sanitize_prefix(raw: &str) -> String {
 }
 
 /// Count down, start the webcam, launch the encoder, and move to `recording`
-/// only after the encoder really produced a file.
-fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Result<bool> {
+/// only after the encoder really captured its first frame.
+fn run_take(
+    paths: &Paths,
+    settings: &Settings,
+    choice: &target::Choice,
+    warmup: &mut Option<AudioWarmup>,
+    first_frame_marker: bool,
+) -> Result<bool> {
     let target = &choice.target;
     if let Err(err) = target::validate_target(target) {
         fail_start(paths, &err);
@@ -678,6 +816,27 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
             "Reel",
             Some("This output has no KMS connector, so Reel records through the system portal picker."),
             "normal",
+        );
+    }
+
+    // The target is chosen now, but the webcam may still take a moment to
+    // open. Replace the "select" stage so the bar stops saying it is waiting
+    // for a selection while the take is being prepared.
+    {
+        let _lock = Lock::acquire(paths).ok();
+        let _ = state::write(
+            paths,
+            &json!({
+                "status": "starting",
+                "stage": "prepare",
+                "target": target,
+                "targetKind": &choice.kind,
+                "targetLabel": &choice.label,
+                "targetWarning": &choice.warning,
+                "monitor": &choice.monitor,
+                "settings": settings.to_json(),
+                "startedAt": paths::now_secs(),
+            }),
         );
     }
 
@@ -704,6 +863,10 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     // ordinary take name only after the camera and audio pass, so the take the
     // user can see is never the raw, un-zoomed capture.
     let capture_file = paths::capture_path(Path::new(&file)).display().to_string();
+    // gpu-screen-recorder writes `<output>.ts` when the first frame is
+    // encoded. It is the only honest signal that capture has begun: the
+    // container appears earlier, before any pixels exist.
+    let first_frame = first_frame_marker.then(|| format!("{capture_file}.ts"));
     let capture_fps = settings.fps;
 
     // Keep the previous take's log instead of truncating it; a failed save is
@@ -785,11 +948,16 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         },
         "-fallback-cpu-encoding".into(),
         "yes".into(),
+    ];
+    if first_frame.is_some() {
+        capture.extend(["-write-first-frame-ts".into(), "yes".into()]);
+    }
+    capture.extend([
         "-ipc".into(),
         paths.socket.display().to_string(),
         "-o".into(),
         capture_file.clone(),
-    ];
+    ]);
 
     match target.as_str() {
         _ if target.starts_with("monitor:") => {
@@ -859,6 +1027,13 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
         .open(&paths.log)
         .context("cannot open the Reel log")?;
     let err = log.try_clone()?;
+    // Wait for the audio monitor to resume before the encoder opens it, so a
+    // suspended sink cannot delay the first frame. A picker interaction
+    // usually covers this wait completely.
+    if let Some(warmup) = warmup.as_mut() {
+        warmup.ready();
+    }
+
     // T0 is the moment the encoder launches. Both T0 and every event use
     // CLOCK_MONOTONIC through `Instant`.
     let (t0, t0_ns) = telemetry::clock_start();
@@ -955,14 +1130,21 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     let ready_file = wait_for_capture_file(
         paths,
         Path::new(&capture_file),
+        first_frame.as_deref().map(Path::new),
         pid as i32,
         Duration::from_secs(15),
     );
+    // The encoder now owns the monitor; the warm-up stream is done.
+    warmup.take();
 
     // A stop during the warmup writes the cancel marker; the take never got
     // going, so tear it down quietly instead of reporting a start failure.
     if cancelled(paths) {
-        stop_child(&mut child, Duration::from_secs(4));
+        if ready_file {
+            stop_child(&mut child, Duration::from_secs(4));
+        } else {
+            kill_child(&mut child);
+        }
         stop_listener(&mut listener, "cancelled", None);
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
@@ -979,7 +1161,9 @@ fn run_take(paths: &Paths, settings: &Settings, choice: &target::Choice) -> Resu
     }
 
     if !ready_file {
-        stop_child(&mut child, Duration::from_secs(2));
+        // No frame was captured, so there is nothing to flush; killing it
+        // also avoids the encoder's shutdown crash in this state.
+        kill_child(&mut child);
         stop_listener(&mut listener, "error", Some("encoder-failed"));
         if let Some(cursor) = hardware_cursor {
             cursor.restore(paths);
@@ -1146,6 +1330,14 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     prepare_output_dir(&settings.output_dir)?;
     let _ = start_guard(paths)?;
 
+    // Wake the desktop-audio monitor before the picker opens: a cold sink
+    // otherwise stalls the encoder's first frame for seconds, and the picker
+    // is time the user is spending anyway.
+    let mut warmup = AudioWarmup::start(&settings);
+    // The check is a short call, and doing it before the picker keeps it off
+    // the post-selection start path.
+    let first_frame_marker = first_frame_marker_supported();
+
     // Check the audio devices before opening the picker, but only once the
     // "already busy" state is ruled out. The probe is a single fast call, and
     // failing here means a missing microphone is reported immediately instead
@@ -1157,7 +1349,7 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     restore_cursor_mode(paths);
 
     match choose_target(paths, &options)? {
-        Some(choice) => run_take(paths, &settings, &choice),
+        Some(choice) => run_take(paths, &settings, &choice, &mut warmup, first_frame_marker),
         None => Ok(false),
     }
 }
@@ -1286,6 +1478,7 @@ fn remove_take_artifacts(paths: &Paths, path: &Path) {
         .map(|e| e.to_string_lossy().to_string())
         .unwrap_or_default();
     paths::remove_quiet(path);
+    paths::remove_quiet(Path::new(&format!("{}.ts", path.display())));
     paths::remove_quiet(&paths::telemetry_path(path));
     paths::remove_quiet(&project::project_path(path));
     paths::remove_quiet(&paths::legacy_telemetry_path(path));
@@ -1686,6 +1879,48 @@ mod tests {
         let result = start_guard_within(&paths, Duration::from_secs(2));
         releaser.join().unwrap();
         assert!(result.is_ok(), "{result:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn the_container_alone_is_not_a_started_capture() {
+        let root = temp_root("first-frame");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        let file = root.join("take.capture.mp4");
+        let marker = root.join("take.capture.mp4.ts");
+        fs::write(&file, b"header").unwrap();
+
+        assert!(!wait_for_capture_file(
+            &paths,
+            &file,
+            Some(marker.as_path()),
+            std::process::id() as i32,
+            Duration::from_millis(50),
+        ));
+        fs::write(&marker, b"first frame").unwrap();
+        assert!(wait_for_capture_file(
+            &paths,
+            &file,
+            Some(marker.as_path()),
+            std::process::id() as i32,
+            Duration::from_millis(50),
+        ));
+        assert!(!marker.exists(), "the marker is only a startup signal");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_second_start_press_is_refused_before_the_picker() {
+        let root = temp_root("start-race");
+        fs::create_dir_all(&root).unwrap();
+        let paths = Paths::for_test(&root);
+        state::write(&paths, &state::idle()).unwrap();
+
+        assert!(start_guard(&paths).is_ok());
+        assert_eq!(state::status(&paths), "starting");
+        let error = start_guard(&paths).unwrap_err().to_string();
+        assert!(error.contains("already busy"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
 

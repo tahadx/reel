@@ -14,6 +14,12 @@ Item {
   property var shell: null
 
   readonly property string home: Quickshell.env("HOME") || ""
+  readonly property string runtimeDir: {
+    var runtime = Quickshell.env("XDG_RUNTIME_DIR") || ""
+    if (runtime) return runtime + "/reel"
+    return (Quickshell.env("XDG_STATE_HOME") || root.home + "/.local/state") + "/omarchy/reel/run"
+  }
+  readonly property string statePath: root.runtimeDir + "/state.json"
 
   property string stateText: ""
   property var state: Model.emptyState()
@@ -24,6 +30,9 @@ Item {
   property string lastError: ""
   property int tick: 0
   property bool recentPending: false
+  // A state write can land while `reel status` is still answering; remember
+  // it so the fast path does not lose the transition to the next slow poll.
+  property bool statusPending: false
   property string stateSignature: ""
   // The update check is background work: a cached or remote answer the panel
   // and bar read without ever waiting on it.
@@ -47,10 +56,11 @@ Item {
   readonly property bool saving: root.saves.length > 0
   readonly property bool busy: Model.isBusy(root.state)
   readonly property bool starting: Model.status(root.state) === "starting"
+  readonly property string stage: String(root.state.stage || "")
   // The encoder is launched and warming up; the take is running even though
-  // its state has not flipped to "recording" yet.
+  // its state has not flipped to "recording" until the first frame lands.
   readonly property bool capturing: root.starting
-    && String(root.state.stage || "") === "capture"
+    && (root.stage === "warmup" || root.stage === "capture")
   readonly property int elapsed: Model.elapsed(root.state, root.tick)
 
   function refresh() {
@@ -65,7 +75,12 @@ Item {
   }
 
   function startStatus() {
-    if (!root.configured || statusProc.running) return
+    if (!root.configured) return
+    if (statusProc.running) {
+      root.statusPending = true
+      return
+    }
+    root.statusPending = false
     // Start the deadline before the launch so a process that never starts is
     // still recovered, not just one that hangs after starting.
     statusDeadline.restart()
@@ -294,13 +309,44 @@ Item {
   // State is read through `reel status --json`, whose Rust reader is bounded,
   // instead of pulling state.json straight into the shell. Poll slowly while
   // nothing runs, and once a second while a take or save job is live so the
-  // bar clock and saving rows stay honest.
+  // bar clock and saving rows stay honest. The FileView below turns the
+  // engine's writes into an immediate poll, so a new take does not wait for
+  // the slow idle interval.
   Timer {
     id: statePoll
     interval: root.active || root.starting || root.finalizing || root.saving ? 1000 : 5000
     repeat: true
     running: root.configured
     onTriggered: root.startStatus()
+  }
+
+  // The engine writes state.json on every transition (select, warmup,
+  // countdown, recording, pause). Watching it lets the bar and panel react in
+  // milliseconds instead of waiting up to five seconds for the next poll.
+  // The content still comes from `reel status`, whose Rust reader is bounded.
+  FileView {
+    id: stateFile
+    path: root.statePath
+    watchChanges: true
+    printErrors: false
+    // Atomic state writes replace the file, so reload to watch the new one.
+    onFileChanged: reload()
+    onLoaded: {
+      if (root.configured) root.startStatus()
+    }
+    onLoadFailed: {
+      // The poll timer retries; the runtime file may not exist until the
+      // first take.
+    }
+  }
+
+  // FileView cannot watch a path that does not exist yet, and the first take
+  // creates it. Keep reloading until it loads, like the countdown overlay.
+  Timer {
+    interval: 1000
+    repeat: true
+    running: root.configured && !stateFile.loaded
+    onTriggered: stateFile.reload()
   }
 
   Process {
@@ -328,6 +374,9 @@ Item {
       if (!statusProc.hasStarted && root.configured && !root.configureFailed)
         root.lastError = "Reel's status command could not start."
       statusProc.hasStarted = false
+      // A state write landed while this answer was in flight. Ask again now
+      // instead of waiting for the next poll, which can be five seconds away.
+      if (root.statusPending) root.startStatus()
     }
     onExited: function(code) {
       statusDeadline.stop()

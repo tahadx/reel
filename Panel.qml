@@ -28,10 +28,11 @@ Panel {
   readonly property string status: Model.status(root.state)
   readonly property bool active: Model.isActive(root.state)
   readonly property bool starting: root.status === "starting"
+  readonly property string stage: String(root.state.stage || "")
   // The encoder is launched and warming up: the take runs, but the state only
-  // becomes "recording" once its first file exists.
+  // becomes "recording" once its first frame exists.
   readonly property bool capturing: root.starting
-    && String(root.state.stage || "") === "capture"
+    && (root.stage === "warmup" || root.stage === "capture")
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
   // A take in the save pass already belongs to the user, so history lists one
@@ -778,6 +779,7 @@ Panel {
     if (root.finalizing) text = "Reel · finishing the take"
     else if (root.paused) text = "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
     else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
+    else if (root.starting && root.stage !== "select") text = "Reel · starting the take"
     else if (root.starting) text = "Reel · waiting for a selection"
     else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
     else if (root.savingJobs.length > 0) text = "Reel · saving " + root.savingJobs.length

@@ -1,5 +1,6 @@
 use crate::util;
 use serde::Deserialize;
+use std::fs;
 use std::time::Duration;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -149,9 +150,35 @@ fn portal_choice(monitor: &str, reason: &str) -> Choice {
     }
 }
 
+/// Whether `/sys/class/drm` lists the connector a monitor is named after.
+/// `None` means the directory could not be read, so the GSR probe decides.
+fn kms_connector(name: &str) -> Option<bool> {
+    let entries = fs::read_dir("/sys/class/drm").ok()?;
+    Some(entries.flatten().any(|entry| {
+        let entry = entry.file_name();
+        connector_entry_matches(&entry.to_string_lossy(), name)
+    }))
+}
+
+/// `cardN-CONNECTOR` entries are the DRM connectors; `cardN` and the render
+/// nodes are not. Split it out so the matching is testable off this machine.
+fn connector_entry_matches(entry: &str, name: &str) -> bool {
+    entry
+        .strip_prefix("card")
+        .and_then(|rest| rest.split_once('-'))
+        .is_some_and(|(_, connector)| connector == name)
+}
+
 /// Fall back to portal for an output that KMS cannot see. `Ok(None)` means the
 /// KMS path is fine; `Err` is the honest explanation when neither works.
 fn kms_fallback(name: &str, reason: &str) -> Result<Option<Choice>, String> {
+    // Probing gpu-screen-recorder costs over a hundred milliseconds and the
+    // physical monitor case is already answered by sysfs. Only ask the
+    // recorder when the output has no DRM connector, which is exactly the
+    // headless case this fallback exists for.
+    if kms_connector(name) == Some(true) {
+        return Ok(None);
+    }
     let Some(options) = capture_options() else {
         return Ok(None);
     };
@@ -555,6 +582,15 @@ mod tests {
         );
         assert_eq!(options.monitors, vec!["eDP-2", "DP-1"]);
         assert!(options.portal);
+    }
+
+    #[test]
+    fn drm_connector_entries_match_monitor_names() {
+        assert!(connector_entry_matches("card2-eDP-2", "eDP-2"));
+        assert!(connector_entry_matches("card0-DP-1", "DP-1"));
+        assert!(!connector_entry_matches("card2", "eDP-2"));
+        assert!(!connector_entry_matches("renderD128", "eDP-2"));
+        assert!(!connector_entry_matches("card2-DP-1", "DP-2"));
     }
 
     #[test]
