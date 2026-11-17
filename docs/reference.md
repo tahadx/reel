@@ -504,6 +504,11 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   at the plugin's `bin/dist/reel-native`. See [Development](development.md).
 - **The panel does not appear after an update** — restart the shell:
   `omarchy-restart-shell`.
+- **The installer stopped at `== Reel: plugin ==`** — older builds exited
+  silently when `omarchy-shell` was not running. Update to the current installer
+  and re-run it; it now finishes the install, restarts the shell, and verifies
+  the plugin afterwards. If the shell still cannot answer, it exits with the
+  failing command and the `omarchy plugin enable` line to run.
 - **The picker does not open** — `omarchy-capture-region` or `slurp` is
   missing. `reel doctor` lists what it found.
 - **`reel start` refuses to start** — it validates the output folder and audio

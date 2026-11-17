@@ -63,6 +63,11 @@ The installer checks the core dependencies, links the `reel` command into
 `~/.local/bin`, and enables the widget. It asks before adding optional
 Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
 
+If `omarchy-shell` is not running when the installer reaches the plugin step,
+it keeps going, restarts the shell at the end, and checks the plugin again once
+the shell is up. If the shell still cannot answer, it says so and exits nonzero
+instead of leaving the install half-finished without a message.
+
 Stop an active take before installing or updating. A plugin reload tears down
 the panel process that keeps the recorder's telemetry listener alive; the take
 would keep recording without pointer data, so auto zoom would drop out for the

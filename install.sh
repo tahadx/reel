@@ -92,6 +92,9 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   install -m 0755 "$HERE/bin/configure" "$PLUGIN_DIR/bin/configure"
   install -m 0755 "$HERE/bin/uninstall" "$PLUGIN_DIR/bin/uninstall"
   install -m 0755 "$HERE/bin/dist/reel-native" "$PLUGIN_DIR/bin/dist/reel-native"
+  # The installed copy runs on later updates and re-installs, so it must be the
+  # same installer as this checkout rather than the one that was cloned.
+  install -m 0755 "$HERE/install.sh" "$PLUGIN_DIR/install.sh"
   # The standalone engine is redistributed, so its notices travel with it.
   install -m 0644 "$HERE/LICENSE" "$PLUGIN_DIR/LICENSE"
   install -m 0644 "$HERE/THIRD-PARTY.md" "$PLUGIN_DIR/THIRD-PARTY.md"
@@ -111,12 +114,33 @@ else
 fi
 
 echo "== Reel: plugin =="
-state="$(omarchy plugin list 2>/dev/null | awk -v id="$PLUGIN_ID" '$1 == id { print $2; exit }')"
-if [[ "$state" == "enabled" ]]; then
-  echo "  already enabled."
-else
-  omarchy plugin enable "$PLUGIN_ID" --section right
-  echo "  enabled in the right bar section."
+# `omarchy plugin list` asks the running shell for its registry. Installing
+# from a TTY or another session can race a shell restart, and the command then
+# exits nonzero. With `set -e` that used to stop the installer here with no
+# message, before the shortcuts and shell restart steps. Record the failure,
+# finish the install, and verify or enable the plugin once the shell is up.
+SHELL_DOWN=0
+if ! PLUGIN_LIST="$(omarchy plugin list 2>&1)"; then
+  SHELL_DOWN=1
+  echo "  omarchy-shell is not reachable yet:"
+  if [[ -n "$PLUGIN_LIST" ]]; then
+    printf '%s\n' "$PLUGIN_LIST" | sed 's/^/    /'
+  else
+    echo "    omarchy plugin list returned no answer."
+  fi
+  echo "  The shell restart below will load Reel; its state is checked then."
+fi
+if ((SHELL_DOWN == 0)); then
+  state="$(printf '%s\n' "$PLUGIN_LIST" | awk -v id="$PLUGIN_ID" '$1 == id { print $2; exit }')"
+  if [[ "$state" == "enabled" ]]; then
+    echo "  already enabled."
+  elif ! omarchy plugin enable "$PLUGIN_ID" --section right; then
+    echo "install.sh: could not enable $PLUGIN_ID in the bar." >&2
+    echo "  Start the shell with \`omarchy restart shell\`, then re-run this installer." >&2
+    exit 1
+  else
+    echo "  enabled in the right bar section."
+  fi
 fi
 omarchy-shell -q shell rescanPlugins || true
 
@@ -191,6 +215,31 @@ if ! omarchy restart shell; then
   exit 1
 fi
 echo "  restarted."
+
+# The plugin step above could not ask the shell anything. Now that it is up,
+# finish that step rather than leaving a cloned plugin disabled, and fail
+# loudly if the shell still does not answer.
+if ((SHELL_DOWN == 1)); then
+  if ! PLUGIN_LIST="$(omarchy plugin list 2>&1)"; then
+    echo "install.sh: omarchy-shell is still not answering after the restart." >&2
+    if [[ -n "$PLUGIN_LIST" ]]; then
+      printf '%s\n' "$PLUGIN_LIST" | sed 's/^/  /' >&2
+    fi
+    echo "  Reel's files and command are installed, but the bar widget could not be enabled." >&2
+    echo "  Start the shell and run: omarchy plugin enable $PLUGIN_ID --section right" >&2
+    exit 1
+  fi
+  state="$(printf '%s\n' "$PLUGIN_LIST" | awk -v id="$PLUGIN_ID" '$1 == id { print $2; exit }')"
+  if [[ "$state" == "enabled" ]]; then
+    echo "  Reel is enabled."
+  elif ! omarchy plugin enable "$PLUGIN_ID" --section right; then
+    echo "install.sh: could not enable $PLUGIN_ID after the shell restarted." >&2
+    echo "  Run: omarchy plugin enable $PLUGIN_ID --section right" >&2
+    exit 1
+  else
+    echo "  enabled in the right bar section."
+  fi
+fi
 
 echo
 echo "Done. Click the Reel icon in the bar, or press Super+Shift+R if you added the shortcut."

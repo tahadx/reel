@@ -43,10 +43,21 @@ EOF
   chmod 755 -- "$TEST_ROOT/bin/$tool"
 done
 cat >"$TEST_ROOT/bin/omarchy" <<'EOF'
-#!/bin/sh
+#!/bin/bash
 printf '%s\n' "$*" >>"${TEST_ROOT:?}/omarchy.log"
+if [[ -n ${REEL_TEST_SHELL_DOWN:-} && -f ${TEST_ROOT:?}/shell-down ]]; then
+  case "${1:-} ${2:-}" in
+  "plugin list")
+    printf '%s\n' "omarchy-shell is not running" >&2
+    exit 1
+    ;;
+  esac
+fi
 case "${1:-} ${2:-}" in
 "plugin list") printf '%s\n' "io.github.tahadx.reel enabled" ;;
+"restart shell")
+  [[ -n ${REEL_TEST_SHELL_STUCK:-} ]] || rm -f "${TEST_ROOT:?}/shell-down"
+  ;;
 esac
 exit 0
 EOF
@@ -102,6 +113,10 @@ assert_file "$PLUGIN_DIR/bin/clipboard"
 [[ -x "$PLUGIN_DIR/bin/clipboard" ]] || fail "bounded clipboard helper is not executable"
 assert_file "$PLUGIN_DIR/GuardedInput.qml"
 assert_file "$PLUGIN_DIR/THIRD-PARTY.md"
+assert_file "$PLUGIN_DIR/install.sh"
+[[ -x "$PLUGIN_DIR/install.sh" ]] || fail "installed installer is not executable"
+cmp -s "$REPO/install.sh" "$PLUGIN_DIR/install.sh" \
+  || fail "installed installer differs from the checkout"
 assert_file "$PLUGIN_DIR/licenses/rust-toolchain/NOTICE.md"
 [[ "$(reel --version)" == "$WANT_VERSION" ]] \
   || fail "reel --version does not report the manifest version"
@@ -208,6 +223,31 @@ CLIP_CODE=$?
 set -e
 [[ "$CLIP_CODE" -eq 124 ]] || fail "bounded paste exited $CLIP_CODE for a stalled clipboard"
 rm -f -- "$TEST_ROOT/bin/wl-paste"
+
+# A shell that is not reachable during the plugin step must not stop the
+# installer silently: the files still install, the restart brings the shell up,
+# and the plugin state is checked afterwards.
+touch "$TEST_ROOT/shell-down"
+REEL_TEST_SHELL_DOWN=1 "$REPO/install.sh" --yes >"$TEST_ROOT/install-shell-down.log"
+grep -q 'omarchy-shell is not reachable yet' "$TEST_ROOT/install-shell-down.log" \
+  || fail "installer did not report an unreachable shell"
+grep -q 'Reel is enabled' "$TEST_ROOT/install-shell-down.log" \
+  || fail "installer did not recheck the plugin after the restart"
+grep -qxF -- 'restart shell' "$TEST_ROOT/omarchy.log" \
+  || fail "installer did not restart a shell that was down"
+
+# If the shell still cannot answer after the restart, the installer has to say
+# so and exit nonzero instead of claiming success.
+touch "$TEST_ROOT/shell-down"
+set +e
+REEL_TEST_SHELL_DOWN=1 REEL_TEST_SHELL_STUCK=1 \
+  "$REPO/install.sh" --yes >"$TEST_ROOT/install-shell-stuck.log" 2>&1
+SHELL_STUCK_CODE=$?
+set -e
+[[ "$SHELL_STUCK_CODE" -ne 0 ]] || fail "installer succeeded with no shell after the restart"
+grep -q 'still not answering after the restart' "$TEST_ROOT/install-shell-stuck.log" \
+  || fail "installer did not explain the failed post-restart plugin check"
+rm -f -- "$TEST_ROOT/shell-down"
 
 # The test must stay silent on the live desktop even if a probe fails.
 assert_no_file "$TEST_ROOT/notification.log"
