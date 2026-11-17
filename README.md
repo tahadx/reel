@@ -13,7 +13,7 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   after the countdown.
 - Pause and resume without ending the file.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
-  `Ctrl+Alt+Scroll`, capped at 2× by default.
+  `Ctrl+Scroll`, capped at 2× by default.
 - Optional auto zoom in the save pass: clicks become smooth camera blocks, and
   every take with telemetry writes an editable `project.json` into a hidden
   `.reel/` folder for re-rendering.
@@ -127,7 +127,8 @@ the installer prompt or run it with `--yes`.
 | `Ctrl + Alt + =` / `Ctrl + Alt + -` | Zoom in / out during a take |
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
-| `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+| `Ctrl + Scroll` | Zoom in / out during a take (no shortcut block needed) |
+| `Ctrl + Alt + Scroll` | Zoom in / out during a take, from the optional shortcut block |
 | `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
@@ -198,7 +199,11 @@ take is recording; pausing or stopping resets the view to 1×.
   as a pan moves the viewport instead of changing the factor.
 - `Ctrl + Alt + =` / `Ctrl + Alt + -` zoom in and out, `Ctrl + Alt + 0` resets,
   and `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
-- `Ctrl + Alt + Scroll` zooms in and out.
+- `Ctrl + Scroll` zooms in and out, smoothly, the same way a pinch does. Reel
+  registers it when the take starts and removes it when the take ends, so
+  Ctrl+scroll keeps its normal meaning in applications the rest of the time.
+  `Ctrl + Alt + Scroll` also works when the optional shortcut block is
+  installed.
 - Monitor takes follow the pointer: moving the mouse pans the view and keeps the
   cursor near the middle of the crop. Window and area takes keep the camera
   detached, so the pointer stays where it really is instead of being pulled to
@@ -209,10 +214,10 @@ take is recording; pausing or stopping resets the view to 1×.
   the recorded monitor.
 
 Zoom depth is 2× by default; `reel config set zoomMax 1.5`, `2.5`, or `3`
-changes it. The keyboard and scroll controls come from the optional shortcut
-block; touchpad pinch is registered by Reel when a take starts. If you already
-have your own two-finger pinch binding, Reel overrides it for the take and
-reloads your config afterwards so it comes back.
+changes it. The keyboard and pan controls come from the optional shortcut
+block; `Ctrl + Scroll` and touchpad pinch are registered by Reel when a take
+starts. If you already have your own two-finger pinch binding, Reel overrides it
+for the take and reloads your config afterwards so it comes back.
 
 **Noise reduction** is off by default. Turn it on in Settings → **Recording**
 with the microphone enabled; Reel reduces steady background noise during the

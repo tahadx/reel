@@ -200,7 +200,7 @@ LUA
     if have hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
       hyprctl reload >/dev/null 2>&1 || true
     fi
-    echo "  added. Super+R records, Super+Shift+R opens panel, Ctrl+Alt+=/- and Ctrl+Alt+Scroll zooms during takes."
+    echo "  added. Super+R records, Super+Shift+R opens panel, Ctrl+Alt+=/- and Ctrl+Alt+Scroll zoom. Ctrl+Scroll also zooms without these binds."
   else
     echo "  not added. These are optional; if you want them, add this to"
     echo "  $BINDINGS and run \`hyprctl reload\`:"

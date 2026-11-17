@@ -58,6 +58,7 @@ o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pa
 | `Ctrl + Alt + =` / `Ctrl + Alt + -` | Zoom in / out during a take |
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
+| `Ctrl + Scroll` | Zoom in / out during a take (built in; the block is optional) |
 | `Ctrl + Alt + Scroll` | Zoom in / out during a take |
 | `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
@@ -65,8 +66,9 @@ o.bind_hold("CTRL + ALT + SHIFT + code:116", "Reel pan down fast", "reel zoom-pa
 The block uses key names for Reel's Super shortcuts and physical keycodes for
 the zoom and pan binds, so zoom keeps working after switching keyboard layouts.
 The zoom binds only act while a take is recording and **Manual zoom** is on.
-Touchpad pinch is not in this block: Reel registers the two-finger pinch gesture
-when a take starts.
+Touchpad pinch and mouse-wheel zoom are not in this block: Reel registers the
+two-finger pinch gesture and `Ctrl + Scroll` when a take starts, and removes
+them when it stops.
 
 `omarchy plugin update` never edits `bindings.lua`. After updating, re-run the
 plugin's `install.sh` or replace the marked block with the one above to pick up

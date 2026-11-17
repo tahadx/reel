@@ -227,7 +227,7 @@
           "off"
         ],
         "defaultValue": "on",
-        "description": "Allows live magnifier zoom with keyboard shortcuts (Ctrl+Alt + =/-), mouse wheel (Ctrl+Alt + Scroll), or touchpad pinch gestures."
+        "description": "Allows live magnifier zoom with keyboard shortcuts (Ctrl+Alt + =/-), Ctrl+Scroll during a take, or touchpad pinch gestures."
       },
       {
         "key": "autoZoom",

@@ -366,6 +366,7 @@ Panel {
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
+    { keys: "Ctrl+Scroll", what: "zoom during a take" },
     { keys: "Shift+H", what: "open or close history" },
     { keys: "s", what: "focus the settings tabs" },
     { keys: "a", what: "open the take actions menu" },

@@ -422,7 +422,8 @@ key names, so they follow the active keyboard layout.
 | `Ctrl + Alt + =` / `Ctrl + Alt + -` | Zoom in / out during a take |
 | `Ctrl + Alt + 0` | Reset zoom to 1× |
 | `Ctrl + Alt + 8` | Toggle between 1× and the zoom depth |
-| `Ctrl + Alt + Scroll` | Zoom in / out during a take |
+| `Ctrl + Scroll` | Zoom in / out during a take (built in) |
+| `Ctrl + Alt + Scroll` | Zoom in / out during a take, from the optional block |
 | `Ctrl + Alt + ←/→/↑/↓` | Pan the zoomed view during a take (hold to keep moving) |
 | `Ctrl + Alt + Shift + ←/→/↑/↓` | Pan three times as far |
 
@@ -442,7 +443,11 @@ acts while a take is recording. Pausing or stopping resets the compositor to
   Once zoomed in, a pinch that reads as a pan moves the viewport instead.
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
-- `Ctrl + Alt + Scroll` steps by 0.15× per wheel event.
+- `Ctrl + Scroll` zooms in and out the way the pinch does: each notch moves a
+  target and a 16 ms timer eases the camera toward it. Reel registers the binds
+  for the take only, so Ctrl+scroll keeps its normal meaning in applications
+  outside a take. `Ctrl + Alt + Scroll` steps by 0.15× per wheel event when the
+  optional shortcut block is installed.
 - Scale changes use a critically damped spring, with a half-life of 180 ms
   zooming in and 260 ms zooming out. A new step changes only the destination;
   it never zeroes the velocity or snaps the current factor.

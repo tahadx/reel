@@ -116,30 +116,70 @@ fn marker_restores_prior(contents: &str) -> bool {
     contents.trim() == MARKER_PRIOR
 }
 
-/// Activate manual zoom for recording: enables live tracking and registers touchpad pinch gestures.
+/// The compositor side of recording zoom.
 ///
-/// `follow` is true for monitor captures, where the camera tracks the pointer.
-/// Window and area captures keep the camera detached so the pointer keeps its
-/// real position instead of being pulled toward the screen centre.
-pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64, follow: bool) {
-    let marker = paths.runtime.join(ZOOM_MARKER);
+/// Wheel zoom runs inside the compositor rather than through a Hyprland keybind
+/// for two reasons: Hyprland only forwards one wheel bind every 300 ms
+/// (`binds:scroll_event_delay`), and a bind cannot tell how far the wheel moved.
+/// A wheel event therefore nudges a target, and a short timer glides the camera
+/// toward it, which is the same continuous motion the pinch handler produces.
+/// The binds are registered only for the take; outside a take Ctrl+scroll keeps
+/// its normal meaning in applications.
+fn recording_zoom_lua(max_zoom: f64, follow: bool) -> String {
     let max_z = max_zoom.clamp(1.1, 4.0);
     let detached = if follow { "false" } else { "true" };
     let rigid = if follow { "true" } else { "false" };
-
-    // A marker from a take that crashed still points at Reel's gesture. Undo it
-    // first so the probe below sees the user's own binding rather than ours.
-    if marker.exists() {
-        disable_recording_zoom(paths);
-    }
-
-    // Hyprland rejects a second gesture on the same fingers and direction, so a
-    // user's pinch binding has to come off for the take. Remember that and put
-    // it back when the take ends.
-    let had_prior = unset_pinch_gesture();
-
-    let lua = format!(
+    format!(
         r#"
+        -- Wheel zoom: a wheel event moves a target, and a 16 ms timer eases the
+        -- camera toward it. This keeps Ctrl+scroll smooth like the pinch gesture
+        -- instead of stepping or waiting for Hyprland's scroll bind delay.
+        _G.reel_wheel_delay = hl.get_config('binds:scroll_event_delay')
+        hl.config({{ binds = {{ scroll_event_delay = 0 }} }})
+
+        _G.reel_wheel_current = 1.0
+        _G.reel_wheel_target = 1.0
+
+        _G.reel_wheel_apply = function(z)
+            hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = {detached}, zoom_rigid = {rigid} }} }})
+        end
+
+        _G.reel_wheel_tick = function()
+            local delta = _G.reel_wheel_target - _G.reel_wheel_current
+            if math.abs(delta) < 0.002 then
+                _G.reel_wheel_current = _G.reel_wheel_target
+                _G.reel_wheel_apply(_G.reel_wheel_current)
+                if _G.reel_wheel_timer then
+                    _G.reel_wheel_timer:set_enabled(false)
+                end
+                return
+            end
+            _G.reel_wheel_current = _G.reel_wheel_current + delta * 0.35
+            _G.reel_wheel_apply(_G.reel_wheel_current)
+        end
+
+        _G.reel_wheel_zoom = function(direction)
+            -- A keyboard zoom or a reset may have moved the camera since the
+            -- last notch; start the glide from where the picture really is.
+            local actual = hl.get_config('cursor:zoom_factor') or 1.0
+            if math.abs(actual - _G.reel_wheel_current) > 0.02 then
+                _G.reel_wheel_current = actual
+                _G.reel_wheel_target = actual
+            end
+            _G.reel_wheel_target = math.max(1.0, math.min({max_z:.2}, _G.reel_wheel_target + direction * 0.15))
+            if _G.reel_wheel_timer then
+                _G.reel_wheel_timer:set_enabled(true)
+            else
+                _G.reel_wheel_timer = hl.timer(_G.reel_wheel_tick, {{ timeout = 16, type = 'repeat' }})
+            end
+            _G.reel_wheel_tick()
+        end
+
+        _G.reel_wheel_binds = {{
+            hl.bind('CTRL + mouse_up', function() _G.reel_wheel_zoom(1) end, {{ description = 'Reel zoom in' }}),
+            hl.bind('CTRL + mouse_down', function() _G.reel_wheel_zoom(-1) end, {{ description = 'Reel zoom out' }}),
+        }}
+
         _G.reel_zoom_handler = function()
             local start_z = 1.0
             local last_z = 1.0
@@ -218,13 +258,67 @@ pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64, follow: bool) {
         hl.gesture({{ fingers = 2, direction = 'pinch', action = _G.reel_zoom_handler() }})
         hl.config({{ cursor = {{ zoom_factor = 1.0, zoom_detached_camera = true, zoom_rigid = false }} }})
     "#
-    );
+    )
+}
+
+/// Remove the per-take wheel binds and restore the user's scroll delay.
+fn clear_zoom_lua() -> &'static str {
+    r#"
+    if _G.reel_wheel_timer then
+        _G.reel_wheel_timer:set_enabled(false)
+        _G.reel_wheel_timer = nil
+    end
+    if _G.reel_wheel_binds then
+        for _, bind in ipairs(_G.reel_wheel_binds) do
+            if bind then bind:remove() end
+        end
+        _G.reel_wheel_binds = nil
+    end
+    if _G.reel_wheel_delay ~= nil then
+        hl.config({ binds = { scroll_event_delay = _G.reel_wheel_delay } })
+        _G.reel_wheel_delay = nil
+    end
+    _G.reel_wheel_zoom = nil
+    _G.reel_wheel_tick = nil
+    _G.reel_wheel_apply = nil
+    _G.reel_wheel_current = nil
+    _G.reel_wheel_target = nil
+    _G.reel_zoom_handler = nil
+    "#
+}
+
+/// Activate manual zoom for recording: enables live tracking, registers
+/// touchpad pinch gestures, and binds Ctrl+scroll for smooth wheel zoom.
+///
+/// `follow` is true for monitor captures, where the camera tracks the pointer.
+/// Window and area captures keep the camera detached so the pointer keeps its
+/// real position instead of being pulled toward the screen centre.
+pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64, follow: bool) {
+    let marker = paths.runtime.join(ZOOM_MARKER);
+
+    // A marker from a take that crashed still points at Reel's gesture. Undo it
+    // first so the probe below sees the user's own binding rather than ours.
+    if marker.exists() {
+        disable_recording_zoom(paths);
+    }
+
+    // Hyprland rejects a second gesture on the same fingers and direction, so a
+    // user's pinch binding has to come off for the take. Remember that and put
+    // it back when the take ends.
+    let had_prior = unset_pinch_gesture();
+
+    let lua = recording_zoom_lua(max_zoom, follow);
     if util::run_ok("hyprctl", &["eval", &lua]) {
         let state = if had_prior { MARKER_PRIOR } else { MARKER_OURS };
         let _ = std::fs::write(&marker, state);
-    } else if had_prior {
-        // Registration failed after the user's gesture came off; put it back.
-        restore_config_gestures();
+    } else {
+        // A failed eval may have registered the wheel binds before the error.
+        // Clean up so the next take does not inherit half of the controller.
+        let _ = util::run_ok("hyprctl", &["eval", clear_zoom_lua()]);
+        if had_prior {
+            // Registration failed after the user's gesture came off; put it back.
+            restore_config_gestures();
+        }
     }
 }
 
@@ -234,7 +328,10 @@ pub fn disable_recording_zoom(paths: &Paths) {
     if marker.exists() {
         let contents = std::fs::read_to_string(&marker).unwrap_or_default();
         let _ = unset_pinch_gesture();
-        let _ = util::run_ok("hyprctl", &["eval", "_G.reel_zoom_handler = nil"]);
+        let cleaned = util::run_ok("hyprctl", &["eval", clear_zoom_lua()]);
+        if !cleaned {
+            crate::paths::log(paths, "zoom: take cleanup failed");
+        }
         if marker_restores_prior(&contents) {
             restore_config_gestures();
         }
@@ -361,5 +458,25 @@ mod tests {
             (199.0, 199.0)
         );
         assert_eq!(super::pan_target(10.0, 10.0, 5.0, 5.0, None), (15.0, 15.0));
+    }
+
+    #[test]
+    fn wheel_zoom_is_bound_only_for_the_take() {
+        let lua = super::recording_zoom_lua(2.0, true);
+        // Plain Ctrl+scroll, no Alt, and a short ease instead of a keybind
+        // dispatch so every wheel notch reaches the camera.
+        assert!(lua.contains("hl.bind('CTRL + mouse_up'"));
+        assert!(lua.contains("hl.bind('CTRL + mouse_down'"));
+        assert!(lua.contains("scroll_event_delay = 0"));
+        assert!(lua.contains("hl.timer(_G.reel_wheel_tick"));
+        assert!(lua.contains("math.min(2.00"));
+    }
+
+    #[test]
+    fn wheel_zoom_cleanup_removes_its_binds_and_restores_the_delay() {
+        let cleanup = super::clear_zoom_lua();
+        assert!(cleanup.contains("bind:remove()"));
+        assert!(cleanup.contains("scroll_event_delay = _G.reel_wheel_delay"));
+        assert!(cleanup.contains("_G.reel_zoom_handler = nil"));
     }
 }
