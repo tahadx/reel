@@ -17,6 +17,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Optional auto zoom in the save pass: clicks become smooth camera blocks, and
   every take with telemetry writes an editable `project.json` into a hidden
   `.reel/` folder for re-rendering.
+- Optional click effects in the save pass: a premium theme-accent ripple or
+  halo is drawn at each click, and follows the auto zoom camera.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.
@@ -232,6 +234,16 @@ The pointer is still recorded in this version and scales with the zoom. Reel
 needs read access to `/dev/input` to see the clicks; without it the take still
 saves, just without the automatic zoom. If the camera pass itself fails, the
 take is still saved without the zoom and the reason stays in the recorder log.
+
+**Click effects** sits below **Auto zoom** in Settings → **Visuals**. It is off
+by default; pick **Ripple** or **Halo** to draw a premium theme-accent effect at
+every click in the saved file. Ripple is the signature ring and glow, Halo is a
+soft lens-like bloom. The effects are built in the save pass from the same
+pointer telemetry as auto zoom, need **Record the pointer** on, and follow the
+camera when a click zooms. The active Omarchy accent is used, with a dark
+hairline so the effect reads on both light and dark content. The choice is
+stored in the take's `project.json`, so `reel render` reproduces the same effect
+even after a theme change.
 
 Every saved take with telemetry writes a `project.json` into a hidden `.reel/`
 folder beside it, even when auto zoom is off. The folder is owner-only and its

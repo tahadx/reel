@@ -205,6 +205,9 @@ pub struct StartArgs {
     /// so the settings the user just looked at are the settings the take gets.
     #[arg(long = "auto-zoom")]
     pub auto_zoom: Option<String>,
+    /// Burn a click effect into the saved take: off, ripple, halo, or pulse.
+    #[arg(long = "click-effects")]
+    pub click_effects: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -280,6 +283,10 @@ pub struct FinalizeArgs {
     pub auto_zoom: bool,
     #[arg(long = "auto-zoom-depth", default_value_t = 0.0)]
     pub auto_zoom_depth: f64,
+    /// Click effect this take was recorded with. Resolved by `stop` so the save
+    /// pass never reads settings a newer take may already own.
+    #[arg(long = "click-effects", default_value = "")]
+    pub click_effects: String,
 }
 
 #[derive(Args, Debug)]

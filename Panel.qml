@@ -185,6 +185,7 @@ Panel {
     "notifications": "off",
     "manualZoom": "on",
     "autoZoom": "off",
+    "clickEffects": "off",
     "outputDir": "",
     "webcamDevice": ""
   })
@@ -277,6 +278,7 @@ Panel {
     { id: "visuals", label: "Visuals", rows: [
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
+      { key: "clickEffects", label: "Click effects", glyph: "󰝁" },
       { key: "cursor", label: "Record the pointer", glyph: "󰍽" }
     ] },
     { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
@@ -640,6 +642,7 @@ Panel {
     case "notifications": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
     case "autoZoom": return ["off", "on"]
+    case "clickEffects": return ["off", "ripple", "halo"]
     default: return [String(root.defaults[key] || "")]
     }
   }
@@ -691,6 +694,8 @@ Panel {
     case "microphoneDevice":
       return root.audioDeviceLabel(value, "input")
     case "webcam":
+      return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
+    case "clickEffects":
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "webcamDevice":
       return Model.cameraLabel(root.cameras, value)

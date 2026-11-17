@@ -4,6 +4,7 @@
 //! on.
 
 use crate::cli::RenderArgs;
+use crate::effects;
 use crate::finalize;
 use crate::paths::{self, Paths};
 use crate::project::{self, Camera, Keyframe, Project};
@@ -51,7 +52,9 @@ pub fn run(paths: &Paths, args: RenderArgs) -> Result<()> {
 
 /// Render `input` to `output` with the project's camera. `trim_start` is only
 /// non-zero for the hidden save pass, which reads the raw capture; a re-render
-/// already points at the saved take.
+/// already points at the saved take. The result says whether the project's
+/// click effects made it into the output, so the caller never writes a project
+/// describing a look the take does not have.
 pub fn render_take(
     paths: &Paths,
     project: &Project,
@@ -59,7 +62,7 @@ pub fn render_take(
     output: &Path,
     trim_start: f64,
     noise_cancellation: bool,
-) -> Result<()> {
+) -> Result<bool> {
     if !input.is_file() {
         bail!("recording is missing at {}", input.display());
     }
@@ -90,6 +93,32 @@ pub fn render_take(
             .with_context(|| format!("cannot write {}", sendcmd_path.display()))?;
     }
 
+    // Click effects are shapes over the source frames, so they are composited
+    // before the camera and zoom with the picture underneath them.
+    let effects_path = paths
+        .runtime
+        .join(format!("render-{}.ass", std::process::id()));
+    let effect_filter =
+        match effects::subtitle_script(&project.ripples, width, height, project.source.duration) {
+            Some(script) => match effects::write_script(&effects_path, &script) {
+                Ok(()) => Some(effects::ass_filter(&effects_path)),
+                Err(err) => {
+                    // An unwritable effect script must not cost the take its
+                    // camera, let alone the save.
+                    paths::log(
+                        paths,
+                        &format!(
+                            "render: click effects skipped: cannot write {}: {err}",
+                            effects_path.display()
+                        ),
+                    );
+                    None
+                }
+            },
+            None => None,
+        };
+    let effect_written = effect_filter.is_some();
+
     let work = finalize::work_path(input, output);
     let ext = output
         .extension()
@@ -102,15 +131,21 @@ pub fn render_take(
     };
     let audio_present = util_has_audio(input);
     let audio_filter = finalize::audio_filter(noise_cancellation);
-    let graph = camera.as_ref().map(|filter| filter.graph.clone());
+    let camera_graph = camera.as_ref().map(|filter| filter.graph.clone());
+    let full_graph = match (&effect_filter, &camera_graph) {
+        (Some(effect), Some(camera)) => Some(format!("{effect},{camera}")),
+        (Some(effect), None) => Some(effect.clone()),
+        (None, Some(camera)) => Some(camera.clone()),
+        (None, None) => None,
+    };
 
-    let attempt = |use_audio: bool| -> bool {
+    let attempt = |use_audio: bool, graph: &Option<String>| -> bool {
         let mut args: Vec<String> = vec!["-y".into()];
         if let Some(trim) = trim {
             args.extend(["-ss".into(), format!("{trim:.3}")]);
         }
         args.extend(["-i".into(), input.display().to_string()]);
-        if let Some(graph) = &graph {
+        if let Some(graph) = graph {
             args.extend(["-vf".into(), graph.clone()]);
         }
         args.extend([
@@ -144,22 +179,45 @@ pub fn render_take(
         finalize::run_ffmpeg(paths, &args)
     };
 
-    let mut ok = attempt(audio_present);
+    let mut ok = attempt(audio_present, &full_graph);
+    let mut effects_applied = effect_written;
     if !ok && audio_present {
         paths::log(
             paths,
             &format!("render: retrying without audio for {}", input.display()),
         );
-        ok = attempt(false);
+        ok = attempt(false, &full_graph);
+    }
+    if !ok && effect_written {
+        // A missing libass build or an unusable script must cost only the
+        // effects, never the camera path and never the take.
+        paths::log(
+            paths,
+            &format!(
+                "render: click effects failed, retrying without them for {}",
+                input.display()
+            ),
+        );
+        effects_applied = false;
+        ok = attempt(audio_present, &camera_graph);
+        if !ok && audio_present {
+            ok = attempt(false, &camera_graph);
+        }
     }
 
     if ok && finalize::valid_video(&work) {
         fs::rename(&work, output)
             .with_context(|| format!("cannot move the rendered take to {}", output.display()))?;
         paths::remove_quiet(&sendcmd_path);
-        Ok(())
+        if effect_written {
+            paths::remove_quiet(&effects_path);
+        }
+        Ok(effects_applied)
     } else {
         paths::remove_quiet(&work);
+        if effect_written {
+            paths::remove_quiet(&effects_path);
+        }
         paths::log(
             paths,
             &format!(

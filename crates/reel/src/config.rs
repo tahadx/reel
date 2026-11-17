@@ -30,7 +30,8 @@ pub fn defaults() -> Value {
         "zoomMax": 2.0,
         "panStep": 60,
         "autoZoom": false,
-        "autoZoomDepth": 2.0
+        "autoZoomDepth": 2.0,
+        "clickEffects": "off"
     })
 }
 
@@ -162,6 +163,20 @@ pub fn auto_zoom_depth(settings: &Value) -> f64 {
         _ => None,
     };
     crate::project::valid_depth(parsed.unwrap_or(2.0))
+}
+
+/// The click effect burned into a take: `off`, `ripple`, or `halo`. The panel
+/// writes the string; an older file without the key is off, and a value from a
+/// newer build reads as off rather than inventing a style.
+pub fn click_effects(settings: &Value) -> String {
+    let raw = match settings.get("clickEffects") {
+        Some(Value::String(value)) => value.trim().to_ascii_lowercase(),
+        _ => String::new(),
+    };
+    match crate::effects::valid_style(&raw) {
+        "off" => "off".into(),
+        style => style.into(),
+    }
 }
 
 pub fn output_dir(paths: &Paths) -> PathBuf {
@@ -354,6 +369,31 @@ mod tests {
         assert_eq!(
             auto_zoom_depth(&serde_json::json!({ "autoZoomDepth": "deep" })),
             2.0
+        );
+    }
+
+    #[test]
+    fn click_effects_read_the_panel_choices_and_reject_junk() {
+        assert_eq!(
+            click_effects(&serde_json::json!({ "clickEffects": "ripple" })),
+            "ripple"
+        );
+        assert_eq!(
+            click_effects(&serde_json::json!({ "clickEffects": " Halo " })),
+            "halo"
+        );
+        assert_eq!(
+            click_effects(&serde_json::json!({ "clickEffects": "halo" })),
+            "halo"
+        );
+        assert_eq!(
+            click_effects(&serde_json::json!({ "clickEffects": "sparkle" })),
+            "off"
+        );
+        assert_eq!(click_effects(&serde_json::json!({})), "off");
+        assert_eq!(
+            click_effects(&serde_json::json!({ "clickEffects": true })),
+            "off"
         );
     }
 }
