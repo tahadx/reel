@@ -152,15 +152,15 @@ intercepted so an oversized or streaming clipboard never enters the shell
 process.
 
 `webcamDevice` is empty by default, which records the first camera Reel finds.
-Settings -> **Webcam device** cycles Auto plus the cameras from `reel webcams`
-and stores the camera's `/dev/v4l/by-id` link, which stays the same when cameras
-are unplugged or plugged in a different order (a `/dev/videoN` node is stored
-only when udev made no link). The list is read when the panel opens and again
-each time settings open, so a camera plugged in while the shell runs appears
-without a reload. A chosen camera
-that is unplugged stays selected and shows as unplugged; a take started while it
-is missing uses the first camera found and says so in a notification. The device
-only matters while **Webcam corner** is on.
+Settings -> **Input devices** -> **Camera** lists the first available camera
+plus the cameras from `reel webcams` and stores the camera's `/dev/v4l/by-id`
+link, which stays the same when cameras are unplugged or plugged in a different
+order (a `/dev/videoN` node is stored only when udev made no link). The list is
+read when the panel opens, when settings open, and whenever the Devices page
+opens, so a camera plugged in while the shell runs appears without a reload. A
+chosen camera that is unplugged stays selected and shows as unplugged; a take
+started while it is missing uses the first camera found and says so in a
+notification. The device only matters while **Webcam corner** is on.
 
 `noiseCancellation` is off by default and appears in Settings → **Recording** as
 Noise reduction.

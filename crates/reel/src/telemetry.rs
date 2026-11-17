@@ -654,6 +654,15 @@ fn open_candidates(
         if !seen.insert(key) {
             continue;
         }
+        // Opening every event node costs several milliseconds each on a
+        // laptop with dozens of input devices, and the take waits on this
+        // scan before the encoder launches. The capability files answer the
+        // same question without opening the node; sysfs is only a prefilter,
+        // so the evdev ioctls below still confirm every candidate. If sysfs
+        // cannot say, open the node the old way.
+        if sysfs_pointer_candidate(path) == Some(false) {
+            continue;
+        }
         *candidates += 1;
         match OpenOptions::new()
             .read(true)
@@ -758,6 +767,49 @@ fn capability_bits(file: &File, ev: u32) -> [u64; CAP_WORDS] {
 }
 
 fn has_code(bits: &[u64; CAP_WORDS], code: u16) -> bool {
+    let word = usize::from(code) / 64;
+    let bit = usize::from(code) % 64;
+    bits.get(word)
+        .map(|word| word & (1u64 << bit) != 0)
+        .unwrap_or(false)
+}
+
+/// Whether `/sys/class/input` says this node could be a pointer, without
+/// opening it. `None` means the answer is unavailable, so the caller opens it
+/// and asks evdev instead.
+fn sysfs_pointer_candidate(path: &Path) -> Option<bool> {
+    let node = path
+        .canonicalize()
+        .ok()
+        .and_then(|path| path.file_name().map(|name| name.to_owned()))
+        .or_else(|| path.file_name().map(|name| name.to_owned()))?;
+    let caps = Path::new("/sys/class/input")
+        .join(node)
+        .join("device/capabilities");
+    let keys = read_capability_bits(&caps.join("key"))?;
+    let relative = read_capability_bits(&caps.join("rel"))?;
+    let absolute = read_capability_bits(&caps.join("abs"))?;
+
+    let has_button = bitmap_has(&keys, BTN_LEFT) || bitmap_has(&keys, BTN_TOUCH);
+    let has_relative = bitmap_has(&relative, REL_X) && bitmap_has(&relative, REL_Y);
+    let has_absolute = (bitmap_has(&absolute, ABS_X) || bitmap_has(&absolute, ABS_MT_POSITION_X))
+        && (bitmap_has(&absolute, ABS_Y) || bitmap_has(&absolute, ABS_MT_POSITION_Y));
+    Some(has_button && (has_relative || has_absolute))
+}
+
+/// Parse a sysfs capability bitmap such as `ff0000 0 0 0 0`. The kernel
+/// prints the most significant word first, so reverse it into bit order.
+fn read_capability_bits(path: &Path) -> Option<Vec<u64>> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut words: Vec<u64> = text
+        .split_whitespace()
+        .map(|word| u64::from_str_radix(word, 16).ok())
+        .collect::<Option<_>>()?;
+    words.reverse();
+    Some(words)
+}
+
+fn bitmap_has(bits: &[u64], code: u16) -> bool {
     let word = usize::from(code) / 64;
     let bit = usize::from(code) % 64;
     bits.get(word)
@@ -1969,6 +2021,52 @@ mod tests {
         assert_eq!(std::mem::size_of::<InputEvent>() % 8, 0);
         #[cfg(target_pointer_width = "64")]
         assert_eq!(std::mem::size_of::<InputEvent>(), 24);
+    }
+
+    #[test]
+    fn sysfs_capability_words_keep_the_kernel_word_order() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-telemetry-caps-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let key_path = root.join("key");
+        let rel_path = root.join("rel");
+        let abs_path = root.join("abs");
+        // A USB mouse: BTN_LEFT lives in the most significant word.
+        std::fs::write(&key_path, "ff0000 0 0 0 0\n").unwrap();
+        std::fs::write(&rel_path, "1943\n").unwrap();
+        std::fs::write(&abs_path, "0\n").unwrap();
+        let keys = read_capability_bits(&key_path).unwrap();
+        assert!(bitmap_has(&keys, BTN_LEFT));
+        assert!(!bitmap_has(&keys, BTN_TOUCH));
+        let rel = read_capability_bits(&rel_path).unwrap();
+        assert!(bitmap_has(&rel, REL_X));
+        assert!(bitmap_has(&rel, REL_Y));
+        assert!(bitmap_has(&rel, REL_WHEEL));
+        let abs = read_capability_bits(&abs_path).unwrap();
+        assert!(!bitmap_has(&abs, ABS_X));
+
+        // A touchpad: the position bits are in the low word.
+        std::fs::write(&key_path, "e520 10000 0 0 0 0\n").unwrap();
+        std::fs::write(&abs_path, "2e0800000000003\n").unwrap();
+        let keys = read_capability_bits(&key_path).unwrap();
+        assert!(bitmap_has(&keys, BTN_LEFT));
+        assert!(bitmap_has(&keys, BTN_TOUCH));
+        let abs = read_capability_bits(&abs_path).unwrap();
+        assert!(bitmap_has(&abs, ABS_X));
+        assert!(bitmap_has(&abs, ABS_Y));
+        assert!(bitmap_has(&abs, ABS_MT_POSITION_X));
+        assert!(bitmap_has(&abs, ABS_MT_POSITION_Y));
+
+        std::fs::write(&key_path, "0\n").unwrap();
+        let keys = read_capability_bits(&key_path).unwrap();
+        assert!(!bitmap_has(&keys, BTN_LEFT));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

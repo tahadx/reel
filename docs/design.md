@@ -475,7 +475,7 @@ is not a setting.
 
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Recording | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner, webcam device. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
+| Recording | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
 | Visuals   | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
 | Shortcuts | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
@@ -499,6 +499,17 @@ Rules:
 - Recording uses section labels so the audio, video, capture, and saving groups
   still scan quickly.
 
+The Devices page is a detail page inside Recording, not a fourth destination.
+The `Input devices` row sits in its own Devices section above Saving and opens
+the page with the current value `Manage`. The page groups `Desktop audio`,
+`Microphone`, and `Camera`; every group starts with the system default (or
+`First available camera`), then the connected devices, and keeps a stored but
+unplugged device visible with an `(unplugged)` label. Each row is full width
+with a glyph tile, a middle-elided name, and an accent check on the current
+choice; hovering a truncated name shows the full name in a tooltip. `esc`
+returns to the `Input devices` row. The page refreshes both audio and camera
+lists when it opens.
+
 ### 6.6 Settings rows
 
 - Height `30`, radius `Style.cornerRadius`.
@@ -510,6 +521,8 @@ Rules:
   value at `bodySmall` bold, then `›`. Cursor: `0.10` fill + accent border.
 - Info rows: value `bodySmall` bold, secondary, no chip. They still participate
   in the row cursor; activation is a no-op.
+- Page rows use the same value chip as cycle rows, but activation opens their
+  detail page instead of changing a value. `Input devices` is the only page row.
 - Toggle rows: `32 × 16` pill. On: accent fill, thumb `onAccent`. Off:
   foreground at `0.18`, thumb secondary. Thumb moves in `120` ms.
 - Shortcut rows (Shortcuts tab): height `30`, square, key chip + description.

@@ -28,10 +28,11 @@ Panel {
   readonly property string status: Model.status(root.state)
   readonly property bool active: Model.isActive(root.state)
   readonly property bool starting: root.status === "starting"
+  readonly property string stage: String(root.state.stage || "")
   // The encoder is launched and warming up: the take runs, but the state only
-  // becomes "recording" once its first file exists.
+  // becomes "recording" once its first frame exists.
   readonly property bool capturing: root.starting
-    && String(root.state.stage || "") === "capture"
+    && (root.stage === "warmup" || root.stage === "capture")
   readonly property bool paused: root.status === "paused"
   readonly property bool finalizing: root.status === "finalizing"
   // A take in the save pass already belongs to the user, so history lists one
@@ -235,11 +236,102 @@ Panel {
     audioDevicesProc.running = true
   }
 
+  // Device choices live on their own page so Recording stays short. Each
+  // audio group starts with its system-default row, then the connected
+  // devices; a stored device that is no longer plugged in stays visible with
+  // an explicit label instead of silently snapping to the default.
+  function appendAudioDeviceRows(rows, key, kind, section, glyph, current) {
+    var first = true
+    var push = function(value, label) {
+      rows.push({
+        key: "device",
+        settingKey: key,
+        value: value,
+        label: label,
+        glyph: glyph,
+        section: first ? section : undefined,
+        selected: current === value
+      })
+      first = false
+    }
+    push("", kind === "output" ? "Default output" : "Default input")
+    var list = root.audioDevices || []
+    var known = current === ""
+    for (var i = 0; i < list.length; i++) {
+      var device = list[i] || ({})
+      var id = String(device.id || "")
+      if (id === "" || id === "default_output" || id === "default_input") continue
+      var deviceKind = String(device.kind || "")
+      if (deviceKind !== kind && deviceKind !== "unknown") continue
+      if (id === current) known = true
+      push(id, String(device.label || id))
+    }
+    if (!known) push(current, root.audioDeviceLabel(current, kind) + " (unplugged)")
+  }
+
+  function deviceRows() {
+    var rows = []
+    var desktop = root.valueString("desktopDevice", "")
+    var mic = root.valueString("microphoneDevice", "")
+    var camera = root.valueString("webcamDevice", "")
+    root.appendAudioDeviceRows(rows, "desktopDevice", "output", "Desktop audio", "󰓃", desktop)
+    root.appendAudioDeviceRows(rows, "microphoneDevice", "input", "Microphone", "󰍰", mic)
+
+    rows.push({
+      key: "device",
+      settingKey: "webcamDevice",
+      value: "",
+      label: "First available camera",
+      glyph: "󰄀",
+      section: "Camera",
+      selected: camera === ""
+    })
+    var known = camera === ""
+    for (var i = 0; i < root.cameras.length; i++) {
+      var cam = root.cameras[i] || ({})
+      var id = String(cam.id || "")
+      if (id === "") continue
+      var path = String(cam.path || "")
+      if (id === camera || (path !== "" && path === camera)) known = true
+      rows.push({
+        key: "device",
+        settingKey: "webcamDevice",
+        value: id,
+        label: String(cam.label || id),
+        glyph: "󰄀",
+        selected: id === camera || (path !== "" && path === camera)
+      })
+    }
+    if (!known) {
+      rows.push({
+        key: "device",
+        settingKey: "webcamDevice",
+        value: camera,
+        label: Model.cameraLabel(root.cameras, camera),
+        glyph: "󰄀",
+        selected: true
+      })
+    }
+    return rows
+  }
+
+  function chooseDevice(row) {
+    if (!row) return
+    var key = String(row.settingKey || "")
+    if (key === "") return
+    root.writeSetting(key, row.value)
+  }
+
+  function inputDevicesRowIndex() {
+    var rows = root.settingsRows()
+    for (var i = 0; i < rows.length; i++)
+      if (rows[i].key === "inputDevices") return i
+    return 0
+  }
+
   readonly property var recordingSettingRows: [
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
-    { key: "desktopDevice", label: "Desktop audio device", glyph: "󰓃" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
-    { key: "microphoneDevice", label: "Microphone device", glyph: "󰍰" },
     { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
     { key: "fps", label: "Frame rate", glyph: "󰈰", section: "Video" },
     { key: "quality", label: "Quality", glyph: "󰓅" },
@@ -248,7 +340,7 @@ Panel {
     { key: "container", label: "Container", glyph: "󰏗" },
     { key: "countdown", label: "Countdown", glyph: "󰔛", section: "Capture" },
     { key: "webcam", label: "Webcam corner", glyph: "󰄀" },
-    { key: "webcamDevice", label: "Webcam device", glyph: "󰄈" },
+    { key: "inputDevices", label: "Input devices", glyph: "󰍰", section: "Devices", kind: "page" },
     { key: "notifications", label: "Saved notification", glyph: "󰂚", section: "Saving" }
   ]
   readonly property var shortcutRows: [
@@ -298,6 +390,7 @@ Panel {
 
   function isNavActive(id) {
     if (id === "history") return root.page === "history"
+    if (root.page === "devices") return root.settingsTab === id
     return root.page === "home" && root.settingsTab === id
   }
 
@@ -309,7 +402,7 @@ Panel {
       return
     }
     root.clearHover()
-    if (root.page === "history") root.closeHistory()
+    if (root.page !== "home") root.page = "home"
     root.settingsTab = id
     root.settingsIndex = 0
     root.focusSection = "settings"
@@ -699,6 +792,8 @@ Panel {
       return value === "off" ? "Off" : value.charAt(0).toUpperCase() + value.slice(1)
     case "webcamDevice":
       return Model.cameraLabel(root.cameras, value)
+    case "inputDevices":
+      return "Manage"
     case "countdown":
       return value === "0" ? "Off" : value + "s"
     case "fps":
@@ -783,6 +878,7 @@ Panel {
     if (root.finalizing) text = "Reel · finishing the take"
     else if (root.paused) text = "Reel · paused at " + Model.clock(root.elapsed) + " · right-click to resume"
     else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
+    else if (root.starting && root.stage !== "select") text = "Reel · starting the take"
     else if (root.starting) text = "Reel · waiting for a selection"
     else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
     else if (root.savingJobs.length > 0) text = "Reel · saving " + root.savingJobs.length
@@ -1464,7 +1560,7 @@ Panel {
       var tab = Number(key) - 1
       if (tab >= 0 && tab < root.settingsTabs.length) {
         root.clearHover()
-        if (root.page === "history") root.closeHistory()
+        if (root.page !== "home") root.page = "home"
         root.settingsTab = root.settingsTabs[tab].id
         root.settingsIndex = 0
         root.focusSection = "settings"
@@ -1501,6 +1597,10 @@ Panel {
   }
 
   function back() {
+    if (root.page === "devices") {
+      root.closeDevices()
+      return
+    }
     if (root.focusSection === "settings") {
       root.closeSettings()
       return
@@ -1519,6 +1619,32 @@ Panel {
   }
 
   // ---------- settings cursor --------------------------------------------
+
+  function openDevices() {
+    root.clearHover()
+    root.settingsTab = "recording"
+    root.page = "devices"
+    root.focusSection = "settings"
+    root.settingsIndex = 0
+    root.cursorActive = true
+    root.typingPrefix = false
+    root.refreshAudioDevices()
+    root.refreshCameras()
+    root.resetScroll()
+    Qt.callLater(root.focusPanelKeys)
+  }
+
+  function closeDevices() {
+    root.clearHover()
+    root.page = "home"
+    root.settingsTab = "recording"
+    root.focusSection = "settings"
+    root.settingsIndex = root.inputDevicesRowIndex()
+    root.cursorActive = true
+    root.beginKeyboardScroll()
+    root.resetScroll()
+    Qt.callLater(root.focusPanelKeys)
+  }
 
   function openHistory() {
     if (root.page === "history") return
@@ -1563,7 +1689,7 @@ Panel {
   }
 
   function openSettings() {
-    if (root.page === "history") root.page = "home"
+    if (root.page !== "home") root.page = "home"
     root.clearHover()
     root.beginKeyboardScroll()
     root.focusSection = "settings"
@@ -1578,6 +1704,7 @@ Panel {
 
   function closeSettings() {
     root.clearHover()
+    root.page = "home"
     root.focusSection = "primary"
     root.selectedIndex = 0
     root.typingPrefix = false
@@ -1590,7 +1717,8 @@ Panel {
   }
 
   function toggleSettings() {
-    if (root.focusSection === "settings") root.closeSettings()
+    if (root.page === "devices") root.closeDevices()
+    else if (root.focusSection === "settings") root.closeSettings()
     else root.openSettings()
   }
 
@@ -1604,9 +1732,14 @@ Panel {
     return root.settingsTabData().rows
   }
 
+  function activeRows() {
+    return root.page === "devices" ? root.deviceRows() : root.settingsRows()
+  }
+
   function switchSettingsTab(delta) {
     root.clearHover()
     root.beginKeyboardScroll()
+    root.page = "home"
     var index = 0
     for (var i = 0; i < root.settingsTabs.length; i++)
       if (root.settingsTabs[i].id === root.settingsTab) index = i
@@ -1617,7 +1750,7 @@ Panel {
   }
 
   function settingsCount() {
-    return root.settingsRows().length
+    return root.activeRows().length
   }
 
   function moveSettings(dy, dx) {
@@ -1630,15 +1763,23 @@ Panel {
       return
     }
     if (dx !== 0) {
-      if (root.settingsTab === "shortcuts") return
+      if (root.page === "devices" || root.settingsTab === "shortcuts") return
       var row = root.settingsRows()[root.settingsIndex]
-      if (row && row.kind !== "info") root.cycleOption(row.key, dx)
+      if (row && row.kind !== "info" && row.kind !== "page") root.cycleOption(row.key, dx)
     }
   }
 
   function activateSettings() {
+    if (root.page === "devices") {
+      root.chooseDevice(root.deviceRows()[root.settingsIndex])
+      return
+    }
     if (root.settingsTab === "shortcuts") return
     var row = root.settingsRows()[root.settingsIndex]
+    if (row && row.kind === "page") {
+      root.openDevices()
+      return
+    }
     if (row && row.kind !== "info") root.cycleOption(row.key, 1)
   }
 
@@ -2569,6 +2710,64 @@ Panel {
                 elide: Text.ElideMiddle
                 width: parent.width
               }
+              }
+            }
+
+            // ---------- devices page ----------
+
+            Column {
+              width: parent.width
+              visible: root.page === "devices"
+              spacing: Style.space(4)
+
+              Item {
+                width: parent.width
+                implicitHeight: Math.max(devicesHeader.implicitHeight, devicesHint.implicitHeight)
+
+                PanelSectionHeader {
+                  id: devicesHeader
+                  text: "Input devices"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: devicesHint
+                  textFormat: Text.PlainText
+                  text: "esc back"
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              Repeater {
+                model: root.page === "devices" ? root.deviceRows() : []
+
+                delegate: Column {
+                  required property var modelData
+                  required property int index
+                  width: parent.width
+                  spacing: Style.space(4)
+
+                  PanelSectionHeader {
+                    visible: modelData.section !== undefined
+                      && String(modelData.section) !== ""
+                    text: modelData.section === undefined ? "" : String(modelData.section)
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                  }
+
+                  DeviceRow {
+                    width: parent.width
+                    row: modelData
+                    rowIndex: index
+                  }
+                }
               }
             }
 
@@ -4014,6 +4213,101 @@ Panel {
     }
   }
 
+  component DeviceRow: CursorSurface {
+    id: device
+    property var row: null
+    property int rowIndex: 0
+
+    readonly property bool pointerHovered: root.pointerActive
+      && root.hoverSection === "devices" && root.hoverIndex === rowIndex
+    readonly property bool selected: root.cursorActive
+      && root.page === "devices"
+      && root.focusSection === "settings"
+      && root.settingsIndex === rowIndex
+    readonly property bool chosen: row !== null && row.selected === true
+
+    hasCursor: pointerHovered || (selected && !root.hoverPainted)
+    onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(device)
+    foreground: root.foreground
+    accent: root.accent
+    fill: Style.hoverFillFor(root.foreground, root.accent)
+    implicitHeight: Style.space(30)
+    radius: Style.cornerRadius
+
+    Row {
+      anchors.fill: parent
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(8)
+
+      Rectangle {
+        width: Style.space(24)
+        height: width
+        anchors.verticalCenter: parent.verticalCenter
+        color: root.restFill
+        border.width: 1
+        border.color: root.hairline
+
+        Text {
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: device.row === null ? "" : String(device.row.glyph || "")
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+        }
+      }
+
+      Text {
+        id: deviceLabel
+        textFormat: Text.PlainText
+        text: device.row === null ? "" : String(device.row.label || "")
+        color: device.hasCursor ? root.foreground : root.secondary
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        font.bold: device.chosen
+        anchors.verticalCenter: parent.verticalCenter
+        // A middle ellipsis keeps the distinguishing tail of long ALSA and
+        // camera names visible. The full name stays available in a tooltip.
+        elide: Text.ElideMiddle
+        width: Math.max(0, parent.width - Style.space(24)
+          - deviceCheck.width - parent.spacing * 2)
+      }
+
+      Text {
+        id: deviceCheck
+        textFormat: Text.PlainText
+        text: device.chosen ? "󰄬" : ""
+        color: root.accent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+        anchors.verticalCenter: parent.verticalCenter
+        width: Style.space(16)
+        horizontalAlignment: Text.AlignHCenter
+      }
+    }
+
+    MouseArea {
+      id: deviceMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onContainsMouseChanged: root.setRowHover("devices", device.rowIndex, containsMouse)
+      onClicked: {
+        root.cursorActive = true
+        root.focusSection = "settings"
+        root.settingsIndex = device.rowIndex
+        root.chooseDevice(device.row)
+      }
+    }
+
+    PanelToolTip {
+      visible: deviceMouse.containsMouse && root.pointerActive && deviceLabel.truncated
+      text: device.row === null ? "" : String(device.row.label || "")
+      fontFamily: root.fontFamily
+    }
+  }
+
   component SettingRow: CursorSurface {
     id: setting
     property string settingKey: ""
@@ -4197,7 +4491,8 @@ Panel {
         root.cursorActive = true
         root.focusSection = "settings"
         root.settingsIndex = setting.rowIndex
-        root.cycleOption(setting.settingKey, mouse.button === Qt.RightButton ? -1 : 1)
+        if (setting.kind === "page") root.openDevices()
+        else root.cycleOption(setting.settingKey, mouse.button === Qt.RightButton ? -1 : 1)
       }
     }
   }
