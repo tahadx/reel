@@ -229,10 +229,19 @@ impl Default for Cursor {
     }
 }
 
+/// The click effects burned into the take by the save pass. `enabled` and
+/// `style` are the user's choice; `clicks` is the same click set the camera
+/// saw, kept here so a re-render never needs the raw telemetry again.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Ripples {
     pub enabled: bool,
+    /// `ripple`, `halo`, or `pulse`.
+    pub style: String,
+    /// Accent color as `#rrggbb`. Empty resolves the active Omarchy theme at
+    /// render time; the save pass writes the resolved value into new projects.
+    pub color: String,
+    pub clicks: Vec<RippleClick>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -241,6 +250,74 @@ impl Default for Ripples {
     fn default() -> Self {
         Ripples {
             enabled: false,
+            style: "ripple".into(),
+            color: String::new(),
+            clicks: Vec::new(),
+            extra: Map::new(),
+        }
+    }
+}
+
+impl Ripples {
+    /// True when the render pass has to run for the effects alone.
+    pub fn needs_render(&self) -> bool {
+        self.enabled && self.style != "off" && !self.clicks.is_empty()
+    }
+
+    /// Drop malformed clicks, put them in saved-take order, and keep every
+    /// position inside the source frame.
+    pub fn normalize(&mut self, width: f64, height: f64) {
+        self.style = crate::effects::valid_style(&self.style).to_string();
+        self.color = crate::effects::valid_color(&self.color).unwrap_or_default();
+        let bounds = CaptureBounds::frame(width, height);
+        let mut clicks: Vec<RippleClick> = self
+            .clicks
+            .drain(..)
+            .filter(|click| {
+                click.t.is_finite()
+                    && click.x.is_finite()
+                    && click.y.is_finite()
+                    && bounds.contains(click.x, click.y)
+            })
+            .map(|mut click| {
+                click.t = click.t.max(0.0);
+                click
+            })
+            .collect();
+        clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
+        self.clicks = clicks;
+    }
+}
+
+/// One click position in saved-take time for the effects pass.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RippleClick {
+    pub t: f64,
+    /// Source capture pixels.
+    pub x: f64,
+    pub y: f64,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl Default for RippleClick {
+    fn default() -> Self {
+        RippleClick {
+            t: 0.0,
+            x: 0.0,
+            y: 0.0,
+            extra: Map::new(),
+        }
+    }
+}
+
+impl RippleClick {
+    pub fn new(t: f64, x: f64, y: f64) -> RippleClick {
+        RippleClick {
+            t,
+            x,
+            y,
             extra: Map::new(),
         }
     }
@@ -518,6 +595,24 @@ fn clamp_center_in(bounds: CaptureBounds, x: f64, y: f64, depth: f64) -> (f64, f
     bounds.clamp_center(x, y, depth)
 }
 
+/// The click set the save pass works from: only clicks inside the capture, in
+/// saved-take time, in order. The camera and the click effects share it so a
+/// click can never zoom the take but be invisible, or the other way round.
+pub fn clicks_in_capture(clicks: &[Click], bounds: CaptureBounds, trim_start: f64) -> Vec<Click> {
+    let trim = trim_start.max(0.0);
+    let mut clicks: Vec<Click> = clicks
+        .iter()
+        .filter(|click| click.t.is_finite() && bounds.contains(click.x, click.y))
+        .map(|click| Click {
+            t: (click.t - trim).max(0.0),
+            x: click.x,
+            y: click.y,
+        })
+        .collect();
+    clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
+    clicks
+}
+
 /// The camera for a project, built from clicks.
 ///
 /// This is the monitor-only entry point used by the camera tests. The save pass
@@ -591,17 +686,8 @@ pub fn build_camera_for_capture(
     }
 
     // Telemetry time is raw take time; keyframes use saved-take time.
+    let clicks = clicks_in_capture(clicks, bounds, trim_start);
     let trim = trim_start.max(0.0);
-    let mut clicks: Vec<Click> = clicks
-        .iter()
-        .filter(|click| click.t.is_finite() && bounds.contains(click.x, click.y))
-        .map(|click| Click {
-            t: (click.t - trim).max(0.0),
-            x: click.x,
-            y: click.y,
-        })
-        .collect();
-    clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
     let scrolls: Vec<ScrollTick> = scrolls
         .iter()
         .filter(|scroll| {
@@ -1147,6 +1233,8 @@ impl Project {
         }
         self.camera
             .normalize(self.source.width as f64, self.source.height as f64);
+        self.ripples
+            .normalize(self.source.width as f64, self.source.height as f64);
     }
 
     /// The saved take this project points at.
@@ -1381,6 +1469,48 @@ mod tests {
             assert!(frame.x >= 0.0 && frame.x <= 2560.0);
             assert!(frame.y >= 0.0 && frame.y <= 1440.0);
         }
+    }
+
+    #[test]
+    fn ripples_normalize_keeps_only_usable_clicks() {
+        let mut project: Project = serde_json::from_str(
+            r##"{
+                "version": 1,
+                "source": { "width": 100, "height": 50 },
+                "ripples": {
+                    "enabled": true,
+                    "style": "HALO",
+                    "color": "#AABBCC",
+                    "clicks": [
+                        { "t": 1.0, "x": 10.0, "y": 10.0 },
+                        { "t": -1.0, "x": 20.0, "y": 20.0 },
+                        { "t": 2.0, "x": 200.0, "y": 10.0 }
+                    ]
+                }
+            }"##,
+        )
+        .unwrap();
+        project.normalize();
+        assert_eq!(project.ripples.style, "halo");
+        assert_eq!(project.ripples.color, "#aabbcc");
+        assert_eq!(project.ripples.clicks.len(), 2);
+        assert_eq!(project.ripples.clicks[0].t, 0.0);
+        assert!(project.ripples.needs_render());
+    }
+
+    #[test]
+    fn an_unknown_effect_style_is_off() {
+        let mut project: Project = serde_json::from_str(
+            r#"{
+                "version": 1,
+                "source": { "width": 100, "height": 50 },
+                "ripples": { "enabled": true, "style": "sparkle", "clicks": [{ "t": 1.0, "x": 10.0, "y": 10.0 }] }
+            }"#,
+        )
+        .unwrap();
+        project.normalize();
+        assert_eq!(project.ripples.style, "off");
+        assert!(!project.ripples.needs_render());
     }
 
     #[test]

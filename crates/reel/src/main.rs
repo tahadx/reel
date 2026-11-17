@@ -3,6 +3,7 @@ mod autozoom;
 mod cli;
 mod commands;
 mod config;
+mod effects;
 mod finalize;
 mod paths;
 mod project;

@@ -69,6 +69,7 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 | `--filename-prefix` | text prepended to the timestamp | empty (`reel-`) |
 | `--manual-zoom` | `on`, `off` | `on` |
 | `--auto-zoom` | `on`, `off` | `off` |
+| `--click-effects` | `off`, `ripple`, `halo` | `off` |
 
 `reel update` updates the installed Omarchy plugin, then runs the installer from
 the updated checkout. The installer restarts the shell so the new QML is loaded.
@@ -244,12 +245,63 @@ removed when the take is trashed. Edit the project and run
 `reel render --project <path>` to change the zoom without recording again; see
 [Re-rendering a take](#re-rendering-a-take).
 
+## Click effects
+
+**Click effects** sits below **Auto zoom** in Settings -> **Visuals**. It is off
+by default; the choices are **Ripple** and **Halo**. The panel writes the choice
+with every take (`reel config set clickEffects ripple` also sets it), and the
+save pass draws the effect at each click that qualifies for auto zoom (whether
+or not auto zoom is on): a left or right release within 280 ms and 15 px,
+inside the capture. Touchpad taps count when tap-to-click is on. Clicks outside
+a window or area take are ignored, so the effect is never drawn outside the
+recorded rectangle.
+
+- **Ripple** is the signature effect: a soft accent halo, a crisp accented ring
+  with a dark hairline, a thin trailing accent echo, and a lighter accent core
+  that fades first.
+- **Halo** is a soft, lens-like accent bloom with no hard ring. It suits calm
+  demos.
+
+The effect color comes from the active Omarchy theme's `accent`, read from
+`~/.local/state/omarchy/current/theme/colors.toml` (or the older
+`~/.config/omarchy/current/theme/colors.toml`). The accent ring and its dark
+outline keep the effect legible on both light and dark content. The resolved
+color is saved in the project so a later re-render keeps the look it was
+recorded with, even after a theme switch.
+
+Click effects are built from the same pointer telemetry as auto zoom, so they
+need **Record the pointer** on. Without `/dev/input` access the take still saves,
+just without effects. Effects and auto zoom can be used together: the shapes are
+composited before the camera pass, so a zoom moves and scales the effect with
+the picture under it.
+
+The project stores the effect under `ripples`:
+
+```json
+"ripples": {
+  "enabled": true,
+  "style": "ripple",
+  "color": "#8a9a7b",
+  "clicks": [
+    { "t": 0.8, "x": 1900.0, "y": 620.0 },
+    { "t": 2.4, "x": 1280.0, "y": 720.0 }
+  ]
+}
+```
+
+`style` is `ripple` or `halo`; an unknown style, the retired `pulse` style, and
+`enabled: false` all render nothing. `color` is a `#rrggbb` accent (empty uses
+the live theme), and `clicks` are saved-take seconds with source capture pixels.
+Edit any of these and run `reel render` to change the effect without recording
+again. The save pass removes its generated ASS script after a successful
+render; it is not a runtime file you need to manage.
+
 ## Re-rendering a take
 
 A saved take with pointer telemetry carries a `project.json` in the hidden
 `.reel/` folder beside the video. It is the render contract: `reel render` reads
 it instead of the live settings, so a hand edit is all it takes to change the
-camera and render again.
+camera and click effects and render again.
 
 ```sh
 reel render --project ~/Videos/Reel/.reel/reel-2026-11-03_12-00-00.project.json
@@ -283,23 +335,33 @@ viewport is clamped so the frame never shows space outside the capture. Values
 between keyframes use smoothstep, so the camera is still at each keyframe.
 `style: "off"` disables the zoom even when keyframes are present.
 
+The `ripples` object holds the click effects: `enabled`, `style`
+(`ripple` or `halo`), `color` (a `#rrggbb` accent, or empty for the live
+theme), and `clicks` (`t`, `x`, `y` in saved-take time and source pixels). The
+save pass writes the resolved accent into `color`, so a re-render keeps the
+look it was recorded with. See [Click effects](#click-effects) for the styles
+and the exact click rules.
+
 Unknown fields are preserved, and missing fields fall back to the v1 defaults.
 `trimStart` is only used by the hidden save pass; a re-render reads the saved
 take and does not trim it again.
 
-When the project is missing or has no camera keyframes, `reel render` encodes
-the take without a zoom. It uses the same audio filter and validation as the
-save pass, and the same project and inputs produce the same bytes.
+When the project is missing or has no camera keyframes and no clicks, `reel
+render` encodes the take without a zoom or effects. It uses the same audio
+filter and validation as the save pass, and the same project and inputs produce
+the same bytes.
 
 ## Save pass
 
 A take is written by the encoder to `<take>.capture.<ext>`, then finished: the
-first frame is dropped (or the countdown is trimmed), the camera from auto zoom
-is applied, the PipeWire pop is muted, the audio is normalized, and noise
-reduction runs when it was on. The ordinary `<take>.<ext>` name is published
-only when that pass succeeds, so history never shows an un-zoomed capture.
-If the camera pass itself fails, Reel retries with the trim and loudness pass
-and still publishes the take without a zoom; the failure stays in the log.
+first frame is dropped (or the countdown is trimmed), the click effects and the
+camera from auto zoom are applied, the PipeWire pop is muted, the audio is
+normalized, and noise reduction runs when it was on. The ordinary
+`<take>.<ext>` name is published only when that pass succeeds, so history never
+shows an un-zoomed capture.
+If the render pass itself fails, Reel retries with the trim and loudness pass
+and still publishes the take without the zoom or effects; the failure stays in
+the log.
 
 When the capture's first GOP is flagged for discard, only the head of the video
 is re-encoded, up to the next keyframe. Everything after that is stream-copied
@@ -320,6 +382,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
+| `$XDG_RUNTIME_DIR/reel/render-*.ass` | Generated click-effect script; removed after a successful render |
 | `~/.reel/previews` | History and notification thumbnails; survives cache cleanup |
 | `~/.local/state/omarchy/reel/pending-quarantine.json` | Captures withheld from history until their countdown is moved aside |
 | `~/Videos/Reel` | Default recordings folder |
@@ -456,6 +519,11 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **A save-pass effect has no pointer data** — pointer telemetry could not read
   `/dev/input`. Add your user to the `input` group and log in again. The reason
   is written to the log and the take stays usable.
+- **Click effects do not appear** — they are built from the same telemetry as
+  auto zoom, so **Record the pointer** must be on and `/dev/input` readable. A
+  drag, hold, or click outside the capture does not qualify. If the effect
+  render itself failed, the log says so and the take is published without the
+  effect rather than losing the camera or the footage.
 - **A take has no audio** — takes shorter than 0.8 seconds are saved silent
   rather than failing the loudness pass. For longer takes, check that the
   selected desktop-output or microphone source exists.

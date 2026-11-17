@@ -282,6 +282,7 @@ pub fn spawn_finalize(
     job: Option<&str>,
     auto_zoom: bool,
     auto_zoom_depth: f64,
+    click_effects: &str,
 ) -> std::io::Result<u32> {
     let exe = std::env::current_exe()?;
     let log = std::fs::OpenOptions::new()
@@ -310,6 +311,9 @@ pub fn spawn_finalize(
         .arg(target_label)
         .arg("--auto-zoom-depth")
         .arg(format!("{auto_zoom_depth:.3}"));
+    if click_effects != "off" {
+        command.arg("--click-effects").arg(click_effects);
+    }
     if noise_cancellation {
         command.arg("--noise-cancellation");
     }

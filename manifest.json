@@ -40,7 +40,8 @@
       "notifications": "off",
       "manualZoom": "on",
       "autoZoom": "off",
-      "autoZoomDepth": 2.0
+      "autoZoomDepth": 2.0,
+      "clickEffects": "off"
     },
     "schema": [
       {
@@ -238,6 +239,18 @@
         ],
         "defaultValue": "off",
         "description": "Zoom the saved take toward the places you clicked. Built from the take's pointer telemetry during the save pass; the pointer is still recorded in this version."
+      },
+      {
+        "key": "clickEffects",
+        "type": "enum",
+        "label": "Click effects",
+        "options": [
+          "off",
+          "ripple",
+          "halo"
+        ],
+        "defaultValue": "off",
+        "description": "Draw a premium accent effect at each click in the saved take: a soft ripple or a lens-like halo. Built from the take's pointer telemetry during the save pass."
       }
     ]
   }

@@ -40,6 +40,7 @@ struct Settings {
     zoom_max: f64,
     auto_zoom: bool,
     auto_zoom_depth: f64,
+    click_effects: String,
 }
 
 impl Settings {
@@ -65,6 +66,7 @@ impl Settings {
             "zoomMax": self.zoom_max,
             "autoZoom": self.auto_zoom,
             "autoZoomDepth": self.auto_zoom_depth,
+            "clickEffects": self.click_effects,
         })
     }
 
@@ -137,6 +139,20 @@ fn auto_zoom_choice(option: &Option<String>, stored: &Value) -> bool {
     {
         Some(value) => config::auto_zoom(&json!({ "autoZoom": value })),
         None => config::auto_zoom(stored),
+    }
+}
+
+/// The take's click effect: the per-take argument first, then reel.json. A
+/// snapshot is stored with the take so a setting changed mid-recording cannot
+/// restyle the save.
+fn click_effects_choice(option: &Option<String>, stored: &Value) -> String {
+    match option
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(value) => config::click_effects(&json!({ "clickEffects": value })),
+        None => config::click_effects(stored),
     }
 }
 
@@ -225,6 +241,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     // changing the setting mid-recording cannot change this save.
     let auto_zoom = auto_zoom_choice(&options.auto_zoom, &stored);
     let auto_zoom_depth = config::auto_zoom_depth(&stored);
+    let click_effects = click_effects_choice(&options.click_effects, &stored);
 
     Ok(Settings {
         desktop,
@@ -247,6 +264,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         zoom_max,
         auto_zoom,
         auto_zoom_depth,
+        click_effects,
     })
 }
 
@@ -1542,6 +1560,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         telemetry_ran,
         auto_zoom,
         auto_zoom_depth,
+        click_effects,
     );
     {
         let _lock = Lock::acquire(paths)?;
@@ -1568,6 +1587,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         let take_settings = current.get("settings").cloned().unwrap_or(Value::Null);
         auto_zoom = crate::config::auto_zoom(&take_settings);
         auto_zoom_depth = crate::config::auto_zoom_depth(&take_settings);
+        click_effects = crate::config::click_effects(&take_settings);
         let enabled =
             |value: &Value, key: &str| value.get(key).and_then(Value::as_bool).unwrap_or(false);
         let mic_on =
@@ -1715,6 +1735,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
         job_id.as_deref(),
         auto_zoom,
         auto_zoom_depth,
+        &click_effects,
     );
     match job {
         Ok(job_pid) => {
@@ -1985,6 +2006,23 @@ mod tests {
     }
 
     #[test]
+    fn the_click_effect_argument_wins_over_a_stale_config() {
+        let stored = json!({ "clickEffects": "halo" });
+        assert_eq!(
+            click_effects_choice(&Some("ripple".into()), &stored),
+            "ripple"
+        );
+        assert_eq!(click_effects_choice(&Some("off".into()), &stored), "off");
+        assert_eq!(click_effects_choice(&Some("pulse".into()), &stored), "off");
+        assert_eq!(click_effects_choice(&Some("  ".into()), &stored), "halo");
+        assert_eq!(click_effects_choice(&None, &stored), "halo");
+        assert_eq!(
+            click_effects_choice(&None, &json!({ "clickEffects": "sparkle" })),
+            "off"
+        );
+    }
+
+    #[test]
     fn settings_serialize_for_the_state_file() {
         let settings = Settings {
             desktop: true,
@@ -2007,6 +2045,7 @@ mod tests {
             zoom_max: 2.0,
             auto_zoom: true,
             auto_zoom_depth: 2.5,
+            click_effects: "ripple".into(),
         };
         let value = settings.to_json();
         assert_eq!(value["fps"], 60);
@@ -2017,6 +2056,7 @@ mod tests {
         assert_eq!(value["microphoneDevice"], "");
         assert_eq!(value["manualZoom"], true);
         assert_eq!(value["zoomMax"], 2.0);
+        assert_eq!(value["clickEffects"], "ripple");
     }
 
     #[test]

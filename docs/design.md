@@ -476,7 +476,7 @@ is not a setting.
 | Tab     | Belongs here                                                              | Does not belong                  |
 | :------ | :------------------------------------------------------------------------ | :------------------------------- |
 | Recording | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
-| Visuals   | Manual zoom, auto zoom, pointer capture, pointer appearance and effects   | Anything unrelated to how the picture looks |
+| Visuals   | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
 | Shortcuts | Read-only shortcut reference                                              | Editable key bindings            |
 | History | Takes, the recordings folder, take actions                                | Settings of any kind             |
 
@@ -489,9 +489,13 @@ Rules:
   Audio and Video lead; Capture and Saving follow.
 - Visuals is the home for zoom and pointer. Manual zoom comes first: it is the
   live, on-by-default control. Auto zoom is the optional save-pass switch and is
-  off by default. Pointer capture and pointer appearance follow.
+  off by default. Click effects follow it: they are the optional save-pass
+  suffix to auto zoom, off by default. Pointer capture and pointer appearance
+  follow.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
+- Click effect style is a cycle row (`Off`, `Ripple`, `Halo`). Never a second
+  switch or a nested menu.
 - Recording uses section labels so the audio, video, capture, and saving groups
   still scan quickly.
 
@@ -807,6 +811,31 @@ Spend polish only here:
    history.
 
 If a fourth signature animation is proposed, remove one of these instead.
+
+### 8.1 Click effects (rendered)
+
+Click effects are burned into the saved take by the save pass, not painted by
+the panel. They do not spend the panel's motion budget and are not one of the
+signature moments above.
+
+- Off by default. Styles: **Ripple**, **Halo**.
+- Color: the active theme accent. The ring, glow, echo, and core are all the
+  accent or a lighter accent, never a white fill. A dark hairline carries
+  contrast on both light and dark content, so the effect is never carried by
+  hue alone.
+- Scale: the base radius is about 3.6% of the shorter source side, clamped to
+  22–66 px. The ring grows to roughly 1.5× that radius. Because the shapes are
+  composited before the camera pass, an auto-zoom block scales and moves them
+  with the picture instead of leaving them floating at screen size.
+- Ripple: a soft accent halo, a crisp accented ring, a thin trailing accent
+  echo, and a lighter accent core. Ring 620 ms, halo 940 ms.
+- Halo: a soft accent bloom with a lighter accent inner glow and a short accent
+  core. No hard ring. 940 ms.
+- Easing is ease-out over two or three scale stages. No spring, no bounce, no
+  overshoot, no loop.
+- The resolved accent is saved in `project.json`, so a re-render keeps the look
+  the take was recorded with. Turning the row Off is the opt-out; the panel's
+  reduce-motion setting governs interface motion, not recorded output.
 
 ---
 

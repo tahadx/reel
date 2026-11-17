@@ -528,27 +528,35 @@ fn quarantine_before_save(
     }
 }
 
-/// The auto zoom choices for this take. `stop` resolves them with the take and
+/// The save-pass choices for this take. `stop` resolves them with the take and
 /// passes them in, because a newer take may own the live settings by the time
 /// this save starts. The state fallback keeps a hand-run `__finalize` working.
 struct TakeOptions {
     enabled: bool,
     depth: f64,
+    click_effects: String,
 }
 
 fn take_options(paths: &Paths, args: &FinalizeArgs) -> TakeOptions {
+    let settings = state::read(paths)
+        .and_then(|state| state.get("settings").cloned())
+        .unwrap_or(Value::Null);
+    let click_effects = if args.click_effects.is_empty() {
+        config::click_effects(&settings)
+    } else {
+        config::click_effects(&json!({ "clickEffects": args.click_effects }))
+    };
     if args.auto_zoom_depth > 0.0 {
         return TakeOptions {
             enabled: args.auto_zoom,
             depth: args.auto_zoom_depth,
+            click_effects,
         };
     }
-    let settings = state::read(paths)
-        .and_then(|state| state.get("settings").cloned())
-        .unwrap_or(Value::Null);
     TakeOptions {
         enabled: config::auto_zoom(&settings),
         depth: config::auto_zoom_depth(&settings),
+        click_effects,
     }
 }
 
@@ -625,17 +633,45 @@ fn project_from_telemetry(
     let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<Vec<(f64, f64, f64)>> {
         refiner.targets(enter, hold, cx, cy, width as f64, height as f64)
     };
+    let bounds = autozoom::CaptureBounds::frame(width as f64, height as f64);
+    let mode = autozoom::CaptureMode::from_kind(&project.capture.kind);
     project.camera = project::build_camera_for_capture(
         &telemetry.clicks,
         options.enabled,
         options.depth,
-        autozoom::CaptureBounds::frame(width as f64, height as f64),
-        autozoom::CaptureMode::from_kind(&project.capture.kind),
+        bounds,
+        mode,
         trim,
         &telemetry.scrolls,
         Some(&refine),
     );
+    project.ripples = effect_ripples(&telemetry.clicks, bounds, trim, &options.click_effects);
     Ok(project)
+}
+
+/// The effect block for a take. The accent is resolved now so the saved
+/// project keeps the look it was rendered with even after a theme switch; an
+/// effects-off take still records the switch as off.
+fn effect_ripples(
+    clicks: &[project::Click],
+    bounds: autozoom::CaptureBounds,
+    trim: f64,
+    style: &str,
+) -> project::Ripples {
+    let style = crate::effects::valid_style(style);
+    if style == "off" {
+        return project::Ripples::default();
+    }
+    project::Ripples {
+        enabled: true,
+        style: style.into(),
+        color: crate::effects::theme_accent(),
+        clicks: project::clicks_in_capture(clicks, bounds, trim)
+            .into_iter()
+            .map(|click| project::RippleClick::new(click.t, click.x, click.y))
+            .collect(),
+        extra: Default::default(),
+    }
 }
 
 /// Write `<take>.project.json` into the hidden sidecar folder. A write failure
@@ -831,6 +867,7 @@ fn run_job_inner(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                     project.trim_start,
                     args.noise_cancellation,
                 )
+                .map(|_| ())
             }
             Err(err) => Err(err),
         },
@@ -845,27 +882,30 @@ fn run_job_inner(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                 &args.target,
                 &args.target_kind,
             ) {
-                Ok(project) => {
+                Ok(mut project) => {
                     paths::log(
                         paths,
                         &format!(
-                            "finalize: auto zoom {} depth={} keyframes={}",
+                            "finalize: auto zoom {} depth={} keyframes={} effects={} clicks={}",
                             if project.camera.style == "off" {
                                 "off"
                             } else {
                                 "on"
                             },
                             project.camera.depth,
-                            project.camera.keyframes.len()
+                            project.camera.keyframes.len(),
+                            project.ripples.style,
+                            project.ripples.clicks.len()
                         ),
                     );
-                    // No zoom block means the camera would be a no-op. Use the
-                    // trim/loudness pass instead, which can stream-copy the
-                    // tail, and still write the project for a later re-render.
-                    if !project.camera.needs_zoom() {
+                    // No zoom block and no effect click means the render would
+                    // be a no-op. Use the trim/loudness pass instead, which can
+                    // stream-copy the tail, and still write the project for a
+                    // later re-render.
+                    if !project.camera.needs_zoom() && !project.ripples.needs_render() {
                         paths::log(
                             paths,
-                            "finalize: auto zoom has no blocks; using the trim pass",
+                            "finalize: no zoom blocks or click effects; using the trim pass",
                         );
                         let saved = finalize_video(
                             paths,
@@ -887,19 +927,25 @@ fn run_job_inner(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                             project.trim_start,
                             args.noise_cancellation,
                         ) {
-                            Ok(()) => {
+                            Ok(effects_applied) => {
+                                // The retry path can drop the effects to keep
+                                // the camera. The project must describe the
+                                // saved file, not the choice that failed.
+                                if !effects_applied {
+                                    project.ripples = project::Ripples::default();
+                                }
                                 built_project = Some(project);
                                 Ok(())
                             }
                             Err(err) => {
-                                // A camera path must never cost the take. Fall
-                                // back to the trim/loudness pass and keep the
-                                // footage, but do not write a project that
-                                // describes a zoom the saved take never had.
+                                // A camera path or effect must never cost the
+                                // take. Fall back to the trim/loudness pass and
+                                // keep the footage, but do not write a project
+                                // that describes a look the saved take never had.
                                 paths::log(
                                     paths,
                                     &format!(
-                                        "finalize: zoom pass failed, saving without it: {err:#}"
+                                        "finalize: render pass failed, saving without it: {err:#}"
                                     ),
                                 );
                                 finalize_video(
@@ -917,7 +963,7 @@ fn run_job_inner(paths: &Paths, args: FinalizeArgs) -> Result<()> {
                     // Missing or unusable telemetry must never cost the take.
                     paths::log(
                         paths,
-                        &format!("finalize: telemetry skipped, saving without a zoom: {err:#}"),
+                        &format!("finalize: telemetry skipped, saving without it: {err:#}"),
                     );
                     finalize_video(
                         paths,
@@ -1128,6 +1174,7 @@ mod tests {
         let options = TakeOptions {
             enabled: true,
             depth: 2.0,
+            click_effects: "off".into(),
         };
         let project = project_from_telemetry(
             &Paths::for_test(&root),
@@ -1168,6 +1215,43 @@ mod tests {
     }
 
     #[test]
+    fn a_telemetry_take_records_click_effects_in_saved_take_time() {
+        let root = temp_root("effects");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-effects.mp4");
+        fs::write(&take, b"video").unwrap();
+
+        let project = project_from_telemetry(
+            &Paths::for_test(&root),
+            &telemetry_fixture(),
+            &take,
+            &take,
+            1.0,
+            &TakeOptions {
+                enabled: false,
+                depth: 2.0,
+                click_effects: "ripple".into(),
+            },
+            "",
+            "",
+        )
+        .unwrap();
+
+        assert!(!project.camera.needs_zoom());
+        assert!(project.ripples.enabled);
+        assert_eq!(project.ripples.style, "ripple");
+        assert!(project.ripples.needs_render());
+        assert_eq!(project.ripples.clicks.len(), 1);
+        assert!((project.ripples.clicks[0].t - 0.5).abs() < 1e-6);
+        assert!((project.ripples.clicks[0].x - 100.5).abs() < 1e-6);
+        assert!((project.ripples.clicks[0].y - 200.25).abs() < 1e-6);
+        assert!(project.ripples.color.starts_with('#'));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn auto_zoom_off_still_records_the_project_without_keyframes() {
         let root = temp_root("project-off");
         let videos = root.join("Videos");
@@ -1184,6 +1268,7 @@ mod tests {
             &TakeOptions {
                 enabled: false,
                 depth: 2.0,
+                click_effects: "off".into(),
             },
             "",
             "",
@@ -1222,6 +1307,7 @@ mod tests {
             &TakeOptions {
                 enabled: true,
                 depth: 2.0,
+                click_effects: "off".into(),
             },
             "",
             "",
@@ -1251,6 +1337,7 @@ mod tests {
             &TakeOptions {
                 enabled: true,
                 depth: 1.5,
+                click_effects: "off".into(),
             },
             "",
             "",
@@ -1305,6 +1392,7 @@ mod tests {
                 &TakeOptions {
                     enabled: true,
                     depth: 2.0,
+                    click_effects: "off".into(),
                 },
                 target,
                 kind,
