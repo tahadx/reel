@@ -232,14 +232,14 @@ local pointer telemetry for later save-pass work. That needs read access to
 devices cannot be read, the take still records without pointer telemetry.
 
 **Auto zoom** sits below **Manual zoom** in Settings → **Visuals**, a single
-on/off switch that is off by default. Turn it on and clicks (or touchpad taps,
-when tap-to-click is on) become short 2× zoom blocks in the saved file. A click
-only counts when it is released within 280 ms and stays within 15 px, so
-dragging a window, scrubbing a slider, or selecting text does not start a zoom.
-Clicks outside a window or area take are ignored, and the zoomed crop is always
-clamped inside the capture. When a click only focuses a window, the block
-follows the part of the screen that changes — the text you are typing and the
-caret next to it — instead of zooming into an empty area.
+on/off switch that is off by default. Turn it on and a press starts a short 2×
+zoom block; a drag that begins with the press is followed smoothly until the
+pointer settles. Every button press inside the capture counts, so selecting
+text, moving a window, or scrubbing a slider zooms and keeps the pointer in
+frame. Clicks outside a window or area take are ignored, and the zoomed crop is
+always clamped inside the capture. When a press only focuses a window, the
+block follows the part of the screen that changes — the text you are typing and
+the caret next to it — instead of zooming into an empty area.
 The pointer is still recorded in this version and scales with the zoom. Reel
 needs read access to `/dev/input` to see the clicks; without it the take still
 saves, just without the automatic zoom. If the camera pass itself fails, the
@@ -248,12 +248,13 @@ take is still saved without the zoom and the reason stays in the recorder log.
 **Click effects** sits below **Auto zoom** in Settings → **Visuals**. It is off
 by default; pick **Ripple** or **Halo** to draw a premium theme-accent effect at
 every click in the saved file. Ripple is the signature ring and glow, Halo is a
-soft lens-like bloom. The effects are built in the save pass from the same
-pointer telemetry as auto zoom, need **Record the pointer** on, and follow the
-camera when a click zooms. The active Omarchy accent is used, with a dark
-hairline so the effect reads on both light and dark content. The choice is
-stored in the take's `project.json`, so `reel render` reproduces the same effect
-even after a theme change.
+soft lens-like bloom. Effects are drawn for short taps — released within 280 ms
+and within 15 px — so a drag zooms without drawing an effect. The effects are
+built in the save pass from the same pointer telemetry as auto zoom, need
+**Record the pointer** on, and follow the camera when a click zooms. The active
+Omarchy accent is used, with a dark hairline so the effect reads on both light
+and dark content. The choice is stored in the take's `project.json`, so
+`reel render` reproduces the same effect even after a theme change.
 
 Every saved take with telemetry writes a `project.json` into a hidden `.reel/`
 folder beside it, even when auto zoom is off. The folder is owner-only and its

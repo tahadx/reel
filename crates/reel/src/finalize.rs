@@ -636,7 +636,7 @@ fn project_from_telemetry(
     let bounds = autozoom::CaptureBounds::frame(width as f64, height as f64);
     let mode = autozoom::CaptureMode::from_kind(&project.capture.kind);
     project.camera = project::build_camera_for_capture(
-        &telemetry.clicks,
+        &telemetry.presses,
         options.enabled,
         options.depth,
         bounds,
@@ -1210,6 +1210,71 @@ mod tests {
         assert!((peak.t - 0.5).abs() < 1e-6);
         assert!((peak.x - 640.0).abs() < 1e-6);
         assert!((peak.y - 360.0).abs() < 1e-6);
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_drag_press_starts_a_zoom_and_is_followed() {
+        // The take the user liked: the press itself arms the block, so a
+        // selection or drag is followed from where it began. Pairing only
+        // short clicks would drop the drag entirely.
+        let root = temp_root("drag-press");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-drag.mp4");
+        fs::write(&take, b"video").unwrap();
+        let telemetry = root.join("drag.telemetry.jsonl");
+        fs::write(
+            &telemetry,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"target\":\"monitor:DP-1\",\"monitor\":\"DP-1\",\"width\":1000,\"height\":800},\"fps\":60}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.0,\"button\":\"left\",\"state\":\"down\",\"x\":100.0,\"y\":100.0}\n",
+                "{\"v\":1,\"type\":\"move\",\"t\":1.1,\"x\":200.0,\"y\":150.0}\n",
+                "{\"v\":1,\"type\":\"move\",\"t\":1.3,\"x\":400.0,\"y\":300.0}\n",
+                "{\"v\":1,\"type\":\"move\",\"t\":1.5,\"x\":600.0,\"y\":500.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.7,\"button\":\"left\",\"state\":\"up\",\"x\":600.0,\"y\":500.0}\n",
+                "{\"v\":1,\"type\":\"stop\",\"t\":4.0,\"reason\":\"stopped\",\"error\":null}\n"
+            ),
+        )
+        .unwrap();
+
+        let project = project_from_telemetry(
+            &Paths::for_test(&root),
+            &telemetry,
+            &take,
+            &take,
+            0.0,
+            &TakeOptions {
+                enabled: true,
+                depth: 2.0,
+                click_effects: "ripple".into(),
+            },
+            "monitor:DP-1",
+            "monitor",
+        )
+        .unwrap();
+
+        // The press at 1.0 is the block entry. The moved pointer adds follow
+        // keyframes between 1.0 and the release, so the drag does not leave the
+        // frame.
+        let entry = project
+            .camera
+            .keyframes
+            .iter()
+            .find(|frame| (frame.t - 1.0).abs() < 1e-6)
+            .expect("the press is a zoom block");
+        assert!(entry.zoom > 1.9);
+        let followed = project
+            .camera
+            .keyframes
+            .iter()
+            .filter(|frame| frame.t > 1.0 && frame.t < 1.7 && frame.zoom > 1.9)
+            .count();
+        assert!(followed >= 2, "follow keyframes: {followed}");
+        // Click effects still take only short taps: the drag draws nothing.
+        assert!(project.ripples.enabled);
+        assert!(project.ripples.clicks.is_empty());
 
         fs::remove_dir_all(&root).ok();
     }

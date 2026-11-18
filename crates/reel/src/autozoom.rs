@@ -24,20 +24,6 @@ pub const CLICK_MAX_TRAVEL_PX: f64 = 15.0;
 /// release gate above is stricter for ordinary clicks; this constant documents
 /// the drag line and is used when a release is missing from a truncated log.
 pub const DRAG_CANCEL_PX: f64 = 20.0;
-/// The stationary part of a zoomed viewport, as a share of its width/height.
-pub const DEADZONE_SHARE: f64 = 0.55;
-/// Keep the cursor this far inside the deadzone edge when the camera follows.
-pub const DEADZONE_PAD_SHARE: f64 = 0.06;
-/// Moving farther than this from the click anchor without another click means
-/// the user moved on, so the shot should end instead of chasing the pointer.
-pub const FOLLOW_ABANDON_PX: f64 = 450.0;
-/// The pointer has to be away for this long before the follow is abandoned.
-pub const FOLLOW_ABANDON_SECS: f64 = 0.400;
-/// A deliberate drag can cross the screen slowly and is still followed. Only a
-/// flick or a teleport this fast counts as "moved on".
-pub const FOLLOW_ABANDON_SPEED: f64 = 900.0;
-/// A scroll keeps the zoom alive for this long after the last tick.
-pub const SCROLL_HOLD_SECS: f64 = 1.200;
 /// A zoom-in settles in roughly four half-lives, about 720 ms.
 pub const ZOOM_IN_HALF_LIFE_SECS: f64 = 0.180;
 /// Zooming out is deliberately a little slower so the context returns gently.
@@ -214,21 +200,6 @@ impl CaptureBounds {
         let y = (cy - height / 2.0).clamp(self.y, self.y + self.height - height);
         (x, y, width, height)
     }
-
-    /// Whether a pointer is inside the visible crop at this centre and zoom.
-    pub fn viewport_contains(&self, center: (f64, f64), zoom: f64, x: f64, y: f64) -> bool {
-        if !self.contains(x, y) {
-            return false;
-        }
-        let z = finite_zoom(zoom);
-        let (cx, cy) = self.clamp_center(center.0, center.1, z);
-        let half_w = self.width / (2.0 * z);
-        let half_h = self.height / (2.0 * z);
-        x >= cx - half_w - 1e-9
-            && x <= cx + half_w + 1e-9
-            && y >= cy - half_h - 1e-9
-            && y <= cy + half_h + 1e-9
-    }
 }
 
 fn finite_zoom(zoom: f64) -> f64 {
@@ -388,127 +359,6 @@ pub struct ScrollTick {
     /// Positive is up/away, negative is down/towards. High-resolution reports
     /// are normalised so one mouse notch is `1.0`.
     pub delta: f64,
-}
-
-/// Extend a block's hold while the pointer is scrolling inside its viewport.
-/// Each tick keeps the camera for [`SCROLL_HOLD_SECS`] after that tick, capped
-/// at one extension per tick.
-pub fn extend_hold_for_scrolls(
-    enter: f64,
-    hold: f64,
-    center: (f64, f64),
-    zoom: f64,
-    bounds: CaptureBounds,
-    scrolls: &[ScrollTick],
-) -> f64 {
-    let mut hold = if hold.is_finite() { hold } else { enter };
-    for scroll in scrolls {
-        if !(scroll.t.is_finite()
-            && scroll.x.is_finite()
-            && scroll.y.is_finite()
-            && scroll.delta.is_finite())
-        {
-            continue;
-        }
-        if scroll.t < enter - 1e-9 || scroll.delta == 0.0 {
-            continue;
-        }
-        if scroll.t > hold + 1e-9 {
-            // Scrolls are sorted by time. A tick after the current hold cannot
-            // revive a shot that has already eased out.
-            break;
-        }
-        if bounds.viewport_contains(center, zoom, scroll.x, scroll.y) {
-            hold = hold.max(scroll.t + SCROLL_HOLD_SECS);
-        }
-    }
-    hold
-}
-
-/// Whether a cursor is inside the stationary inner box of the current crop.
-pub fn inside_deadzone(
-    center: (f64, f64),
-    cursor: (f64, f64),
-    zoom: f64,
-    bounds: CaptureBounds,
-) -> bool {
-    if !(cursor.0.is_finite() && cursor.1.is_finite()) || !bounds.is_valid() {
-        return false;
-    }
-    let z = finite_zoom(zoom);
-    let half_w = bounds.width / (2.0 * z) * DEADZONE_SHARE;
-    let half_h = bounds.height / (2.0 * z) * DEADZONE_SHARE;
-    (cursor.0 - center.0).abs() <= half_w + 1e-9 && (cursor.1 - center.1).abs() <= half_h + 1e-9
-}
-
-/// The new centre needed to keep `cursor` inside the deadzone, or `None` when
-/// the camera can stay completely still.
-pub fn deadzone_target(
-    center: (f64, f64),
-    cursor: (f64, f64),
-    zoom: f64,
-    bounds: CaptureBounds,
-) -> Option<(f64, f64)> {
-    if inside_deadzone(center, cursor, zoom, bounds) {
-        return None;
-    }
-    if !(cursor.0.is_finite() && cursor.1.is_finite()) || !bounds.is_valid() {
-        return None;
-    }
-    let z = finite_zoom(zoom);
-    let half_w = bounds.width / (2.0 * z) * DEADZONE_SHARE;
-    let half_h = bounds.height / (2.0 * z) * DEADZONE_SHARE;
-    let pad_w = half_w * DEADZONE_PAD_SHARE;
-    let pad_h = half_h * DEADZONE_PAD_SHARE;
-
-    let x = if cursor.0 > center.0 + half_w {
-        cursor.0 - half_w + pad_w
-    } else if cursor.0 < center.0 - half_w {
-        cursor.0 + half_w - pad_w
-    } else {
-        center.0
-    };
-    let y = if cursor.1 > center.1 + half_h {
-        cursor.1 - half_h + pad_h
-    } else if cursor.1 < center.1 - half_h {
-        cursor.1 + half_h - pad_h
-    } else {
-        center.1
-    };
-    Some(bounds.clamp_center(x, y, z))
-}
-
-/// The pointer has left the shot quickly and has not clicked again for long
-/// enough. A slow drag is followed; a flick or teleport is not.
-pub fn should_abandon(
-    anchor: (f64, f64),
-    previous: (f64, f64),
-    cursor: (f64, f64),
-    elapsed: f64,
-    dt: f64,
-) -> bool {
-    if !(anchor.0.is_finite()
-        && anchor.1.is_finite()
-        && previous.0.is_finite()
-        && previous.1.is_finite()
-        && cursor.0.is_finite()
-        && cursor.1.is_finite()
-        && elapsed.is_finite()
-        && dt.is_finite())
-    {
-        return false;
-    }
-    if elapsed < FOLLOW_ABANDON_SECS - 1e-9 || dt <= 1e-9 {
-        return false;
-    }
-    let dx = cursor.0 - anchor.0;
-    let dy = cursor.1 - anchor.1;
-    if dx * dx + dy * dy <= FOLLOW_ABANDON_PX * FOLLOW_ABANDON_PX + 1e-9 {
-        return false;
-    }
-    let step_x = cursor.0 - previous.0;
-    let step_y = cursor.1 - previous.1;
-    (step_x * step_x + step_y * step_y).sqrt() / dt >= FOLLOW_ABANDON_SPEED
 }
 
 /// Who currently owns the camera.
@@ -731,103 +581,6 @@ mod tests {
             assert!(left + width <= 640.0 + 1e-9);
             assert!(top + height <= 360.0 + 1e-9);
         }
-    }
-
-    #[test]
-    fn the_deadzone_keeps_the_camera_still_until_the_cursor_leaves() {
-        let bounds = CaptureBounds::frame(1000.0, 800.0);
-        let center = (500.0, 400.0);
-        // 55% of a 500x400 crop is 275x220; stay well inside it.
-        assert!(inside_deadzone(center, (520.0, 410.0), 2.0, bounds));
-        assert_eq!(deadzone_target(center, (520.0, 410.0), 2.0, bounds), None);
-
-        let outside = (650.0, 450.0);
-        assert!(!inside_deadzone(center, outside, 2.0, bounds));
-        let next = deadzone_target(center, outside, 2.0, bounds).unwrap();
-        assert!(inside_deadzone(next, outside, 2.0, bounds));
-        assert!(next.0 <= 650.0 && next.1 <= 450.0);
-
-        // At the capture edge the centre cannot move far enough to put the
-        // pointer in the inner box, but the pointer must stay in the crop.
-        let edge = (900.0, 700.0);
-        let next = deadzone_target(center, edge, 2.0, bounds).unwrap();
-        assert!(bounds.viewport_contains(next, 2.0, edge.0, edge.1));
-    }
-
-    #[test]
-    fn a_far_pointer_is_abandoned_after_the_grace_period() {
-        let anchor = (100.0, 100.0);
-        // A slow drag across the same distance is still worth following.
-        assert!(!should_abandon(
-            anchor,
-            (700.0, 600.0),
-            (800.0, 700.0),
-            0.6,
-            0.5
-        ));
-        // A flick to the same place is the user moving on.
-        assert!(should_abandon(
-            anchor,
-            (300.0, 300.0),
-            (800.0, 700.0),
-            0.45,
-            0.1
-        ));
-        // Too early, or still near the click.
-        assert!(!should_abandon(
-            anchor,
-            (200.0, 200.0),
-            (800.0, 700.0),
-            0.2,
-            0.05
-        ));
-        assert!(!should_abandon(
-            anchor,
-            (250.0, 250.0),
-            (300.0, 300.0),
-            0.45,
-            0.1
-        ));
-    }
-
-    #[test]
-    fn scrolling_inside_the_viewport_extends_the_hold() {
-        let bounds = CaptureBounds::frame(1000.0, 800.0);
-        let scrolls = vec![
-            ScrollTick {
-                t: 2.0,
-                x: 500.0,
-                y: 400.0,
-                delta: 1.0,
-            },
-            ScrollTick {
-                t: 3.0,
-                x: 500.0,
-                y: 400.0,
-                delta: 1.0,
-            },
-        ];
-        // First tick at 2.0 -> 3.2; second at 3.0 is inside the extended hold
-        // and keeps it to 4.2.
-        assert!(
-            (extend_hold_for_scrolls(1.0, 2.1, (500.0, 400.0), 2.0, bounds, &scrolls) - 4.2).abs()
-                < 1e-9
-        );
-    }
-
-    #[test]
-    fn scrolling_outside_the_crop_does_not_extend_the_hold() {
-        let bounds = CaptureBounds::frame(1000.0, 800.0);
-        let scrolls = vec![ScrollTick {
-            t: 2.0,
-            x: 10.0,
-            y: 10.0,
-            delta: 1.0,
-        }];
-        assert_eq!(
-            extend_hold_for_scrolls(1.0, 2.1, (500.0, 400.0), 2.0, bounds, &scrolls),
-            2.1
-        );
     }
 
     #[test]

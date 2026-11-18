@@ -190,10 +190,9 @@ belongs to the retired live-zoom build and is ignored.
 The save pass builds the camera from the take's telemetry, not from the live
 zoom:
 
-- A click counts on release, not on press: the button must come up within
-  280 ms and the pointer must stay within 15 px. A long press, a window drag, a
-  slider scrub, or a text selection therefore does not start a zoom. Left and
-  right clicks count; middle-click is ignored.
+- A press starts a block. Every button down inside the capture is a zoom
+  anchor, so a text selection, a window drag, or a slider scrub starts a zoom
+  that follows the pointer. Left, right, and middle presses all count.
 - A click outside the recorded monitor, window, or area is ignored completely.
   Window and area takes use the encoded rectangle, so moving the window during
   the take cannot make an outside click pull the camera into the frame.
@@ -205,14 +204,9 @@ zoom:
   only focuses a window clicks wherever the pointer was parked, so this keeps
   the zoom on the work rather than on an empty area. A click that changes the
   picture where it landed keeps its place.
-- A drag that starts just after a qualifying click — selecting text, moving a
-  window, drawing a line — is followed continuously. The same follow covers a
-  context menu or dropdown: moving down to an item keeps the pointer in frame
-  without a held button. The pointer has an inner deadzone covering 55% of the
-  zoomed viewport: small movement does not move the camera at all, and leaving
-  the deadzone glides the view just enough to keep the pointer in frame. A fast
-  flick more than 450 px from the click anchor, with no new click for 400 ms,
-  ends the shot instead of chasing the pointer.
+- Pointer movement after a press is followed continuously, which is what keeps
+  a drag — selecting text, moving a window, drawing a line — inside the zoomed
+  frame until the pointer settles.
 - Scrolling inside the zoomed viewport keeps the block alive. Each wheel or
   touchpad tick holds the camera until 1.2 s after the last tick, so reading
   through a page does not zoom out mid-scroll.
@@ -250,11 +244,11 @@ removed when the take is trashed. Edit the project and run
 **Click effects** sits below **Auto zoom** in Settings -> **Visuals**. It is off
 by default; the choices are **Ripple** and **Halo**. The panel writes the choice
 with every take (`reel config set clickEffects ripple` also sets it), and the
-save pass draws the effect at each click that qualifies for auto zoom (whether
-or not auto zoom is on): a left or right release within 280 ms and 15 px,
-inside the capture. Touchpad taps count when tap-to-click is on. Clicks outside
-a window or area take are ignored, so the effect is never drawn outside the
-recorded rectangle.
+save pass draws the effect at each short tap (whether or not auto zoom is on):
+a left or right release within 280 ms and 15 px, inside the capture. A drag
+zooms but does not draw an effect. Touchpad taps count when tap-to-click is on.
+Clicks outside a window or area take are ignored, so the effect is never drawn
+outside the recorded rectangle.
 
 - **Ripple** is the signature effect: a soft accent halo, a crisp accented ring
   with a dark hairline, a thin trailing accent echo, and a lighter accent core

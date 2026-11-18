@@ -248,44 +248,6 @@ fn distance(a: (f64, f64, f64), b: (f64, f64, f64)) -> f64 {
     ((a.1 - b.1).powi(2) + (a.2 - b.2).powi(2)).sqrt()
 }
 
-/// Camera points that follow ordinary pointer movement after a click, without
-/// requiring the button to stay down. This is what keeps a context menu or a
-/// dropdown inside the shot. The save pass's deadzone decides whether a point
-/// is actually worth a camera move; this only turns telemetry into candidates.
-fn pointer_follow_targets(
-    samples: &[(f64, f64, f64)],
-    enter: f64,
-    hold: f64,
-    anchor: (f64, f64),
-) -> Vec<(f64, f64, f64)> {
-    if samples.len() < 2 || hold <= enter {
-        return Vec::new();
-    }
-    let mut out = Vec::new();
-    let mut next = enter + DRAG_STEP_SECS;
-    for &(t, x, y) in samples {
-        if t <= enter + 0.01 || t > hold || !x.is_finite() || !y.is_finite() {
-            continue;
-        }
-        if t >= next {
-            out.push((t, x, y));
-            next = t + DRAG_STEP_SECS;
-        }
-    }
-    // A stationary pointer produces a sync every 100 ms; do not turn that into
-    // a follow track or a log line.
-    let moved = out.iter().any(|(_, x, y)| {
-        let dx = x - anchor.0;
-        let dy = y - anchor.1;
-        dx * dx + dy * dy > 20.0 * 20.0
-    });
-    if moved {
-        out
-    } else {
-        Vec::new()
-    }
-}
-
 /// Three-point smoothing, keeping the endpoints exact.
 fn smooth_positions(points: &mut [(f64, f64, f64)]) {
     if points.len() < 3 {
@@ -340,7 +302,6 @@ impl Refiner {
         height: f64,
     ) -> Option<Vec<(f64, f64, f64)>> {
         let mut points = Vec::new();
-        let mut retargeted = false;
         let start = (enter + self.offset).max(0.0);
         let span = (hold + self.offset - start).clamp(0.0, MAX_WINDOW_SECS);
         if let Some(frames) = self.sample(start, span) {
@@ -348,7 +309,6 @@ impl Refiner {
                 .and_then(|activity| activity.retarget(cx, cy, width, height))
             {
                 points.push((enter, x, y));
-                retargeted = true;
                 paths::log_to(
                     &self.log,
                     &format!(
@@ -375,22 +335,6 @@ impl Refiner {
                     &self.log,
                     &format!("finalize: zoom follows a drag of {count} points at {enter:.2}s"),
                 );
-            } else if !retargeted {
-                // A context menu or dropdown is navigated without a held
-                // button. Follow the pointer through the block too; the camera
-                // deadzone in the save pass decides when that actually moves
-                // the view, so small wobble stays still.
-                let follow = pointer_follow_targets(&saved, enter, hold, (cx, cy));
-                if !follow.is_empty() {
-                    let count = follow.len();
-                    points.extend(follow);
-                    paths::log_to(
-                        &self.log,
-                        &format!(
-                            "finalize: zoom follows the pointer for {count} points at {enter:.2}s"
-                        ),
-                    );
-                }
             }
         }
         Some(points)
@@ -552,25 +496,6 @@ mod tests {
     fn frames_of_the_wrong_size_are_ignored() {
         let frames = vec![vec![0u8; 10], vec![0u8; 10]];
         assert!(Activity::from_frames(&frames).is_none());
-    }
-
-    #[test]
-    fn pointer_movement_after_a_click_is_a_follow_candidate() {
-        let samples = vec![
-            (1.0, 720.0, 720.0),
-            (1.05, 720.0, 720.0),
-            (1.2, 720.0, 820.0),
-            (1.45, 720.0, 920.0),
-            (1.7, 720.0, 1020.0),
-        ];
-        let points = pointer_follow_targets(&samples, 1.0, 1.9, (720.0, 720.0));
-        assert_eq!(points.len(), 3, "points were {points:?}");
-        assert!(points.windows(2).all(|pair| pair[0].0 < pair[1].0));
-        assert_eq!(points.last().unwrap().2, 1020.0);
-
-        // A stationary click has sync samples but no follow track.
-        let still = vec![(1.0, 720.0, 720.0), (1.2, 721.0, 720.0)];
-        assert!(pointer_follow_targets(&still, 1.0, 1.9, (720.0, 720.0)).is_empty());
     }
 
     #[test]

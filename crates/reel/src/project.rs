@@ -409,6 +409,11 @@ pub struct Click {
 /// camera and the `start` facts that fill the project's capture block.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Telemetry {
+    /// Every button press in telemetry time, in the order it arrived. Auto
+    /// zoom uses these: a press starts a block, so a drag is followed from
+    /// where it began instead of waiting for a release.
+    pub presses: Vec<Click>,
+    /// Short press/release pairs. Click effects use these; a drag is not a tap.
     pub clicks: Vec<Click>,
     /// Every pointer position in telemetry time: `(t, x, y)`. Used to follow a
     /// drag instead of snapping between reported clicks.
@@ -434,6 +439,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
     let text = fs::read_to_string(path)
         .with_context(|| format!("cannot read the telemetry at {}", path.display()))?;
     let mut telemetry = Telemetry {
+        presses: Vec::new(),
         clicks: Vec::new(),
         samples: Vec::new(),
         scrolls: Vec::new(),
@@ -469,15 +475,6 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 }
             }
             Some("button") => {
-                // Older logs wrote a press without a button name; those are
-                // left clicks by construction.
-                let button = record
-                    .get("button")
-                    .and_then(Value::as_str)
-                    .unwrap_or("left");
-                let Some(index) = click_button_index(button) else {
-                    continue;
-                };
                 let Some(t) = record.get("t").and_then(Value::as_f64) else {
                     continue;
                 };
@@ -487,8 +484,24 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 let Some(y) = record.get("y").and_then(Value::as_f64) else {
                     continue;
                 };
+                let state = record.get("state").and_then(Value::as_str);
+                if state == Some("down") && t.is_finite() && x.is_finite() && y.is_finite() {
+                    // Auto zoom starts on the press. A drag has no short
+                    // release, but its block must exist so the pointer can be
+                    // followed from the first frame.
+                    telemetry.presses.push(Click { t, x, y });
+                }
+                // Older logs wrote a press without a button name; those are
+                // left clicks by construction.
+                let button = record
+                    .get("button")
+                    .and_then(Value::as_str)
+                    .unwrap_or("left");
+                let Some(index) = click_button_index(button) else {
+                    continue;
+                };
                 let point = Press::new(t, x, y);
-                match record.get("state").and_then(Value::as_str) {
+                match state {
                     Some("down") => pending[index] = Some(point),
                     Some("up") => {
                         let Some(press) = pending[index].take() else {
@@ -555,6 +568,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         }
     }
     telemetry.clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
+    telemetry.presses.sort_by(|a, b| a.t.total_cmp(&b.t));
     Ok(telemetry)
 }
 
@@ -654,7 +668,7 @@ pub fn build_camera_for_capture(
     bounds: CaptureBounds,
     mode: CaptureMode,
     trim_start: f64,
-    scrolls: &[ScrollTick],
+    _scrolls: &[ScrollTick],
     refine: Option<TargetRefiner>,
 ) -> Camera {
     let style = if enabled { "auto" } else { "off" };
@@ -687,23 +701,6 @@ pub fn build_camera_for_capture(
 
     // Telemetry time is raw take time; keyframes use saved-take time.
     let clicks = clicks_in_capture(clicks, bounds, trim_start);
-    let trim = trim_start.max(0.0);
-    let scrolls: Vec<ScrollTick> = scrolls
-        .iter()
-        .filter(|scroll| {
-            scroll.t.is_finite()
-                && scroll.x.is_finite()
-                && scroll.y.is_finite()
-                && scroll.delta.is_finite()
-                && bounds.contains(scroll.x, scroll.y)
-        })
-        .map(|scroll| ScrollTick {
-            t: (scroll.t - trim).max(0.0),
-            x: scroll.x,
-            y: scroll.y,
-            delta: scroll.delta,
-        })
-        .collect();
 
     if clicks.is_empty() {
         return camera;
@@ -749,42 +746,14 @@ pub fn build_camera_for_capture(
                 // The block must be aimed when it eases in, not part-way.
                 targets[0].0 = enter;
             }
-            // A drag is followed only while it is still the same shot. The
-            // deadzone keeps a small pointer wobble from nudging the camera,
-            // and a pointer that travels far away without another click ends
-            // the shot instead of dragging the view across the screen.
-            let abandoned = apply_follow_policy(
-                &mut targets,
-                (click_x, click_y),
-                last.t,
-                camera.depth,
-                bounds,
-            );
             // A continuing change (a selection being dragged, a typing burst)
             // can outlast the usual hold; keep the block alive for it.
             let last = targets.last().map(|target| target.0).unwrap_or(enter);
-            let mut hold = if last > hold + 0.01 {
+            let hold = if last > hold + 0.01 {
                 last + HOLD_AFTER_LAST_SECS / 2.0
             } else {
                 hold
             };
-            if let Some(abandoned) = abandoned {
-                // Leave as soon as the follow is abandoned, not after the
-                // pointer has already left the interesting part of the frame.
-                hold = hold.min(abandoned.max(enter));
-            }
-            let center = targets
-                .last()
-                .map(|(_, x, y)| clamp_center_in(bounds, *x, *y, camera.depth))
-                .unwrap_or_else(|| (bounds.x + width / 2.0, bounds.y + height / 2.0));
-            hold = autozoom::extend_hold_for_scrolls(
-                enter,
-                hold,
-                center,
-                camera.depth,
-                bounds,
-                &scrolls,
-            );
             Block {
                 start: (enter - EASE_IN_SECS).max(0.0),
                 enter,
@@ -881,64 +850,6 @@ pub fn build_camera_for_capture(
     camera
 }
 
-/// Filter a follow track before it becomes keyframes.
-///
-/// Dense points are a pointer drag. They are kept only while they are still
-/// part of the same shot: a point inside the inner deadzone leaves the camera
-/// exactly where it is, a point outside it moves the camera just enough to put
-/// the pointer back inside, and a point far from the click anchor after the
-/// grace period abandons the follow. Sparse points are deliberate re-aims (a
-/// caret or a panel) and keep their exact centre.
-///
-/// Returns the saved-take time at which the follow was abandoned, if it was.
-fn apply_follow_policy(
-    targets: &mut Vec<(f64, f64, f64)>,
-    anchor: (f64, f64),
-    last_click: f64,
-    depth: f64,
-    bounds: CaptureBounds,
-) -> Option<f64> {
-    if targets.len() < 2 {
-        return None;
-    }
-    let mut kept = Vec::with_capacity(targets.len());
-    kept.push(targets[0]);
-    let mut camera = clamp_center_in(bounds, targets[0].1, targets[0].2, depth);
-    let mut previous_t = targets[0].0;
-    let mut previous_point = (targets[0].1, targets[0].2);
-    let mut abandoned = None;
-    for &(t, x, y) in targets.iter().skip(1) {
-        let dense = t - previous_t <= PAN_SECS + 0.02;
-        let dt = t - previous_t;
-        if dense {
-            if autozoom::should_abandon(anchor, previous_point, (x, y), t - last_click, dt) {
-                abandoned = Some(t);
-                break;
-            }
-            if autozoom::inside_deadzone(camera, (x, y), depth, bounds) {
-                // A stationary keyframe advances the dense-follow clock even
-                // though the camera does not move, so the first real edge
-                // crossing is still a glide and not a 450 ms pan.
-                kept.push((t, camera.0, camera.1));
-                previous_t = t;
-                previous_point = (x, y);
-                continue;
-            }
-            if let Some(next) = autozoom::deadzone_target(camera, (x, y), depth, bounds) {
-                camera = next;
-                kept.push((t, next.0, next.1));
-            }
-        } else {
-            camera = clamp_center_in(bounds, x, y, depth);
-            kept.push((t, camera.0, camera.1));
-        }
-        previous_t = t;
-        previous_point = (x, y);
-    }
-    *targets = kept;
-    abandoned
-}
-
 /// Append the later points of one block, panning between them.
 ///
 /// `targets[0]` is the block's entry point and is handled by the caller.
@@ -963,9 +874,6 @@ fn push_targets(
         // point is a click/jump: hold the old view, then pan over PAN_SECS.
         if at - *last_t > PAN_SECS + 0.02 {
             if moved <= deadband {
-                // A suppressed pan still consumed this point in time; the next
-                // point is not suddenly a sparse jump.
-                *last_t = at;
                 continue;
             }
             let pan_start = at - PAN_SECS;
@@ -978,8 +886,6 @@ fn push_targets(
             push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
         } else {
             if moved <= 1.0 {
-                // A deadzone hold still counts as time inside the drag.
-                *last_t = at;
                 continue;
             }
             push_frame(frames, Keyframe::new(at, depth, next.0, next.1));
@@ -2080,75 +1986,6 @@ mod tests {
             assert!(zoom >= 2.0 - 1e-9, "zoom at {t} was {zoom}");
             assert!(x.is_finite() && y.is_finite());
         }
-    }
-
-    #[test]
-    fn scrolling_inside_the_crop_extends_the_block() {
-        let bounds = CaptureBounds::frame(1000.0, 800.0);
-        let no_scroll = build_camera_for_capture(
-            &[click(1.0, 500.0, 400.0)],
-            true,
-            2.0,
-            bounds,
-            CaptureMode::Monitor,
-            0.0,
-            &[],
-            None,
-        );
-        let with_scroll = build_camera_for_capture(
-            &[click(1.0, 500.0, 400.0)],
-            true,
-            2.0,
-            bounds,
-            CaptureMode::Monitor,
-            0.0,
-            &[autozoom::ScrollTick {
-                t: 1.5,
-                x: 500.0,
-                y: 400.0,
-                delta: 1.0,
-            }],
-            None,
-        );
-        let plain_end = no_scroll.keyframes.last().unwrap().t;
-        let scroll_end = with_scroll.keyframes.last().unwrap().t;
-        // One tick holds until 1.5 + 1.2 = 2.7, then eases out over 0.5 s.
-        assert!((scroll_end - 3.2).abs() < 1e-9, "ended at {scroll_end}");
-        assert!(scroll_end > plain_end);
-    }
-
-    #[test]
-    fn scrolling_outside_the_crop_does_not_extend_the_block() {
-        let bounds = CaptureBounds::frame(1000.0, 800.0);
-        let camera = build_camera_for_capture(
-            &[click(1.0, 500.0, 400.0)],
-            true,
-            2.0,
-            bounds,
-            CaptureMode::Monitor,
-            0.0,
-            &[autozoom::ScrollTick {
-                t: 1.5,
-                x: 20.0,
-                y: 20.0,
-                delta: 1.0,
-            }],
-            None,
-        );
-        let plain = build_camera_for_capture(
-            &[click(1.0, 500.0, 400.0)],
-            true,
-            2.0,
-            bounds,
-            CaptureMode::Monitor,
-            0.0,
-            &[],
-            None,
-        );
-        assert_eq!(
-            camera.keyframes.last().unwrap().t,
-            plain.keyframes.last().unwrap().t
-        );
     }
 
     #[test]
