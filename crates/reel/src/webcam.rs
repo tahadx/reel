@@ -4,26 +4,84 @@ use crate::util;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// A cold camera can take several seconds to deliver its first frame, and mpv
+/// maps the overlay window only once that frame is ready. The first take of a
+/// session used to allow three seconds and then kill the player, which recorded
+/// that take with no webcam while later, warm takes worked.
+const OVERLAY_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Deserialize)]
 struct Client {
+    #[serde(default)]
+    pid: i64,
     #[serde(default)]
     title: String,
     #[serde(default)]
     address: String,
 }
 
-fn window_address() -> Option<String> {
+/// The overlay window's address. Matching the player Reel spawned keeps a
+/// window left over from an earlier take from standing in for a camera that
+/// never opened.
+fn window_address(owner: u32) -> Option<String> {
     let text = util::run_stdout("hyprctl", &["clients", "-j"])?;
     let clients: Vec<Client> = serde_json::from_str(&text).ok()?;
+    overlay_address(&clients, owner)
+}
+
+fn overlay_address(clients: &[Client], owner: u32) -> Option<String> {
     clients
-        .into_iter()
-        .find(|client| client.title == "WebcamOverlay")
-        .map(|client| client.address)
+        .iter()
+        .find(|client| {
+            client.title == "WebcamOverlay" && (client.pid <= 0 || client.pid == i64::from(owner))
+        })
+        .map(|client| client.address.clone())
         .filter(|address| !address.is_empty())
+}
+
+enum OverlayWait {
+    Found(String),
+    Exited,
+    TimedOut,
+}
+
+/// Wait for the overlay window, an exited player, or the deadline. A camera
+/// that is merely cold gets the full timeout; a player that already failed is
+/// not waited on.
+fn wait_for_overlay(child: &mut Child, pid: u32) -> OverlayWait {
+    let deadline = Instant::now() + OVERLAY_TIMEOUT;
+    loop {
+        if let Some(address) = window_address(pid) {
+            return OverlayWait::Found(address);
+        }
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return OverlayWait::Exited,
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            return OverlayWait::TimedOut;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Stop the overlay Reel spawned and reap it. Unlike `cleanup`, this owns the
+/// child handle, so an already reaped pid can never be signalled again.
+fn stop_overlay(child: &mut Child) {
+    paths::kill(child.id() as i32, libc::SIGTERM);
+    let deadline = Instant::now() + Duration::from_millis(100);
+    while Instant::now() < deadline {
+        if matches!(child.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 fn dispatch(lua: &str, legacy: [&str; 2]) {
@@ -51,10 +109,7 @@ pub fn cleanup(paths: &Paths) {
 
 /// Place the 8:9 camera in the bottom-right corner of the recorded rectangle.
 /// Mirrors omarchy-capture-webcam-resize so manual resizes agree.
-fn resize(target: &str, size: &str) {
-    let Some(address) = window_address() else {
-        return;
-    };
+fn resize(address: &str, target: &str, size: &str) {
     let Some((x, y, width, height)) = target::geometry(target) else {
         return;
     };
@@ -284,27 +339,37 @@ pub fn start(paths: &Paths, target: &str, size: &str, explicit_device: &str) -> 
         .stderr(Stdio::null())
         .spawn();
 
-    let Ok(child) = child else {
+    let Ok(mut child) = child else {
         return false;
     };
-    let _ = paths::write_pid(&paths.webcam_pid, child.id());
+    let pid = child.id();
+    let _ = paths::write_pid(&paths.webcam_pid, pid);
 
-    let mut found = false;
-    for _ in 0..60 {
-        if window_address().is_some() {
-            found = true;
-            break;
+    let address = match wait_for_overlay(&mut child, pid) {
+        OverlayWait::Found(address) => address,
+        reason => {
+            // An exited player has already been reaped by `try_wait`, so only a
+            // live one may still be signalled.
+            if matches!(reason, OverlayWait::TimedOut) {
+                stop_overlay(&mut child);
+            }
+            paths::remove_quiet(&paths.webcam_pid);
+            paths::log(
+                paths,
+                "webcam: the overlay did not open; the take continues without it",
+            );
+            util::notify(
+                "Reel",
+                Some("The webcam did not start, so this take has no camera."),
+                "normal",
+            );
+            return false;
         }
-        thread::sleep(Duration::from_millis(50));
-    }
-    if !found {
-        cleanup(paths);
-        return false;
-    }
+    };
 
-    resize(target, size);
+    resize(&address, target, size);
     thread::sleep(Duration::from_millis(350));
-    resize(target, size);
+    resize(&address, target, size);
     true
 }
 
@@ -356,6 +421,37 @@ mod tests {
                     "Insta360 Link 2C Pro".to_string()
                 ),
             ]
+        );
+    }
+
+    fn client(pid: i64, title: &str, address: &str) -> Client {
+        Client {
+            pid,
+            title: title.to_string(),
+            address: address.to_string(),
+        }
+    }
+
+    #[test]
+    fn the_overlay_belongs_to_the_player_reel_spawned() {
+        let clients = vec![
+            client(41, "WebcamOverlay", "0xstale"),
+            client(42, "WebcamOverlay", "0xcurrent"),
+            client(43, "Something else", "0xother"),
+        ];
+        assert_eq!(overlay_address(&clients, 42).as_deref(), Some("0xcurrent"));
+        // A window left over from an earlier take must not stand in for a
+        // camera that never opened.
+        assert_eq!(overlay_address(&clients[..1], 42), None);
+        // When the compositor cannot report a pid, the title still matches.
+        assert_eq!(
+            overlay_address(&[client(0, "WebcamOverlay", "0xanon")], 42).as_deref(),
+            Some("0xanon")
+        );
+        // An empty address cannot be dispatched to.
+        assert_eq!(
+            overlay_address(&[client(42, "WebcamOverlay", "")], 42),
+            None
         );
     }
 
