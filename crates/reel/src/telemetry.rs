@@ -542,6 +542,20 @@ pub struct Listener {
 }
 
 impl Listener {
+    /// Record when the encoder's first frame actually landed.
+    ///
+    /// Telemetry starts its clock when the encoder is launched, but the video
+    /// starts at the first frame. A cold encoder can take seconds to get
+    /// there, so the save pass needs the gap to put clicks and keyframes on
+    /// the frames they belong to.
+    pub fn note_video_start(&self, offset: f64) {
+        let mut writer = self
+            .writer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        writer.write(&video_start_value(offset));
+    }
+
     pub fn stop(mut self, reason: &str, error: Option<&str>) {
         self.finish(reason, error);
     }
@@ -1365,6 +1379,16 @@ fn stop_value(t: f64, reason: &str, error: Option<&str>) -> Value {
         "t": seconds(t),
         "reason": reason,
         "error": error,
+    })
+}
+
+/// The gap between encoder launch and the first captured frame. The video's
+/// t=0 is the first frame, so the save pass subtracts this from every event.
+fn video_start_value(offset: f64) -> Value {
+    json!({
+        "v": VERSION,
+        "type": "video",
+        "offset": seconds(offset.max(0.0)),
     })
 }
 

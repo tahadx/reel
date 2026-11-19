@@ -424,6 +424,10 @@ pub struct Telemetry {
     /// Compositor zoom samples in telemetry time: `(t, factor)`. Empty for a
     /// take recorded without manual zoom and for older logs.
     pub zooms: Vec<(f64, f64)>,
+    /// Seconds between encoder launch and the first captured frame. Telemetry
+    /// times are shifted by this when the file is read, so every event is in
+    /// video time. Zero for older logs and recorders without frame timestamps.
+    pub video_start: f64,
     /// Scroll-wheel and touchpad scroll reports. A scroll inside a zoomed block
     /// keeps the camera in place while the user reads.
     pub scrolls: Vec<ScrollTick>,
@@ -449,6 +453,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         clicks: Vec::new(),
         samples: Vec::new(),
         zooms: Vec::new(),
+        video_start: 0.0,
         scrolls: Vec::new(),
         capture: Capture::default(),
         width: 0,
@@ -577,9 +582,48 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
             Some("stop") => {
                 telemetry.stop_t = record.get("t").and_then(Value::as_f64).unwrap_or(0.0);
             }
+            Some("video") => {
+                if let Some(offset) = record.get("offset").and_then(Value::as_f64) {
+                    if offset.is_finite() && offset >= 0.0 {
+                        telemetry.video_start = offset;
+                    }
+                }
+            }
             _ => {}
         }
     }
+    // The encoder starts before its first frame. Telemetry starts at launch,
+    // so every event is ahead of the video by that gap. Shift the whole
+    // timeline once, here, and the rest of the save pass can treat telemetry
+    // times as video times.
+    if telemetry.video_start > 0.0 {
+        let offset = telemetry.video_start;
+        for click in &mut telemetry.presses {
+            click.t -= offset;
+        }
+        for click in &mut telemetry.clicks {
+            click.t -= offset;
+        }
+        for sample in &mut telemetry.samples {
+            sample.0 -= offset;
+        }
+        for zoom in &mut telemetry.zooms {
+            zoom.0 -= offset;
+        }
+        for scroll in &mut telemetry.scrolls {
+            scroll.t -= offset;
+        }
+        for press in pending.iter_mut().flatten() {
+            press.t -= offset;
+        }
+        telemetry.stop_t -= offset;
+    }
+    // Events during encoder startup have no video frame. Clicks and scrolls
+    // there must not be replayed onto frame zero; samples stay, because the
+    // pointer can already be moving and the first frame inherits that path.
+    telemetry.presses.retain(|click| click.t >= 0.0);
+    telemetry.clicks.retain(|click| click.t >= 0.0);
+    telemetry.scrolls.retain(|scroll| scroll.t >= 0.0);
     telemetry.samples.sort_by(|a, b| a.0.total_cmp(&b.0));
     telemetry.zooms.sort_by(|a, b| a.0.total_cmp(&b.0));
     telemetry.scrolls.sort_by(|a, b| a.t.total_cmp(&b.t));
@@ -591,6 +635,9 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
             continue;
         };
         if autozoom::unpaired_press_is_click(press, &telemetry.samples) {
+            if press.t < 0.0 {
+                continue;
+            }
             telemetry.clicks.push(Click {
                 t: press.t,
                 x: press.x,
@@ -1256,6 +1303,48 @@ mod tests {
 
     fn telemetry_fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/telemetry-basic.jsonl")
+    }
+
+    #[test]
+    fn a_video_offset_moves_telemetry_into_video_time() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-telemetry-video-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("take.telemetry.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"target\":\"monitor:DP-1\",\"monitor\":\"DP-1\",\"width\":1000,\"height\":800},\"fps\":60}\n",
+                // The encoder took two seconds to produce its first frame.
+                "{\"v\":1,\"type\":\"video\",\"offset\":2.0}\n",
+                "{\"v\":1,\"type\":\"sync\",\"t\":2.5,\"x\":100.0,\"y\":100.0,\"source\":\"hyprctl\",\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.0,\"button\":\"left\",\"state\":\"down\",\"x\":100.0,\"y\":100.0,\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.05,\"button\":\"left\",\"state\":\"up\",\"x\":100.0,\"y\":100.0}\n",
+                // A press during encoder startup has no frame; it must not become
+                // a click on frame zero.
+                "{\"v\":1,\"type\":\"button\",\"t\":0.5,\"button\":\"right\",\"state\":\"down\",\"x\":50.0,\"y\":50.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":0.55,\"button\":\"right\",\"state\":\"up\",\"x\":50.0,\"y\":50.0}\n",
+                "{\"v\":1,\"type\":\"stop\",\"t\":4.0,\"reason\":\"stopped\",\"error\":null}\n"
+            ),
+        )
+        .unwrap();
+
+        let telemetry = read_telemetry(&path).unwrap();
+        assert_eq!(telemetry.video_start, 2.0);
+        assert_eq!(telemetry.clicks.len(), 1);
+        assert!((telemetry.clicks[0].t - 1.0).abs() < 1e-9);
+        assert_eq!(telemetry.samples[0].0, 0.5);
+        assert_eq!(telemetry.zoom_at(0.0), 1.0);
+        assert_eq!(telemetry.zoom_at(0.5), 2.0);
+        assert_eq!(telemetry.zoom_at(0.6), 2.0);
+        assert!((telemetry.stop_t - 2.0).abs() < 1e-9);
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]

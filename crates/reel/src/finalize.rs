@@ -1368,10 +1368,12 @@ mod tests {
             &telemetry,
             concat!(
                 "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"target\":\"monitor:DP-1\",\"monitor\":\"DP-1\",\"width\":2560,\"height\":1440},\"fps\":60}\n",
-                "{\"v\":1,\"type\":\"sync\",\"t\":0.9,\"x\":2300.0,\"y\":700.0,\"source\":\"hyprctl\",\"zoom\":2.0}\n",
-                "{\"v\":1,\"type\":\"button\",\"t\":1.0,\"button\":\"right\",\"state\":\"down\",\"x\":2300.0,\"y\":700.0,\"zoom\":2.0}\n",
-                "{\"v\":1,\"type\":\"button\",\"t\":1.02,\"button\":\"right\",\"state\":\"up\",\"x\":2300.0,\"y\":700.0}\n",
-                "{\"v\":1,\"type\":\"stop\",\"t\":2.0,\"reason\":\"stopped\",\"error\":null}\n"
+                // The encoder needed two seconds to produce its first frame.
+                "{\"v\":1,\"type\":\"video\",\"offset\":2.0}\n",
+                "{\"v\":1,\"type\":\"sync\",\"t\":2.9,\"x\":2300.0,\"y\":700.0,\"source\":\"hyprctl\",\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.0,\"button\":\"right\",\"state\":\"down\",\"x\":2300.0,\"y\":700.0,\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":3.02,\"button\":\"right\",\"state\":\"up\",\"x\":2300.0,\"y\":700.0}\n",
+                "{\"v\":1,\"type\":\"stop\",\"t\":4.0,\"reason\":\"stopped\",\"error\":null}\n"
             ),
         )
         .unwrap();

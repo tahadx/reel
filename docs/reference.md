@@ -276,6 +276,12 @@ into the pixels the recorded frame actually shows. The effect therefore stays
 on the content that was clicked instead of appearing at its unzoomed desktop
 position.
 
+Telemetry starts at encoder launch, but the video starts at its first captured
+frame. A cold encoder can take seconds to produce that frame, so the first
+frame's timestamp is written into the telemetry and the save pass subtracts the
+gap. A click is therefore placed on the frame it happened on, not several
+seconds later on different content.
+
 The project stores the effect under `ripples`:
 
 ```json

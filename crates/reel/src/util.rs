@@ -51,7 +51,7 @@ pub fn run_stdout(program: &str, args: &[&str]) -> Option<String> {
 /// indefinitely; a probe stuck behind a wedged service must not hold up a
 /// recording. Only use this where the output fits in the pipe buffer.
 pub fn run_stdout_within(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
-    run_stdout_within_env(program, args, &[], timeout)
+    run_stdout_within_impl(program, args, &[], timeout, true)
 }
 
 /// Like `run_stdout_within`, with extra environment variables. Used by the
@@ -61,6 +61,23 @@ pub fn run_stdout_within_env(
     args: &[&str],
     envs: &[(&str, &str)],
     timeout: Duration,
+) -> Option<String> {
+    run_stdout_within_impl(program, args, envs, timeout, true)
+}
+
+/// Run a short probe whose help output is useful even when the program exits
+/// nonzero. Some tools print usage and exit 1 for `--help`; the caller still
+/// wants the text.
+pub fn run_stdout_within_any(program: &str, args: &[&str], timeout: Duration) -> Option<String> {
+    run_stdout_within_impl(program, args, &[], timeout, false)
+}
+
+fn run_stdout_within_impl(
+    program: &str,
+    args: &[&str],
+    envs: &[(&str, &str)],
+    timeout: Duration,
+    require_success: bool,
 ) -> Option<String> {
     let mut command = Command::new(program);
     command
@@ -97,7 +114,7 @@ pub fn run_stdout_within_env(
         }
     };
 
-    if !status.success() {
+    if require_success && !status.success() {
         return None;
     }
     // try_wait reaped the child; wait_with_output still drains the pipes.
@@ -358,6 +375,16 @@ mod tests {
     fn run_stdout_within_treats_a_failed_command_as_no_output() {
         let output = run_stdout_within("sh", &["-c", "exit 3"], Duration::from_secs(5));
         assert_eq!(output, None);
+    }
+
+    #[test]
+    fn run_stdout_within_any_keeps_help_from_a_failed_command() {
+        let output = run_stdout_within_any(
+            "sh",
+            &["-c", "printf 'usage: tool --help\\n'; exit 1"],
+            Duration::from_secs(5),
+        );
+        assert_eq!(output.as_deref(), Some("usage: tool --help"));
     }
 
     #[test]

@@ -617,7 +617,7 @@ fn wait_for_child(child: &mut std::process::Child, timeout: Duration) -> bool {
 fn first_frame_marker_supported() -> bool {
     static SUPPORTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *SUPPORTED.get_or_init(|| {
-        util::run_stdout_within("gpu-screen-recorder", &["--help"], Duration::from_secs(2))
+        util::run_stdout_within_any("gpu-screen-recorder", &["--help"], Duration::from_secs(2))
             .is_some_and(|help| help.contains("write-first-frame-ts"))
     })
 }
@@ -629,26 +629,56 @@ fn capture_ready(file: &Path, first_frame: Option<&Path>) -> bool {
     }
 }
 
+/// Read the monotonic microseconds of the first captured frame from the
+/// recorder's marker. The file is written by gpu-screen-recorder next to the
+/// capture and contains `monotonic_microsec<TAB>realtime_microsec`. A retry
+/// covers the moment between the file appearing and its contents landing.
+fn read_first_frame_us(marker: &Path) -> Option<u64> {
+    for _ in 0..20 {
+        if let Ok(text) = fs::read_to_string(marker) {
+            // The file starts with a column header; the timestamp is the first
+            // numeric line.
+            for line in text.lines() {
+                if let Some(field) = line.split_whitespace().next() {
+                    if let Ok(value) = field.parse::<u64>() {
+                        return Some(value);
+                    }
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(5));
+    }
+    None
+}
+
 /// Wait until the recorder has really captured its first frame, exited, or the
 /// take was cancelled. The container alone is written before any pixels, so
 /// only the first-frame marker proves the take is live. A cold encoder can
 /// take several seconds to get there.
+///
+/// The result says whether the capture is live and, when the recorder provides
+/// it, the first frame's monotonic timestamp.
 fn wait_for_capture_file(
     paths: &Paths,
     file: &Path,
     first_frame: Option<&Path>,
     pid: i32,
     timeout: Duration,
-) -> bool {
+) -> (bool, Option<u64>) {
     // A dead recorder or an aborted take will never produce the marker.
     wait_until(timeout, || {
         capture_ready(file, first_frame) || cancelled(paths) || !paths::alive(pid)
     });
     let ready = capture_ready(file, first_frame);
+    let first_frame_us = if ready {
+        first_frame.and_then(read_first_frame_us)
+    } else {
+        None
+    };
     if let Some(marker) = first_frame {
         paths::remove_quiet(marker);
     }
-    ready
+    (ready, first_frame_us)
 }
 
 /// Stop a recorder this process spawned: ask politely, then insist, and reap.
@@ -1145,7 +1175,7 @@ fn run_take(
         );
     }
 
-    let ready_file = wait_for_capture_file(
+    let (ready_file, first_frame_us) = wait_for_capture_file(
         paths,
         Path::new(&capture_file),
         first_frame.as_deref().map(Path::new),
@@ -1154,6 +1184,16 @@ fn run_take(
     );
     // The encoder now owns the monitor; the warm-up stream is done.
     warmup.take();
+
+    // Telemetry's t=0 is the encoder launch; the video's t=0 is the first
+    // frame. Tell the listener the gap so the save pass can put clicks and
+    // keyframes on the frames they belong to.
+    if let (Some(listener), Some(first_frame_us)) = (listener.as_ref(), first_frame_us) {
+        let offset = first_frame_us as f64 / 1_000_000.0 - t0_ns as f64 / 1_000_000_000.0;
+        if offset.is_finite() && offset >= 0.0 {
+            listener.note_video_start(offset);
+        }
+    }
 
     // A stop during the warmup writes the cancel marker; the take never got
     // going, so tear it down quietly instead of reporting a start failure.
@@ -1912,21 +1952,30 @@ mod tests {
         let marker = root.join("take.capture.mp4.ts");
         fs::write(&file, b"header").unwrap();
 
-        assert!(!wait_for_capture_file(
+        assert!(
+            !wait_for_capture_file(
+                &paths,
+                &file,
+                Some(marker.as_path()),
+                std::process::id() as i32,
+                Duration::from_millis(50),
+            )
+            .0
+        );
+        fs::write(
+            &marker,
+            b"monotonic_microsec\trealtime_microsec\n1234567\t7654321\n",
+        )
+        .unwrap();
+        let (ready, first_frame_us) = wait_for_capture_file(
             &paths,
             &file,
             Some(marker.as_path()),
             std::process::id() as i32,
             Duration::from_millis(50),
-        ));
-        fs::write(&marker, b"first frame").unwrap();
-        assert!(wait_for_capture_file(
-            &paths,
-            &file,
-            Some(marker.as_path()),
-            std::process::id() as i32,
-            Duration::from_millis(50),
-        ));
+        );
+        assert!(ready);
+        assert_eq!(first_frame_us, Some(1_234_567));
         assert!(!marker.exists(), "the marker is only a startup signal");
         let _ = fs::remove_dir_all(root);
     }
