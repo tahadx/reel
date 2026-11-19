@@ -1054,7 +1054,8 @@ pub fn zoom_in(paths: &Paths, step: f64) -> Result<()> {
     let step = if step > 0.01 { step } else { 0.25 };
     let target = zoom_in_target(current, step, configured_zoom_max(paths));
     let immediate = step <= 0.16;
-    let new_z = crate::zoom::animate_compositor_zoom(target, immediate, follow_pointer(paths));
+    let new_z =
+        crate::zoom::animate_compositor_zoom(paths, target, immediate, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -1067,7 +1068,8 @@ pub fn zoom_out(paths: &Paths, step: f64) -> Result<()> {
     let step = if step > 0.01 { step } else { 0.25 };
     let target = (current - step).max(1.0);
     let immediate = step <= 0.16;
-    let new_z = crate::zoom::animate_compositor_zoom(target, immediate, follow_pointer(paths));
+    let new_z =
+        crate::zoom::animate_compositor_zoom(paths, target, immediate, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -1076,7 +1078,7 @@ pub fn zoom_reset(paths: &Paths) -> Result<()> {
     if !is_manual_zoom_active(paths) {
         return Ok(());
     }
-    crate::zoom::reset_compositor_zoom();
+    crate::zoom::reset_compositor_zoom(paths);
     println!("Reel zoom: 1.00x");
     Ok(())
 }
@@ -1098,7 +1100,7 @@ pub fn zoom_toggle(paths: &Paths, factor: f64) -> Result<()> {
     }
     let current = crate::zoom::compositor_zoom();
     let target = zoom_toggle_target(current, factor, configured_zoom_max(paths));
-    let new_z = crate::zoom::animate_compositor_zoom(target, false, follow_pointer(paths));
+    let new_z = crate::zoom::animate_compositor_zoom(paths, target, false, follow_pointer(paths));
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }

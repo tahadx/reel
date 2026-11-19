@@ -411,11 +411,16 @@ pub struct Prepared {
     file: Option<File>,
     devices: Vec<Device>,
     error: Option<SourceError>,
+    /// Mirror of the compositor zoom, written by the take's zoom controller.
+    zoom_file: PathBuf,
 }
 
 impl Prepared {
     /// Open the runtime file and the pointer devices. Never fails the take.
     pub fn new(paths: &Paths, space: &CaptureSpace) -> Prepared {
+        // Every take starts at 1x. A crashed take can leave its last mirror
+        // behind, and the listener's first sync must not inherit it.
+        crate::zoom::write_recording_zoom(paths, 1.0);
         let file = OpenOptions::new()
             .create(true)
             .truncate(true)
@@ -428,6 +433,7 @@ impl Prepared {
                 file: None,
                 devices: Vec::new(),
                 error: Some(SourceError::OpenFailed),
+                zoom_file: paths.zoom_factor.clone(),
             };
         }
         let error = if devices.is_empty() {
@@ -452,6 +458,7 @@ impl Prepared {
             file,
             devices,
             error,
+            zoom_file: paths.zoom_factor.clone(),
         }
     }
 
@@ -500,12 +507,13 @@ impl Prepared {
 
         let stop = Arc::new(AtomicBool::new(false));
         let devices = std::mem::take(&mut self.devices);
+        let zoom_file = std::mem::take(&mut self.zoom_file);
         let handle = {
             let writer = Arc::clone(&writer);
             let stop = Arc::clone(&stop);
             thread::Builder::new()
                 .name("reel-telemetry".into())
-                .spawn(move || run_listener(devices, space, writer, stop))
+                .spawn(move || run_listener(devices, space, zoom_file, writer, stop))
         };
         match handle {
             Ok(handle) => Some(Listener {
@@ -949,9 +957,11 @@ impl PendingInput {
 fn run_listener(
     mut devices: Vec<Device>,
     space: CaptureSpace,
+    zoom_file: PathBuf,
     writer: Arc<Mutex<TelemetryWriter>>,
     stop: Arc<AtomicBool>,
 ) {
+    let zoom_now = || crate::zoom::read_recording_zoom(&zoom_file);
     // The initial position is not a movement; record one sync so consumers can
     // distinguish a fresh start from a corrected drift. The compositor may be
     // missing on a non-Hyprland session, so fall back to the frame centre.
@@ -968,7 +978,7 @@ fn run_listener(
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let t = writer.t();
-        writer.write(&sync_value(t, x, y, "hyprctl"));
+        writer.write(&sync_value(t, x, y, "hyprctl", zoom_now()));
     }
 
     let mut next_sync = Instant::now();
@@ -1019,6 +1029,7 @@ fn run_listener(
                             taps_enabled,
                             &writer,
                             &cursor_position,
+                            &zoom_now,
                             &mut input,
                         );
                     }
@@ -1040,11 +1051,12 @@ fn run_listener(
             if let Some((x, y)) = cursor_position() {
                 tracker.resync(x, y);
                 let (x, y) = space.to_capture(x, y);
+                let zoom = zoom_now();
                 let mut writer = writer
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
                 let t = writer.t();
-                writer.write(&sync_value(t, x, y, "hyprctl"));
+                writer.write(&sync_value(t, x, y, "hyprctl", zoom));
             }
             next_sync = Instant::now() + SYNC_INTERVAL;
         }
@@ -1074,6 +1086,7 @@ fn handle_event(
     taps_enabled: bool,
     writer: &Arc<Mutex<TelemetryWriter>>,
     cursor: &dyn Fn() -> Option<(f64, f64)>,
+    zoom: &dyn Fn() -> f64,
     input: &mut PendingInput,
 ) {
     match event.kind {
@@ -1099,7 +1112,7 @@ fn handle_event(
                         let click = taps_enabled && caps.touch && tap.is_tap();
                         tap.down_at = None;
                         if click {
-                            emit_tap(writer, space, tracker, cursor);
+                            emit_tap(writer, space, tracker, cursor, zoom);
                         }
                     }
                     _ => {}
@@ -1148,7 +1161,8 @@ fn handle_event(
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             let t = writer.t();
-            writer.write(&button_value(t, button, state, x, y));
+            let factor = (state == "down").then(zoom);
+            writer.write(&button_value(t, button, state, x, y, factor));
         }
         EV_SYN if event.code == SYN_REPORT => {
             input.flush_move(tracker, space, writer);
@@ -1183,6 +1197,7 @@ fn emit_tap(
     space: &CaptureSpace,
     tracker: &PointerTracker,
     cursor: &dyn Fn() -> Option<(f64, f64)>,
+    zoom: &dyn Fn() -> f64,
 ) {
     let click_t = {
         let writer = writer
@@ -1190,6 +1205,8 @@ fn emit_tap(
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         writer.t()
     };
+    // The zoom at the contact, before the settle wait can see a later step.
+    let factor = zoom();
     // The compositor sees the same kernel event after this process; give it a
     // moment to move the cursor onto the tap before reading the position.
     std::thread::sleep(TAP_SETTLE);
@@ -1197,8 +1214,8 @@ fn emit_tap(
     let mut writer = writer
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    writer.write(&button_value(click_t, "left", "down", x, y));
-    writer.write(&button_value(click_t, "left", "up", x, y));
+    writer.write(&button_value(click_t, "left", "down", x, y, Some(factor)));
+    writer.write(&button_value(click_t, "left", "up", x, y, None));
 }
 
 /// Whether the compositor turns touchpad taps into clicks. Taps never produce
@@ -1298,8 +1315,8 @@ fn move_value(t: f64, x: f64, y: f64) -> Value {
     json!({ "v": VERSION, "type": "move", "t": seconds(t), "x": x, "y": y })
 }
 
-fn button_value(t: f64, button: &str, state: &str, x: f64, y: f64) -> Value {
-    json!({
+fn button_value(t: f64, button: &str, state: &str, x: f64, y: f64, zoom: Option<f64>) -> Value {
+    let mut value = json!({
         "v": VERSION,
         "type": "button",
         "t": seconds(t),
@@ -1307,7 +1324,15 @@ fn button_value(t: f64, button: &str, state: &str, x: f64, y: f64) -> Value {
         "state": state,
         "x": x,
         "y": y,
-    })
+    });
+    // The save pass maps a click through the compositor zoom that was live at
+    // the press. Old logs have no field and read as 1x. Keep the full precision:
+    // the factor multiplies a position that can be over a thousand pixels from
+    // the camera centre, so two decimals would move a click by several pixels.
+    if let Some(zoom) = zoom.filter(|zoom| zoom.is_finite() && *zoom >= 1.0) {
+        value["zoom"] = json!(zoom);
+    }
+    value
 }
 
 fn scroll_value(t: f64, x: f64, y: f64, delta: f64) -> Value {
@@ -1321,7 +1346,7 @@ fn scroll_value(t: f64, x: f64, y: f64, delta: f64) -> Value {
     })
 }
 
-fn sync_value(t: f64, x: f64, y: f64, source: &str) -> Value {
+fn sync_value(t: f64, x: f64, y: f64, source: &str, zoom: f64) -> Value {
     json!({
         "v": VERSION,
         "type": "sync",
@@ -1329,6 +1354,7 @@ fn sync_value(t: f64, x: f64, y: f64, source: &str) -> Value {
         "x": x,
         "y": y,
         "source": source,
+        "zoom": zoom.max(1.0),
     })
 }
 
@@ -1406,14 +1432,18 @@ mod tests {
         assert_eq!(move_line["x"], 100.5);
         assert_eq!(move_line["y"], 200.25);
 
-        let button = button_value(1.5, "left", "down", 100.5, 200.25);
+        let button = button_value(1.5, "left", "down", 100.5, 200.25, Some(2.0));
         assert_eq!(button["type"], "button");
         assert_eq!(button["button"], "left");
         assert_eq!(button["state"], "down");
+        assert_eq!(button["zoom"], 2.0);
+        let plain = button_value(1.5, "left", "up", 100.5, 200.25, None);
+        assert!(plain.get("zoom").is_none());
 
-        let sync = sync_value(2.0, 100.0, 200.0, "hyprctl");
+        let sync = sync_value(2.0, 100.0, 200.0, "hyprctl", 1.5);
         assert_eq!(sync["type"], "sync");
         assert_eq!(sync["source"], "hyprctl");
+        assert_eq!(sync["zoom"], 1.5);
 
         let stop = stop_value(10.0, "stopped", None);
         assert_eq!(stop["type"], "stop");
@@ -1599,6 +1629,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || None;
+        let zoom = || 1.0;
 
         for event in [
             event(EV_REL, REL_WHEEL_HI_RES, 120),
@@ -1615,6 +1646,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1643,6 +1675,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || None;
+        let zoom = || 1.0;
 
         for event in [
             event(EV_KEY, BTN_LEFT, 1),
@@ -1659,6 +1692,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1686,6 +1720,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || None;
+        let zoom = || 1.0;
 
         for event in [event(EV_KEY, BTN_LEFT, 1), event(EV_KEY, BTN_LEFT, 0)] {
             handle_event(
@@ -1697,6 +1732,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1714,6 +1750,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || None;
+        let zoom = || 1.0;
 
         for event in [
             event(EV_REL, REL_X, 10),
@@ -1730,6 +1767,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1758,6 +1796,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
+        let zoom = || 1.0;
 
         for event in [
             event(EV_ABS, ABS_X, 1200),
@@ -1776,6 +1815,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1806,6 +1846,7 @@ mod tests {
             let mut input = PendingInput::default();
             let mut tap = TapState::default();
             let cursor = || Some((640.0, 480.0));
+            let zoom = || 1.0;
 
             let mut events = vec![event(EV_KEY, BTN_TOUCH, 1)];
             events.extend(middle);
@@ -1820,6 +1861,7 @@ mod tests {
                     true,
                     &writer,
                     &cursor,
+                    &zoom,
                     &mut input,
                 );
             }
@@ -1840,6 +1882,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
+        let zoom = || 1.0;
 
         for event in [
             event(EV_KEY, BTN_TOUCH, 1),
@@ -1856,6 +1899,7 @@ mod tests {
                 true,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1876,6 +1920,7 @@ mod tests {
         let mut input = PendingInput::default();
         let mut tap = TapState::default();
         let cursor = || Some((640.0, 480.0));
+        let zoom = || 1.0;
 
         for event in [event(EV_KEY, BTN_TOUCH, 1), event(EV_KEY, BTN_TOUCH, 0)] {
             handle_event(
@@ -1887,6 +1932,7 @@ mod tests {
                 false,
                 &writer,
                 &cursor,
+                &zoom,
                 &mut input,
             );
         }
@@ -1930,6 +1976,7 @@ mod tests {
             file: Some(file),
             devices: Vec::new(),
             error: Some(SourceError::InputGroup),
+            zoom_file: path.with_file_name("zoom-factor"),
         };
         prepared.record_failure(&monitor_space(), 60, SourceError::InputGroup);
         let text = std::fs::read_to_string(&path).unwrap();

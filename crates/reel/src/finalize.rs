@@ -616,7 +616,7 @@ fn project_from_telemetry(
             extra: Default::default(),
         };
     } else {
-        project.capture = telemetry.capture;
+        project.capture = telemetry.capture.clone();
         if !target.is_empty() {
             project.capture.target = target.to_string();
         }
@@ -628,15 +628,52 @@ fn project_from_telemetry(
         .file_name()
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
-    let refiner =
-        activity::Refiner::new(app_paths, input, trim).with_samples(telemetry.samples.clone());
+    // Manual zoom happens inside the compositor, so a take recorded while
+    // zoomed already shows a magnified frame. Pointer telemetry is still in
+    // desktop pixels; map every pointer event into the pixels the saved frame
+    // actually shows before the camera or the click effects use it. A monitor
+    // take runs Hyprland's attached rigid camera, which can be reconstructed
+    // from the click and its zoom alone. A window or area take runs a detached
+    // camera whose position telemetry does not record, so its points stay as
+    // they are rather than being guessed.
+    let attached = project.capture.kind == "monitor";
+    let frame_width = f64::from(width);
+    let frame_height = f64::from(height);
+    let recorded = |x: f64, y: f64, zoom: f64| {
+        crate::zoom::recorded_point(x, y, zoom, frame_width, frame_height, attached)
+    };
+    let presses: Vec<project::Click> = telemetry
+        .presses
+        .iter()
+        .map(|press| {
+            let (x, y) = recorded(press.x, press.y, press.zoom);
+            project::Click { x, y, ..*press }
+        })
+        .collect();
+    let clicks: Vec<project::Click> = telemetry
+        .clicks
+        .iter()
+        .map(|click| {
+            let (x, y) = recorded(click.x, click.y, click.zoom);
+            project::Click { x, y, ..*click }
+        })
+        .collect();
+    let samples: Vec<(f64, f64, f64)> = telemetry
+        .samples
+        .iter()
+        .map(|&(t, x, y)| {
+            let (x, y) = recorded(x, y, telemetry.zoom_at(t));
+            (t, x, y)
+        })
+        .collect();
+    let refiner = activity::Refiner::new(app_paths, input, trim).with_samples(samples);
     let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<Vec<(f64, f64, f64)>> {
         refiner.targets(enter, hold, cx, cy, width as f64, height as f64)
     };
     let bounds = autozoom::CaptureBounds::frame(width as f64, height as f64);
     let mode = autozoom::CaptureMode::from_kind(&project.capture.kind);
     project.camera = project::build_camera_for_capture(
-        &telemetry.presses,
+        &presses,
         options.enabled,
         options.depth,
         bounds,
@@ -645,7 +682,7 @@ fn project_from_telemetry(
         &telemetry.scrolls,
         Some(&refine),
     );
-    project.ripples = effect_ripples(&telemetry.clicks, bounds, trim, &options.click_effects);
+    project.ripples = effect_ripples(&clicks, bounds, trim, &options.click_effects);
     Ok(project)
 }
 
@@ -1312,6 +1349,64 @@ mod tests {
         assert!((project.ripples.clicks[0].x - 100.5).abs() < 1e-6);
         assert!((project.ripples.clicks[0].y - 200.25).abs() < 1e-6);
         assert!(project.ripples.color.starts_with('#'));
+
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn a_zoomed_monitor_click_lands_in_the_recorded_frame() {
+        let root = temp_root("effects-zoom");
+        let videos = root.join("Videos");
+        fs::create_dir_all(&videos).unwrap();
+        let take = videos.join("reel-zoomed.mp4");
+        fs::write(&take, b"video").unwrap();
+        let telemetry = root.join("zoomed.telemetry.jsonl");
+        // A 2x monitor take: the click near the right edge cannot be centred,
+        // so Hyprland's clamped camera records it at (2040, 720), not where the
+        // unzoomed desktop put it (2300, 700).
+        fs::write(
+            &telemetry,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"target\":\"monitor:DP-1\",\"monitor\":\"DP-1\",\"width\":2560,\"height\":1440},\"fps\":60}\n",
+                "{\"v\":1,\"type\":\"sync\",\"t\":0.9,\"x\":2300.0,\"y\":700.0,\"source\":\"hyprctl\",\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.0,\"button\":\"right\",\"state\":\"down\",\"x\":2300.0,\"y\":700.0,\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.02,\"button\":\"right\",\"state\":\"up\",\"x\":2300.0,\"y\":700.0}\n",
+                "{\"v\":1,\"type\":\"stop\",\"t\":2.0,\"reason\":\"stopped\",\"error\":null}\n"
+            ),
+        )
+        .unwrap();
+
+        let project = project_from_telemetry(
+            &Paths::for_test(&root),
+            &telemetry,
+            &take,
+            &take,
+            0.0,
+            &TakeOptions {
+                enabled: true,
+                depth: 2.0,
+                click_effects: "ripple".into(),
+            },
+            "monitor:DP-1",
+            "monitor",
+        )
+        .unwrap();
+
+        let click = &project.ripples.clicks[0];
+        assert!((click.x - 2040.0).abs() < 0.01, "click x: {}", click.x);
+        assert!((click.y - 720.0).abs() < 0.01, "click y: {}", click.y);
+        // The auto zoom camera is built from the same mapped click, so it aims
+        // at the content the recorded frame shows. The viewport centre is then
+        // clamped to the frame: at 2x the farthest right centre is 1920, so the
+        // click at 2040 sits off-centre but stays in view.
+        let entry = project
+            .camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom > 1.9)
+            .expect("a zoomed keyframe");
+        assert!((entry.x - 1920.0).abs() < 0.01, "camera x: {}", entry.x);
+        assert!((entry.y - 720.0).abs() < 0.01, "camera y: {}", entry.y);
 
         fs::remove_dir_all(&root).ok();
     }

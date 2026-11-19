@@ -19,6 +19,9 @@ pub struct Paths {
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
     pub session_telemetry: PathBuf,
+    /// The live manual zoom factor, mirrored by the compositor controller so
+    /// telemetry can put pointer events in the recorded (zoomed) frame.
+    pub zoom_factor: PathBuf,
     /// One small record per save pass. Saves run beside the recording state so
     /// a new take can start while earlier takes are still being written.
     pub saves: PathBuf,
@@ -51,6 +54,7 @@ impl Paths {
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
             session_telemetry: root.join("session.telemetry.jsonl"),
+            zoom_factor: root.join("zoom-factor"),
             saves: root.join("saves"),
             update: root.join("update.json"),
             config_dir: root.join("config"),
@@ -111,6 +115,7 @@ impl Paths {
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
             session_telemetry: runtime.join("session.telemetry.jsonl"),
+            zoom_factor: runtime.join("zoom-factor"),
             saves: runtime.join("saves"),
             update: runtime.join("update.json"),
             config: config_dir.join("reel.json"),

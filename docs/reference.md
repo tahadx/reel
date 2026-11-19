@@ -269,6 +269,13 @@ just without effects. Effects and auto zoom can be used together: the shapes are
 composited before the camera pass, so a zoom moves and scales the effect with
 the picture under it.
 
+When **Manual zoom** is on, the compositor has already magnified the recorded
+frames. On a monitor take, Reel mirrors the live zoom factor into the runtime
+folder, telemetry records it on every press, and the save pass moves each click
+into the pixels the recorded frame actually shows. The effect therefore stays
+on the content that was clicked instead of appearing at its unzoomed desktop
+position.
+
 The project stores the effect under `ripples`:
 
 ```json
@@ -374,6 +381,7 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
+| `$XDG_RUNTIME_DIR/reel/zoom-factor` | Live manual zoom factor mirrored for telemetry |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
 | `$XDG_RUNTIME_DIR/reel/render-*.sendcmd` | Generated camera script; removed after a successful render |
 | `$XDG_RUNTIME_DIR/reel/render-*.ass` | Generated click-effect script; removed after a successful render |

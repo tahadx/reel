@@ -18,7 +18,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   every take with telemetry writes an editable `project.json` into a hidden
   `.reel/` folder for re-rendering.
 - Optional click effects in the save pass: a premium theme-accent ripple or
-  halo is drawn at each click, and follows the auto zoom camera.
+  halo is drawn at each click, follows the auto zoom camera, and stays on the
+  clicked content when manual zoom magnified a monitor take.
 - Desktop audio, microphone, optional microphone noise reduction, pointer
   capture, 30/60/120 fps, quality presets, codec and resolution limits, MP4/MKV,
   and a webcam corner overlay with a camera picker.

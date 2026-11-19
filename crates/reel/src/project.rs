@@ -403,6 +403,9 @@ pub struct Click {
     pub t: f64,
     pub x: f64,
     pub y: f64,
+    /// The compositor zoom that was live at the press. `1.0` for a take
+    /// recorded without manual zoom and for older logs.
+    pub zoom: f64,
 }
 
 /// The parts of a telemetry file the save pass needs: the clicks that drive the
@@ -418,6 +421,9 @@ pub struct Telemetry {
     /// Every pointer position in telemetry time: `(t, x, y)`. Used to follow a
     /// drag instead of snapping between reported clicks.
     pub samples: Vec<(f64, f64, f64)>,
+    /// Compositor zoom samples in telemetry time: `(t, factor)`. Empty for a
+    /// take recorded without manual zoom and for older logs.
+    pub zooms: Vec<(f64, f64)>,
     /// Scroll-wheel and touchpad scroll reports. A scroll inside a zoomed block
     /// keeps the camera in place while the user reads.
     pub scrolls: Vec<ScrollTick>,
@@ -442,6 +448,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         presses: Vec::new(),
         clicks: Vec::new(),
         samples: Vec::new(),
+        zooms: Vec::new(),
         scrolls: Vec::new(),
         capture: Capture::default(),
         width: 0,
@@ -452,6 +459,9 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
     // Only left and right clicks arm a zoom. Middle-click paste and browser
     // shortcuts are not something the viewer should be pulled toward.
     let mut pending: [Option<Press>; 2] = [None, None];
+    // The compositor zoom carried by the press, so the release can hand it to
+    // the click even though only the press records it.
+    let mut pending_zoom: [f64; 2] = [1.0, 1.0];
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -460,6 +470,18 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
             continue;
         };
+        // New logs carry the live compositor zoom on syncs and presses. It is
+        // what lets the save pass place a click in a frame that was already
+        // magnified by manual zoom.
+        let record_zoom = record
+            .get("zoom")
+            .and_then(Value::as_f64)
+            .filter(|zoom| zoom.is_finite() && *zoom >= 1.0);
+        if let (Some(t), Some(zoom)) = (record.get("t").and_then(Value::as_f64), record_zoom) {
+            if t.is_finite() {
+                telemetry.zooms.push((t, zoom));
+            }
+        }
         match record.get("type").and_then(Value::as_str) {
             Some("start") => {
                 telemetry.width = number(&record, "capture", "width");
@@ -484,12 +506,13 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 let Some(y) = record.get("y").and_then(Value::as_f64) else {
                     continue;
                 };
+                let zoom = record_zoom.unwrap_or(1.0);
                 let state = record.get("state").and_then(Value::as_str);
                 if state == Some("down") && t.is_finite() && x.is_finite() && y.is_finite() {
                     // Auto zoom starts on the press. A drag has no short
                     // release, but its block must exist so the pointer can be
                     // followed from the first frame.
-                    telemetry.presses.push(Click { t, x, y });
+                    telemetry.presses.push(Click { t, x, y, zoom });
                 }
                 // Older logs wrote a press without a button name; those are
                 // left clicks by construction.
@@ -502,7 +525,10 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                 };
                 let point = Press::new(t, x, y);
                 match state {
-                    Some("down") => pending[index] = Some(point),
+                    Some("down") => {
+                        pending[index] = Some(point);
+                        pending_zoom[index] = zoom;
+                    }
                     Some("up") => {
                         let Some(press) = pending[index].take() else {
                             continue;
@@ -512,6 +538,7 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
                                 t: press.t,
                                 x: press.x,
                                 y: press.y,
+                                zoom: pending_zoom[index],
                             });
                         }
                     }
@@ -554,22 +581,44 @@ pub fn read_telemetry(path: &Path) -> Result<Telemetry> {
         }
     }
     telemetry.samples.sort_by(|a, b| a.0.total_cmp(&b.0));
+    telemetry.zooms.sort_by(|a, b| a.0.total_cmp(&b.0));
     telemetry.scrolls.sort_by(|a, b| a.t.total_cmp(&b.t));
     // A log cut in the middle of a click has no release line. Keep the press
     // only when the recorded pointer never left the click slop, so a truncated
     // drag is still a drag.
-    for press in pending.into_iter().flatten() {
+    for (index, press) in pending.into_iter().enumerate() {
+        let Some(press) = press else {
+            continue;
+        };
         if autozoom::unpaired_press_is_click(press, &telemetry.samples) {
             telemetry.clicks.push(Click {
                 t: press.t,
                 x: press.x,
                 y: press.y,
+                zoom: pending_zoom[index],
             });
         }
     }
     telemetry.clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
     telemetry.presses.sort_by(|a, b| a.t.total_cmp(&b.t));
     Ok(telemetry)
+}
+
+impl Telemetry {
+    /// The compositor zoom that was live at telemetry time `t`. The timeline is
+    /// sparse (syncs and presses), so the last sample at or before `t` wins.
+    /// Older logs and takes without manual zoom have no timeline and read 1x.
+    pub fn zoom_at(&self, t: f64) -> f64 {
+        if !t.is_finite() {
+            return 1.0;
+        }
+        self.zooms
+            .iter()
+            .rev()
+            .find(|(stamp, _)| *stamp <= t + 1e-9)
+            .map(|(_, zoom)| *zoom)
+            .unwrap_or(1.0)
+    }
 }
 
 fn click_button_index(button: &str) -> Option<usize> {
@@ -621,6 +670,7 @@ pub fn clicks_in_capture(clicks: &[Click], bounds: CaptureBounds, trim_start: f6
             t: (click.t - trim).max(0.0),
             x: click.x,
             y: click.y,
+            zoom: click.zoom,
         })
         .collect();
     clicks.sort_by(|a, b| a.t.total_cmp(&b.t));
@@ -1201,11 +1251,48 @@ mod tests {
     use super::*;
 
     fn click(t: f64, x: f64, y: f64) -> Click {
-        Click { t, x, y }
+        Click { t, x, y, zoom: 1.0 }
     }
 
     fn telemetry_fixture() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/telemetry-basic.jsonl")
+    }
+
+    #[test]
+    fn a_press_carries_its_compositor_zoom_and_the_timeline_fills_the_rest() {
+        let root = std::env::temp_dir().join(format!(
+            "reel-telemetry-zoom-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("take.telemetry.jsonl");
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"v\":1,\"type\":\"start\",\"t\":0.0,\"capture\":{\"kind\":\"monitor\",\"target\":\"monitor:DP-1\",\"monitor\":\"DP-1\",\"width\":1000,\"height\":800},\"fps\":60}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.0,\"button\":\"right\",\"state\":\"down\",\"x\":100.0,\"y\":100.0,\"zoom\":2.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":1.01,\"button\":\"right\",\"state\":\"up\",\"x\":100.0,\"y\":100.0}\n",
+                "{\"v\":1,\"type\":\"sync\",\"t\":1.2,\"x\":200.0,\"y\":200.0,\"source\":\"hyprctl\",\"zoom\":1.5}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":2.0,\"button\":\"left\",\"state\":\"down\",\"x\":200.0,\"y\":200.0}\n",
+                "{\"v\":1,\"type\":\"button\",\"t\":2.01,\"button\":\"left\",\"state\":\"up\",\"x\":200.0,\"y\":200.0}\n"
+            ),
+        )
+        .unwrap();
+
+        let telemetry = read_telemetry(&path).unwrap();
+        assert_eq!(telemetry.clicks.len(), 2);
+        assert_eq!(telemetry.clicks[0].zoom, 2.0);
+        assert_eq!(telemetry.clicks[1].zoom, 1.0, "old logs read as 1x");
+        assert_eq!(telemetry.zoom_at(0.5), 1.0);
+        assert_eq!(telemetry.zoom_at(1.05), 2.0);
+        assert_eq!(telemetry.zoom_at(1.5), 1.5);
+        assert_eq!(telemetry.zoom_at(2.5), 1.5);
+
+        std::fs::remove_dir_all(root).ok();
     }
 
     #[test]
