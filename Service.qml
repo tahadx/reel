@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "Bridge.js" as Bridge
 import "Model.js" as Model
 
 // Reel's background service. It owns the run-time state the bar reads, so the
@@ -12,6 +13,8 @@ Item {
 
   // Injected by the plugin host.
   property var shell: null
+  // The bridge api the widget reads when its bar cannot give it this object.
+  property var barBridge: null
 
   readonly property string home: Quickshell.env("HOME") || ""
   readonly property string runtimeDir: {
@@ -180,12 +183,47 @@ Item {
     root.recentVersion++
   }
 
+  // A replacement bar cannot reach this object through its service-less
+  // facade. Read the live properties here instead; the panel polls the reader
+  // and copies only what changed. The objects are read-only: this service
+  // replaces them rather than mutating them in place.
+  function bridgeSnapshot() {
+    return {
+      state: root.state,
+      recents: root.recents,
+      elapsed: root.elapsed,
+      recentVersion: root.recentVersion,
+      outputDir: root.outputDir,
+      version: root.version,
+      updateInfo: root.updateInfo,
+      updateChecking: root.updateChecking,
+      lastError: root.lastError,
+      configureFailed: root.configureFailed
+    }
+  }
+
+  // The panel may ask for work through the bridge. Keep this list closed:
+  // Bridge.js rejects every name not present here.
+  function bridgeActions() {
+    return {
+      refresh: function() { root.refresh() },
+      checkForUpdates: function(force) { root.checkForUpdates(force === true) },
+      retryConfigure: function() { root.retryConfigure() }
+    }
+  }
+
   // First-run bootstrap: the plugin id is stable, so the installed path is
   // deterministic. The configure step links the shipped engine's wrapper into
   // ~/.local/bin; nothing else runs until it exits. A start failure or a hung
   // configure must not leave every command gated forever, so it becomes a
   // visible, retryable error instead.
-  Component.onCompleted: root.startConfigure()
+  Component.onCompleted: {
+    root.barBridge = Bridge.publish(function() { return root.bridgeSnapshot() },
+      root.bridgeActions())
+    root.startConfigure()
+  }
+
+  Component.onDestruction: Bridge.clear(root.barBridge)
 
   function startConfigure() {
     if (configureProc.running) return

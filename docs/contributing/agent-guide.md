@@ -71,6 +71,14 @@ using only what Omarchy already ships (Quickshell, Qt, bash,
 `gpu-screen-recorder`, `ffmpeg`). No new QML import, Node runtime, npm package,
 or native module without asking first.
 
+**Replacement bars:** the stock Omarchy bar gives a widget the live service. A
+replacement bar (Station, for example) gives it a service-less facade whose
+`bar.shell.serviceFor()` always returns `null`. `Service.qml` publishes a live
+reader and a closed action list through `Bridge.js`, and `Panel.qml` falls back
+to it when `bar.shell.serviceFor()` returns nothing. Import `Bridge.js` at the
+top level of both entry points; importing it from a nested QML type creates a
+second `.pragma library` instance with no publisher.
+
 To learn the host, read the shell's own code in `$OMARCHY_PATH/shell/`
 (`/usr/share/omarchy/shell`):
 
@@ -106,7 +114,9 @@ Rules that follow from this:
 ```text
 manifest.json            plugin registration, kinds, settings schema
 Panel.qml                bar widget, panel, settings, history, take menu
-Service.qml, Model.js    shell service and history shaping
+Service.qml              shell service and history shaping
+Bridge.js                service-to-widget bridge for replacement bars
+Model.js                 pure state and history helpers
 Countdown.qml            countdown overlay
 install.sh               dependency check, engine install, bar widget, binds
 crates/reel/src/         Rust engine (cli.rs, config.rs, recorder.rs, finalize.rs, render.rs)

@@ -6,6 +6,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "Bridge.js" as Bridge
 import "Model.js" as Model
 
 // Reel: a bar widget, recording history, and inline settings tabs. The recording
@@ -17,10 +18,88 @@ Panel {
   manageIpc: false
 
   readonly property string home: Quickshell.env("HOME") || ""
-  readonly property var service: root.bar && root.bar.shell
+  readonly property var directService: root.bar && root.bar.shell
+    && typeof root.bar.shell.serviceFor === "function"
     ? root.bar.shell.serviceFor(root.moduleName) : null
+  // A replacement bar gives this widget a service-less facade, so serviceFor()
+  // returns null. The service publishes a live reader through Bridge.js; this
+  // stable surface mirrors it so bindings and Connections keep working. The
+  // stock bar keeps the direct object and never polls the bridge.
+  QtObject {
+    id: bridgeService
 
-  readonly property var state: root.service ? root.service.state : Model.emptyState()
+    property var state: Model.emptyState()
+    property var recents: []
+    property int elapsed: 0
+    property int recentVersion: 0
+    property string outputDir: ""
+    property string version: ""
+    property var updateInfo: Model.emptyUpdate()
+    property bool updateChecking: false
+    property string lastError: ""
+    property bool configureFailed: false
+
+    function refresh() { root.callBridge("refresh") }
+    function checkForUpdates(force) { root.callBridge("checkForUpdates", [force === true]) }
+    function retryConfigure() { root.callBridge("retryConfigure") }
+  }
+  readonly property var service: root.directService || bridgeService
+  property bool bridgeHasPublisher: false
+
+  function callBridge(name, args) {
+    var api = Bridge.current()
+    return api && typeof api.call === "function" ? api.call(name, args) : undefined
+  }
+
+  function syncBridge() {
+    if (root.directService) return
+    var api = Bridge.current()
+    var next = api && typeof api.snapshot === "function" ? api.snapshot() : null
+    if (!next) {
+      if (!root.bridgeHasPublisher) return
+      root.bridgeHasPublisher = false
+      root.updateNoticePending = false
+      bridgeService.state = Model.emptyState()
+      bridgeService.recents = []
+      bridgeService.elapsed = 0
+      bridgeService.recentVersion = 0
+      bridgeService.outputDir = ""
+      bridgeService.version = ""
+      bridgeService.updateInfo = Model.emptyUpdate()
+      bridgeService.updateChecking = false
+      bridgeService.lastError = ""
+      bridgeService.configureFailed = false
+      return
+    }
+    root.bridgeHasPublisher = true
+    var value = Bridge.snapshotValue(next)
+    if (value.state && bridgeService.state !== value.state) bridgeService.state = value.state
+    if (bridgeService.recents !== value.recents) bridgeService.recents = value.recents
+    if (bridgeService.elapsed !== value.elapsed) bridgeService.elapsed = value.elapsed
+    if (bridgeService.recentVersion !== value.recentVersion)
+      bridgeService.recentVersion = value.recentVersion
+    if (bridgeService.outputDir !== value.outputDir) bridgeService.outputDir = value.outputDir
+    if (bridgeService.version !== value.version) bridgeService.version = value.version
+    if (value.updateInfo && bridgeService.updateInfo !== value.updateInfo)
+      bridgeService.updateInfo = value.updateInfo
+    if (bridgeService.updateChecking !== value.updateChecking)
+      bridgeService.updateChecking = value.updateChecking
+    if (bridgeService.lastError !== value.lastError) bridgeService.lastError = value.lastError
+    if (bridgeService.configureFailed !== value.configureFailed)
+      bridgeService.configureFailed = value.configureFailed
+  }
+
+  // Read immediately when the panel opens; otherwise the bar icon refreshes
+  // half a second behind the service.
+  Timer {
+    interval: root.opened ? 150 : 500
+    repeat: true
+    running: !root.directService
+    onTriggered: root.syncBridge()
+  }
+
+  readonly property var state: root.service && root.service.state
+    ? root.service.state : Model.emptyState()
   readonly property var recents: root.service ? root.service.recents : []
   readonly property var visibleRecents: Model.visibleRecents(
     root.recents, root.pendingTrash, root.pendingRenames)
@@ -1899,6 +1978,7 @@ Panel {
   onOpenedChanged: {
     if (opened) {
       root.pinPanelAnchor()
+      root.syncBridge()
       root.panelUp = true
       root.clearHover()
       // A new window placement makes the last scene point meaningless.
@@ -4795,6 +4875,7 @@ Panel {
   }
 
   Component.onCompleted: {
+    root.syncBridge()
     root.syncSavingRows()
     if (root.service) root.service.refresh()
     root.refreshAudioDevices()
