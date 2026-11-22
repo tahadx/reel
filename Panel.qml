@@ -3440,7 +3440,9 @@ Panel {
         event.accepted = true
         return
       }
-      var keyText = String(event.text || "").toLowerCase()
+      // Letter shortcuts follow the key's position on non-Latin layouts.
+      var text = Model.shortcutText(event.text, event.nativeScanCode)
+      var keyText = text.toLowerCase()
       var shifted = (event.modifiers & Qt.ShiftModifier) !== 0
       // Shift+H is the only history shortcut. Plain h/l are horizontal
       // movement; the focused section decides whether that moves the cursor
@@ -3450,22 +3452,22 @@ Panel {
         event.accepted = true
         return
       }
-      if (event.text === "h") {
+      if (text === "h") {
         catcher.moveRequested(-1, 0)
         event.accepted = true
         return
       }
-      if (event.text === "l") {
+      if (text === "l") {
         catcher.moveRequested(1, 0)
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Down || event.text === "j") {
+      if (event.key === Qt.Key_Down || text === "j") {
         catcher.moveRequested(0, 1)
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Up || event.text === "k") {
+      if (event.key === Qt.Key_Up || text === "k") {
         catcher.moveRequested(0, -1)
         event.accepted = true
         return
@@ -3490,21 +3492,21 @@ Panel {
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Delete || event.text === "x" || event.text === "X") {
+      if (event.key === Qt.Key_Delete || text === "x" || text === "X") {
         catcher.deleteRequested()
         event.accepted = true
         return
       }
       // Share is handled here as well as in the root key map so it works while
       // the actions menu is open and survives any other text-key handling.
-      if (event.text === "u") {
+      if (text === "u") {
         if (root.takeMenuOpen) root.closeTakeMenu()
         root.shareSelected()
         event.accepted = true
         return
       }
-      if (event.text && event.text.length === 1) {
-        catcher.textKey(event.text, event.modifiers)
+      if (text.length === 1) {
+        catcher.textKey(text, event.modifiers)
       }
     }
   }
