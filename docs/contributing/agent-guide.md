@@ -98,9 +98,10 @@ Rules that follow from this:
 
 - **State & paths:** user config lives in `~/.config/omarchy/reel.json`; runtime
   state, the recorder socket, and logs live under `$XDG_RUNTIME_DIR/reel/`.
-- **Scope:** the panel is the only interface. No timeline, no editor, no separate
-  window. Save-pass effects belong in the save pass (`finalize.rs` /
-  `render.rs`) and must be re-runnable from a project file once that lands.
+- **Scope:** the panel is the only interface. There is no timeline, and no
+  separate app or window. Save-pass effects belong in the save pass
+  (`finalize.rs` / `render.rs`) and must be re-runnable from a project file once
+  that lands.
 - **Never block the shell:** QML must survive an engine error. Parse defensively,
   show `lastError`, never wait synchronously on a command.
 - **Static binary:** `bin/dist/reel-native` is built by `bin/refresh-dist` for
