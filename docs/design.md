@@ -755,6 +755,9 @@ Rules:
 - Movement triggers `ensureCursorVisible()` so the cursor never hides behind
   the fixed header or the panel edge.
 - Typing in the filename prefix blocks single-key shortcuts.
+- Letter shortcuts follow the key, not the script: on a Cyrillic, Greek,
+  Hebrew or Arabic layout, the key where `r` sits on US QWERTY still starts a
+  take. Latin layouts (Dvorak, AZERTY) keep their own letters.
 
 ### Scrolling
 
