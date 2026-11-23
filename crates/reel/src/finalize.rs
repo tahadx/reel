@@ -1366,6 +1366,7 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(project.camera.easing, "spring");
         let click = &project.ripples.clicks[0];
         assert!((click.x - 2300.0).abs() < 0.01, "click x: {}", click.x);
         assert!((click.y - 700.0).abs() < 0.01, "click y: {}", click.y);
@@ -1380,6 +1381,20 @@ mod tests {
             .expect("a zoomed keyframe");
         assert!((entry.x - 1920.0).abs() < 0.01, "camera x: {}", entry.x);
         assert!((entry.y - 700.0).abs() < 0.01, "camera y: {}", entry.y);
+        // The save pass gives the auto zoom the same 1.2 s lead-in as the
+        // manual spring, clipped to the start of the saved take.
+        let start = project
+            .camera
+            .keyframes
+            .first()
+            .expect("the camera starts at 1x");
+        assert_eq!(start.zoom, 1.0);
+        let lead = (entry.t - project::SPRING_MOVE_SECS).max(0.0);
+        assert!(
+            (start.t - lead).abs() < 0.01,
+            "lead-in started at {}, want {lead}",
+            start.t
+        );
 
         fs::remove_dir_all(&root).ok();
     }

@@ -14,9 +14,9 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 - Pause and resume without ending the file.
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Scroll`, capped at 2× by default.
-- Optional auto zoom in the save pass: clicks become smooth camera blocks, and
-  every take with telemetry writes an editable `project.json` into a hidden
-  `.reel/` folder for re-rendering.
+- Optional auto zoom in the save pass: clicks become camera blocks that use the
+  same spring as manual zoom, and every take with telemetry writes an editable
+  `project.json` into a hidden `.reel/` folder for re-rendering.
 - Optional click effects in the save pass: a premium theme-accent ripple or
   halo is drawn at each click, follows the auto zoom camera, and stays on the
   clicked content when manual zoom magnified a monitor take.

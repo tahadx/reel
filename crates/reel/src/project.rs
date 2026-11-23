@@ -19,17 +19,29 @@ pub const PROJECT_VERSION: u32 = 1;
 pub const CLUSTER_GAP_SECS: f64 = 2.5;
 /// Clicks closer than this to the running centroid become one zoom block.
 pub const CLUSTER_RADIUS_PX: f64 = 350.0;
-/// Time spent easing into a zoom before the first click of a block.
-pub const EASE_IN_SECS: f64 = 0.5;
+/// The shortest time spent easing into a zoom. Blocks closer than
+/// `2 * EASE_MIN_SECS` stay zoomed and pan instead, as they always have.
+pub const EASE_MIN_SECS: f64 = 0.5;
+/// The manual wheel spring's natural settle time. The save pass gives a move
+/// up to this long, so auto zoom glides like the hand-driven camera instead
+/// of finishing the last quarter of the move in the final 100 ms.
+pub const SPRING_MOVE_SECS: f64 = 1.2;
 /// Zoom is held for this long after the last click of a block.
 pub const HOLD_AFTER_LAST_SECS: f64 = 0.9;
-/// Time spent easing back to 1x after the hold.
-pub const EASE_OUT_SECS: f64 = 0.5;
+/// A still moment at 1x between blocks when the gap has room for one.
+const REST_BETWEEN_BLOCKS_SECS: f64 = 0.2;
 /// Time spent panning between overlapping zoom targets.
 pub const PAN_SECS: f64 = 0.45;
 /// Ignore pans smaller than this fraction of the visible frame. A click inside
 /// the current view does not need its own tiny camera move.
 pub const PAN_DEADBAND: f64 = 0.12;
+/// Half-life of the save-pass auto zoom spring. This is the manual wheel
+/// spring from `zoom.rs`, so auto zoom follows the same curve as a
+/// hand-driven zoom.
+pub const SPRING_EASE_HALF_LIFE_SECS: f64 = 0.11;
+/// A hand-edited long gap would otherwise settle almost immediately. Cap the
+/// spring factor so a long segment still has a visible, finite settle.
+const SPRING_EASE_MAX_FACTOR: f64 = 12.0;
 /// The zoom depths the contract allows.
 pub const DEPTHS: [f64; 3] = [1.5, 2.0, 2.5];
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -127,9 +139,11 @@ impl Default for Capture {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Camera {
-    /// `off`, `subtle`, `cinematic`, or `close`.
+    /// `off` or `auto`; older projects may say `subtle`, `cinematic`, or
+    /// `close`, which all read as `auto`.
     pub style: String,
     pub depth: f64,
+    /// `spring` for new auto zoom, `smoothstep` for older projects.
     pub easing: String,
     pub keyframes: Vec<Keyframe>,
     #[serde(flatten)]
@@ -778,7 +792,7 @@ pub fn build_camera_for_capture(
     let mut camera = Camera {
         style: style.into(),
         depth: valid_depth(depth),
-        easing: "smoothstep".into(),
+        easing: "spring".into(),
         keyframes: Vec::new(),
         extra: Map::new(),
     };
@@ -809,13 +823,11 @@ pub fn build_camera_for_capture(
         return camera;
     }
 
-    // One block per click cluster. A block is active from its ease-in until
-    // its ease-out finishes.
+    // One block per click cluster. A block is active from its first click
+    // until its hold ends; the movement around it is fitted later.
     struct Block {
-        start: f64,
         enter: f64,
         hold: f64,
-        end: f64,
         /// `(saved-take time, x, y)` points; the first is at `enter`.
         targets: Vec<(f64, f64, f64)>,
     }
@@ -858,30 +870,60 @@ pub fn build_camera_for_capture(
                 hold
             };
             Block {
-                start: (enter - EASE_IN_SECS).max(0.0),
                 enter,
                 hold,
-                end: hold + EASE_OUT_SECS,
                 targets,
             }
         })
         .collect();
 
-    // Blocks whose eased windows overlap would cut back to 1x and snap in
-    // again a millisecond later. Stay zoomed and pan between their centres
-    // instead, then leave once when the last of them is done.
+    // Keep the historical grouping rule: blocks whose old half-second windows
+    // would overlap stay zoomed and pan. The motion inside a group is longer
+    // now, but which clicks share one zoom block does not change.
+    let mut groups: Vec<(usize, usize)> = Vec::new();
+    let mut index = 0;
+    while index < blocks.len() {
+        let first = index;
+        let mut last = index;
+        while last + 1 < blocks.len()
+            && blocks[last + 1].enter - blocks[last].hold <= 2.0 * EASE_MIN_SECS
+        {
+            last += 1;
+        }
+        groups.push((first, last));
+        index = last + 1;
+    }
+
+    // A group eases in over the gap from the previous group and eases out into
+    // the gap before the next one. Give each side the manual spring's full
+    // settle time when the take has room, and split shorter gaps in half.
+    let mut eases: Vec<(f64, f64)> = Vec::with_capacity(groups.len());
+    for (group, &(first, last)) in groups.iter().enumerate() {
+        let entry = if group == 0 {
+            blocks[first].enter.min(SPRING_MOVE_SECS)
+        } else {
+            let gap = blocks[first].enter - blocks[groups[group - 1].1].hold;
+            transition_secs(gap)
+        };
+        let exit = if group + 1 == groups.len() {
+            SPRING_MOVE_SECS
+        } else {
+            let gap = blocks[groups[group + 1].0].enter - blocks[last].hold;
+            transition_secs(gap)
+        };
+        eases.push((entry, exit));
+    }
+
     let (centre_x, centre_y) = (bounds.x + width / 2.0, bounds.y + height / 2.0);
     let deadband = width.min(height) / camera.depth * PAN_DEADBAND;
     let mut frames: Vec<Keyframe> = Vec::new();
-    let mut index = 0;
-    while index < blocks.len() {
-        let first = &blocks[index];
-        push_frame(
-            &mut frames,
-            Keyframe::new(first.start, 1.0, centre_x, centre_y),
-        );
-        let at = first.enter.max(first.start + 0.001);
-        let (_, first_x, first_y) = *first.targets.first().expect("targets is never empty");
+    for (group, &(first, last)) in groups.iter().enumerate() {
+        let (entry, exit) = eases[group];
+        let first_block = &blocks[first];
+        let start = (first_block.enter - entry).max(0.0);
+        push_frame(&mut frames, Keyframe::new(start, 1.0, centre_x, centre_y));
+        let at = first_block.enter.max(start + 0.001);
+        let (_, first_x, first_y) = *first_block.targets.first().expect("targets is never empty");
         let mut current = clamp_center_in(bounds, first_x, first_y, camera.depth);
         push_frame(
             &mut frames,
@@ -890,7 +932,7 @@ pub fn build_camera_for_capture(
         let mut last_t = at;
         push_targets(
             &mut frames,
-            &first.targets,
+            &first_block.targets,
             &mut current,
             &mut last_t,
             bounds,
@@ -898,10 +940,7 @@ pub fn build_camera_for_capture(
             deadband,
         );
 
-        let mut last = index;
-        while last + 1 < blocks.len() && blocks[last + 1].start <= blocks[last].end {
-            last += 1;
-            let next = &blocks[last];
+        for next in &blocks[first + 1..=last] {
             let next_enter = next.enter.max(last_t + 0.001);
             let (_, next_x, next_y) = *next.targets.first().expect("targets is never empty");
             let next_centre = clamp_center_in(bounds, next_x, next_y, camera.depth);
@@ -943,14 +982,21 @@ pub fn build_camera_for_capture(
         );
         push_frame(
             &mut frames,
-            Keyframe::new(hold + EASE_OUT_SECS, 1.0, centre_x, centre_y),
+            Keyframe::new(hold + exit, 1.0, centre_x, centre_y),
         );
-        index = last + 1;
     }
 
     camera.keyframes = frames;
     camera.normalize_in(bounds);
     camera
+}
+
+/// Time for one side of the move between two separate blocks. The gap runs
+/// from the first block's hold to the next block's first click; half of it,
+/// minus a short rest at 1x, belongs to the ease-out and half to the ease-in.
+/// A gap too short for the full manual spring keeps the old 500 ms minimum.
+fn transition_secs(gap: f64) -> f64 {
+    ((gap - REST_BETWEEN_BLOCKS_SECS) / 2.0).clamp(EASE_MIN_SECS, SPRING_MOVE_SECS)
 }
 
 /// Append the later points of one block, panning between them.
@@ -1060,7 +1106,7 @@ impl Camera {
     fn normalize_in(&mut self, bounds: CaptureBounds) {
         self.style = valid_style(&self.style).to_string();
         self.depth = valid_depth(self.depth);
-        self.easing = "smoothstep".into();
+        self.easing = valid_easing(&self.easing).to_string();
         let mut frames: Vec<Keyframe> = self
             .keyframes
             .drain(..)
@@ -1089,9 +1135,10 @@ impl Camera {
         self.keyframes = folded;
     }
 
-    /// The eased viewport at saved-take time `t`. Interpolation is smoothstep,
-    /// so velocity is zero at every keyframe. The centre is clamped again after
-    /// interpolation because a lower zoom between keyframes widens the
+    /// The eased viewport at saved-take time `t`. A spring-project camera uses
+    /// the critically damped spring curve; older projects keep smoothstep.
+    /// Either curve is still at every keyframe. The centre is clamped again
+    /// after interpolation because a lower zoom between keyframes widens the
     /// viewport.
     pub fn viewport_at(&self, t: f64, width: f64, height: f64) -> (f64, f64, f64) {
         if self.keyframes.is_empty() {
@@ -1107,10 +1154,11 @@ impl Camera {
             let (a, b) = (&pair[0], &pair[1]);
             if t <= b.t {
                 let span = b.t - a.t;
-                let u = if span > 0.0 {
-                    smoothstep((t - a.t) / span)
+                let raw = if span > 0.0 { (t - a.t) / span } else { 1.0 };
+                let u = if self.easing == "spring" {
+                    spring_ease(raw, span)
                 } else {
-                    1.0
+                    smoothstep(raw)
                 };
                 let zoom = a.zoom + (b.zoom - a.zoom) * u;
                 let x = a.x + (b.x - a.x) * u;
@@ -1130,6 +1178,58 @@ impl Camera {
 pub fn smoothstep(u: f64) -> f64 {
     let u = u.clamp(0.0, 1.0);
     u * u * (3.0 - 2.0 * u)
+}
+
+/// The shape of one spring-eased segment: `(factor, norm, correction)`.
+///
+/// The underlying curve is the exact critically damped step response
+/// `1 - (1 + x) * e^-x` with `x = factor * u`, normalized so it reaches 1 at
+/// the end of the segment. A small `u^2 * (1 - u)` term removes the terminal
+/// velocity, so the camera lands on the keyframe instead of stopping dead.
+pub fn spring_shape(span: f64) -> Option<(f64, f64, f64)> {
+    if !span.is_finite() || span <= 0.0 {
+        return None;
+    }
+    let factor =
+        (span * std::f64::consts::LN_2 / SPRING_EASE_HALF_LIFE_SECS).min(SPRING_EASE_MAX_FACTOR);
+    if factor < 0.05 {
+        return None;
+    }
+    let tail = (-factor).exp();
+    let norm = 1.0 - (1.0 + factor) * tail;
+    if !norm.is_finite() || norm < 1e-9 {
+        return None;
+    }
+    let correction = factor * factor * tail / norm;
+    Some((factor, norm, correction))
+}
+
+/// Progress through a spring-eased segment. `span` is the segment duration in
+/// seconds; a non-spring caller uses [`smoothstep`] directly.
+pub fn spring_ease(u: f64, span: f64) -> f64 {
+    let u = u.clamp(0.0, 1.0);
+    if u <= 0.0 {
+        return 0.0;
+    }
+    if u >= 1.0 {
+        return 1.0;
+    }
+    let Some((factor, norm, correction)) = spring_shape(span) else {
+        return smoothstep(u);
+    };
+    let x = factor * u;
+    let base = (1.0 - (1.0 + x) * (-x).exp()) / norm;
+    (base + correction * u * u * (1.0 - u)).clamp(0.0, 1.0)
+}
+
+/// The camera easing a project actually supports. Unknown or missing values
+/// keep the historical smoothstep path.
+pub fn valid_easing(easing: &str) -> &'static str {
+    if easing == "spring" {
+        "spring"
+    } else {
+        "smoothstep"
+    }
 }
 
 /// A camera style from the contract, or `off` for anything else. Projects
@@ -1673,6 +1773,127 @@ mod tests {
     }
 
     #[test]
+    fn spring_easing_is_still_at_both_ends_and_matches_the_manual_curve() {
+        assert_eq!(spring_ease(0.0, SPRING_MOVE_SECS), 0.0);
+        assert_eq!(spring_ease(1.0, SPRING_MOVE_SECS), 1.0);
+        // A 0.11 s half-life over the manual spring's 1.2 s settle time. At
+        // 0.4 s, 0.6 s, and 0.9 s the save pass should be where a hand-driven
+        // wheel zoom is, not compressed into a 500 ms snap.
+        let omega = std::f64::consts::LN_2 / SPRING_EASE_HALF_LIFE_SECS;
+        for secs in [0.4, 0.6, 0.9] {
+            let manual = 1.0 - (1.0 + omega * secs) * (-omega * secs).exp();
+            let auto = spring_ease(secs / SPRING_MOVE_SECS, SPRING_MOVE_SECS);
+            assert!(
+                (auto - manual).abs() < 0.01,
+                "{secs} s: auto {auto}, manual {manual}"
+            );
+        }
+        assert!(spring_ease(0.5, SPRING_MOVE_SECS) > smoothstep(0.5));
+        assert!(
+            (spring_ease(0.999, SPRING_MOVE_SECS) - 1.0).abs() < 1e-3,
+            "the spring should be nearly settled at the end"
+        );
+        let mut last = 0.0;
+        for step in 0..=1000 {
+            let value = spring_ease(step as f64 / 1000.0, PAN_SECS);
+            assert!(value + 1e-9 >= last, "spring went backwards at {step}");
+            last = value;
+        }
+        assert_eq!(valid_easing("spring"), "spring");
+        assert_eq!(valid_easing("linear"), "smoothstep");
+        assert_eq!(valid_easing(""), "smoothstep");
+    }
+
+    #[test]
+    fn auto_zoom_uses_the_spring_easing_without_moving_its_keyframes() {
+        let camera = build_camera(
+            &[click(1.0, 500.0, 400.0)],
+            true,
+            2.0,
+            1000.0,
+            800.0,
+            0.0,
+            None,
+        );
+        assert_eq!(camera.easing, "spring");
+        // The click still lands on the zoomed keyframe; only the path to it
+        // uses the spring.
+        let enter = camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        assert_eq!(enter.t, 1.0);
+        let (before, _, _) = camera.viewport_at(0.5, 1000.0, 800.0);
+        assert!(before > 1.5, "spring should lead smoothstep: {before}");
+        assert!((camera.viewport_at(1.0, 1000.0, 800.0).0 - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_block_with_room_gets_the_full_manual_spring_lead_in() {
+        let camera = build_camera(
+            &[click(5.0, 500.0, 400.0)],
+            true,
+            2.0,
+            1000.0,
+            800.0,
+            0.0,
+            None,
+        );
+        assert_eq!(camera.keyframes[0].t, 5.0 - SPRING_MOVE_SECS);
+        assert_eq!(camera.keyframes[0].zoom, 1.0);
+        let enter = camera
+            .keyframes
+            .iter()
+            .find(|frame| frame.zoom == 2.0)
+            .expect("a zoomed keyframe");
+        assert_eq!(enter.t, 5.0);
+        // Half way through the lead-in the zoom is already well under way,
+        // exactly like the manual wheel spring.
+        let (mid, _, _) = camera.viewport_at(5.0 - SPRING_MOVE_SECS / 2.0, 1000.0, 800.0);
+        assert!(mid > 1.8, "mid spring zoom: {mid}");
+    }
+
+    #[test]
+    fn separate_blocks_share_the_gap_and_rest_at_one() {
+        // A 3 s gap leaves 2.1 s between the first block's hold and the
+        // second click. Each side gets 0.95 s and the camera rests for 0.2 s.
+        let camera = build_camera(
+            &[click(1.0, 1280.0, 720.0), click(4.0, 1280.0, 720.0)],
+            true,
+            2.0,
+            2560.0,
+            1440.0,
+            0.0,
+            None,
+        );
+        let times: Vec<f64> = camera.keyframes.iter().map(|frame| frame.t).collect();
+        let near = |want: f64| times.iter().any(|actual| (actual - want).abs() < 1e-9);
+        assert!(near(1.0 + HOLD_AFTER_LAST_SECS + 0.95));
+        assert!(near(4.0 - 0.95));
+        assert!(near(4.0));
+    }
+
+    #[test]
+    fn a_spring_camera_keeps_its_easing_through_normalize() {
+        let mut project = Project {
+            camera: Camera {
+                easing: "spring".into(),
+                keyframes: vec![Keyframe::new(0.0, 1.0, 500.0, 400.0)],
+                ..Camera::default()
+            },
+            source: Source {
+                width: 1000,
+                height: 800,
+                ..Source::default()
+            },
+            ..Project::default()
+        };
+        project.normalize();
+        assert_eq!(project.camera.easing, "spring");
+    }
+
+    #[test]
     fn clicks_merge_at_two_and_a_half_seconds_and_350_px() {
         let clusters = cluster_clicks(&[
             click(0.0, 100.0, 100.0),
@@ -1896,7 +2117,7 @@ mod tests {
             .expect("the block eases out at the end");
         assert_eq!(out.zoom, 1.0);
         assert!(
-            (out.t - (4.0 + HOLD_AFTER_LAST_SECS / 2.0 + EASE_OUT_SECS)).abs() < 1e-9,
+            (out.t - (4.0 + HOLD_AFTER_LAST_SECS / 2.0 + SPRING_MOVE_SECS)).abs() < 1e-9,
             "ease-out was at {}",
             out.t
         );

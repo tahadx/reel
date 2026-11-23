@@ -210,9 +210,13 @@ zoom:
 - Scrolling inside the zoomed viewport keeps the block alive. Each wheel or
   touchpad tick holds the camera until 1.2 s after the last tick, so reading
   through a page does not zoom out mid-scroll.
-- Each block eases in over 500 ms before the first click, holds through the
-  last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
-  keyframe.
+- Each block eases in with the same critically damped spring as manual zoom:
+  a 0.11 s half-life settling over up to 1.2 s. The move starts up to 1.2 s
+  before the first click, so the click lands as the spring comes to rest rather
+  than at the end of a 500 ms snap. It then holds through the last click plus
+  900 ms and eases back over as much of the gap before the next block as
+  fits, up to 1.2 s, leaving a short rest at 1x when there is room. The click
+  timing and depth are unchanged. Velocity is zero at every keyframe.
 - Blocks that overlap in time stay zoomed and pan between the two areas, so a
   quick click somewhere else does not flash back to 1x for a millisecond. The
   pan takes about 450 ms and ends on the new click; a shift smaller than 12% of
@@ -331,7 +335,7 @@ or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
 "camera": {
   "style": "auto",
   "depth": 2.0,
-  "easing": "smoothstep",
+  "easing": "spring",
   "keyframes": [
     { "t": 0.0, "zoom": 1.0, "x": 1280.0, "y": 720.0 },
     { "t": 1.5, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
@@ -342,9 +346,13 @@ or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
 
 `t` is seconds in the saved take. `x` and `y` are the viewport centre in source
 capture pixels. Keyframes are sorted by `t`, `zoom` is at least `1`, and every
-viewport is clamped so the frame never shows space outside the capture. Values
-between keyframes use smoothstep, so the camera is still at each keyframe.
-`style: "off"` disables the zoom even when keyframes are present.
+viewport is clamped so the frame never shows space outside the capture. New
+auto zoom writes `easing: "spring"`: values between keyframes use the manual
+zoom's critically damped spring curve, and the camera is still at every
+keyframe. A normal move spans up to 1.2 s so it reads like the live spring;
+shorter gaps use a shorter span. Projects written before the spring (and any
+unknown easing value) keep the historical `"smoothstep"` path. `style: "off"`
+disables the zoom even when keyframes are present.
 
 The `ripples` object holds the click effects: `enabled`, `style`
 (`ripple` or `halo`), `color` (a `#rrggbb` accent, or empty for the live

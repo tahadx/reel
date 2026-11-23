@@ -253,9 +253,9 @@ pub fn camera_filter(
     if !camera.needs_zoom() {
         return None;
     }
-    let z = piecewise(&camera.keyframes, fps, |frame| frame.zoom);
-    let center_x = piecewise(&camera.keyframes, fps, |frame| frame.x);
-    let center_y = piecewise(&camera.keyframes, fps, |frame| frame.y);
+    let z = piecewise(&camera.keyframes, fps, &camera.easing, |frame| frame.zoom);
+    let center_x = piecewise(&camera.keyframes, fps, &camera.easing, |frame| frame.x);
+    let center_y = piecewise(&camera.keyframes, fps, &camera.easing, |frame| frame.y);
     // `zoom` in the x/y expressions is the zoompan filter's current z, so the
     // top-left follows the eased zoom without repeating the z expression.
     let x = format!("max(0,min(({center_x})-iw/(2*zoom),iw-iw/zoom))");
@@ -281,16 +281,21 @@ pub fn camera_filter(
     })
 }
 
-/// A smoothstep interpolation for one camera field over output frame numbers.
+/// An eased interpolation for one camera field over output frame numbers.
 ///
-/// The value is a flat sum of per-segment smoothsteps, summed as a balanced
-/// tree. The old chain of nested `if()` calls produced an expression tree as
-/// deep as the keyframe count, and ffmpeg 9 rejects anything deeper than
-/// `MAX_DEPTH` (100). That made the save pass fail on takes with around 48 zoom
-/// keyframes. A balanced sum has logarithmic depth, so long paths stay on the
-/// faster `zoompan` path; `EXPRESSION_LIMIT` still hands very large paths to
+/// The value is a flat sum of per-segment curves, summed as a balanced tree.
+/// The old chain of nested `if()` calls produced an expression tree as deep as
+/// the keyframe count, and ffmpeg 9 rejects anything deeper than `MAX_DEPTH`
+/// (100). That made the save pass fail on takes with around 48 zoom keyframes.
+/// A balanced sum has logarithmic depth, so long paths stay on the faster
+/// `zoompan` path; `EXPRESSION_LIMIT` still hands very large paths to
 /// `sendcmd`.
-fn piecewise(frames: &[Keyframe], fps: f64, value: impl Fn(&Keyframe) -> f64) -> String {
+fn piecewise(
+    frames: &[Keyframe],
+    fps: f64,
+    easing: &str,
+    value: impl Fn(&Keyframe) -> f64,
+) -> String {
     let mut points: Vec<(f64, f64)> = Vec::with_capacity(frames.len());
     for frame in frames {
         let mark = (frame.t * fps).round().max(0.0);
@@ -305,6 +310,7 @@ fn piecewise(frames: &[Keyframe], fps: f64, value: impl Fn(&Keyframe) -> f64) ->
     let Some(&(_, first)) = points.first() else {
         return "1".into();
     };
+    let spring = easing == "spring";
     let mut terms: Vec<String> = Vec::new();
     for pair in points.windows(2) {
         let (start, from) = pair[0];
@@ -314,11 +320,23 @@ fn piecewise(frames: &[Keyframe], fps: f64, value: impl Fn(&Keyframe) -> f64) ->
             continue;
         }
         let u = format!("max(0,min(1,(on-{})/{}))", number(start), number(span));
-        terms.push(format!(
-            "({}-{})*{u}*{u}*(3-2*{u})",
-            number(to),
-            number(from)
-        ));
+        let progress = if spring {
+            match project::spring_shape(span / fps) {
+                Some((factor, norm, correction)) => {
+                    let factor = number(factor);
+                    let norm = number(norm);
+                    let correction = number(correction);
+                    format!(
+                        "((1-(1+{factor}*{u})*exp(-{factor}*{u}))/{norm}\
+                         +{correction}*{u}*{u}*(1-{u}))"
+                    )
+                }
+                None => format!("{u}*{u}*(3-2*{u})"),
+            }
+        } else {
+            format!("{u}*{u}*(3-2*{u})")
+        };
+        terms.push(format!("({}-{})*{progress}", number(to), number(from)));
     }
     if terms.is_empty() {
         return number(first);
@@ -511,7 +529,36 @@ mod tests {
             Keyframe::new(1.0, 1.0, 320.0, 180.0),
             Keyframe::new(1.001, 2.0, 320.0, 180.0),
         ];
-        assert_eq!(piecewise(&frames, 60.0, |frame| frame.zoom), "2");
+        assert_eq!(
+            piecewise(&frames, 60.0, "smoothstep", |frame| frame.zoom),
+            "2"
+        );
+    }
+
+    #[test]
+    fn a_spring_camera_uses_the_spring_expression() {
+        let mut camera = camera(vec![
+            Keyframe::new(0.0, 1.0, 320.0, 180.0),
+            Keyframe::new(1.0, 2.0, 320.0, 180.0),
+        ]);
+        camera.easing = "spring".into();
+        let filter = camera_filter(
+            &camera,
+            640,
+            360,
+            60.0,
+            1.0,
+            Path::new("/run/user/1/reel/render.sendcmd"),
+        )
+        .expect("a filter");
+
+        assert!(filter.graph.starts_with("zoompan="));
+        assert!(
+            filter.graph.contains("exp(-"),
+            "spring expression: {}",
+            filter.graph
+        );
+        assert!(!filter.graph.contains("(3-2*"), "spring is not smoothstep");
     }
 
     #[test]
