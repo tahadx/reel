@@ -312,15 +312,16 @@ a clock.
 Rules:
 
 - The resting mark is drawn, not borrowed from the icon font: a `19 × 15`
-  screen outline with a `6.4` record dot inside, on a 24-unit canvas from
-  `Style.bar.iconCanvas`. Its size is clamped to the bar's own thickness
-  (`min(iconCanvas, barSize - 4)`), so a thin or scaled bar never clips it, and
-  it stays upright on a vertical bar.
-- The outline and the dot are painted in one `Canvas`, not as two rectangles:
-  separate items round their own edges to the pixel grid, which walked the dot
-  a device pixel off the screen's centre as the bar's text size changed.
-  Painted together they share one centre at every size, and the mark sits on
-  the bar's centre line like the glyphs beside it.
+  screen outline with a `6.4` record dot inside, on a 24-unit coordinate space
+  sized from `Style.bar.iconCanvas`. Its size is clamped to the bar's own
+  thickness (`min(iconCanvas, barSize - 4)`), so a thin or scaled bar never
+  clips it, and it stays upright on a vertical bar.
+- The outline and the dot are two paths of one `Shape` with
+  `Shape.CurveRenderer`, not a `Canvas` or an image: the paths stay vector in
+  the scene graph, so the mark is sharp at every bar size, display scale, and
+  press animation, and both paths share one coordinate system so the dot never
+  drifts off the screen's centre. A rasterised mark softens once the compositor
+  scales it, which reads as low quality beside the shell's font glyphs.
 - The mark is bar ink: outline at `0.9`, dot at full, so it reads like the
   bar's own label on a transparent strip. A press shrinks it with the widget,
   so the click is felt.
