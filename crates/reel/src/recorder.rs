@@ -128,6 +128,18 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
     Some(if codec == "av1" { qp * 4 } else { qp })
 }
 
+/// Whether manual zoom should use the stable push camera for this take.
+///
+/// Push is opt-in. Auto zoom and click effects need the live frame's click
+/// positions, which are exact only under the attached follow camera, so those
+/// takes keep follow even when the user chose push.
+fn manual_zoom_push(follow: bool, auto_zoom: bool, click_effects: &str, stored: &Value) -> bool {
+    follow
+        && !auto_zoom
+        && click_effects == "off"
+        && !config::zoom_follows_pointer(stored.get("zoomFollow"))
+}
+
 /// The take's auto zoom: the panel's per-take argument first, then reel.json.
 /// The panel passes what the user is looking at, so a stale `autoZoom` left in
 /// the file can never zoom a take the panel says is off.
@@ -1343,7 +1355,10 @@ fn run_take(
     paths::remove_quiet(&paths.starting);
     paths::remove_quiet(&paths.cancel);
     if settings.manual_zoom {
-        crate::zoom::enable_recording_zoom(paths, settings.zoom_max, choice.kind == "monitor");
+        let follow = choice.kind == "monitor";
+        let stored = config::load(paths);
+        let push = manual_zoom_push(follow, settings.auto_zoom, &settings.click_effects, &stored);
+        crate::zoom::enable_recording_zoom(paths, settings.zoom_max, follow, push);
     }
     println!("{file}");
 
@@ -1513,7 +1528,16 @@ pub fn resume(paths: &Paths) -> Result<()> {
         let zoom_max = config::zoom_max_value(next.get("settings").and_then(|s| s.get("zoomMax")))
             .unwrap_or(2.0);
         let follow = state::field_str(&next, "targetKind").as_deref() == Some("monitor");
-        crate::zoom::enable_recording_zoom(paths, zoom_max, follow);
+        let empty_settings = serde_json::Value::Null;
+        let take_settings = next.get("settings").unwrap_or(&empty_settings);
+        let stored = config::load(paths);
+        let push = manual_zoom_push(
+            follow,
+            config::auto_zoom(take_settings),
+            &config::click_effects(take_settings),
+            &stored,
+        );
+        crate::zoom::enable_recording_zoom(paths, zoom_max, follow, push);
     }
 
     Ok(())
@@ -2052,6 +2076,25 @@ mod tests {
         assert!(auto_zoom_choice(&Some("on".into()), &stored));
         assert!(auto_zoom_choice(&Some("  ".into()), &stored));
         assert!(auto_zoom_choice(&None, &stored));
+    }
+
+    #[test]
+    fn manual_zoom_uses_push_only_when_opted_in_and_clicks_do_not_need_follow() {
+        // Follow is the default; push is an explicit choice.
+        assert!(!manual_zoom_push(true, false, "off", &json!({})));
+        let push = json!({ "zoomFollow": "push" });
+        assert!(manual_zoom_push(true, false, "off", &push));
+        // Auto zoom and click effects need the attached camera, so they win.
+        assert!(!manual_zoom_push(true, true, "off", &push));
+        assert!(!manual_zoom_push(true, false, "ripple", &push));
+        // A window or area take is never push; it is already detached.
+        assert!(!manual_zoom_push(false, false, "off", &push));
+        assert!(!manual_zoom_push(
+            true,
+            false,
+            "off",
+            &json!({ "zoomFollow": "follow" })
+        ));
     }
 
     #[test]

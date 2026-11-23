@@ -93,6 +93,9 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   install -m 0755 "$HERE/bin/configure" "$PLUGIN_DIR/bin/configure"
   install -m 0755 "$HERE/bin/uninstall" "$PLUGIN_DIR/bin/uninstall"
   install -m 0755 "$HERE/bin/dist/reel-native" "$PLUGIN_DIR/bin/dist/reel-native"
+  # Keep the installed build verifiable: the fingerprint is what a later
+  # re-install or a manual check compares against the checkout.
+  install -m 0644 "$HERE/bin/dist/reel-native.fingerprint" "$PLUGIN_DIR/bin/dist/reel-native.fingerprint"
   # The installed copy runs on later updates and re-installs, so it must be the
   # same installer as this checkout rather than the one that was cloned.
   install -m 0755 "$HERE/install.sh" "$PLUGIN_DIR/install.sh"
