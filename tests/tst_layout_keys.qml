@@ -27,7 +27,7 @@ TestCase {
   }
 
   function test_caseIsKept() {
-    compare(Model.shortcutText("Р", keyH), "H")   // Shift+H opens history
+    compare(Model.shortcutText("Р", keyH), "H")   // Uppercase mapping is kept
     compare(Model.shortcutText("Г", keyU), "U")   // Shift+U is the updater
   }
 

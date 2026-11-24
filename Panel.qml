@@ -489,7 +489,6 @@ Panel {
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
     { keys: "Ctrl+Scroll", what: "zoom during a take" },
-    { keys: "Shift+H", what: "open or close history" },
     { keys: "s", what: "focus the settings tabs" },
     { keys: "a", what: "open the take actions menu" },
     { keys: "x / delete", what: "trash the selected take" },
@@ -507,22 +506,19 @@ Panel {
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "clickEffects", label: "Click effects", glyph: "󰝁" },
       { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" }
-    ] }
+    ] },
+    { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
   ]
-  // The strip puts Recording and Visuals first, followed by History as three
-  // equal pages cycled left to right with Tab.
-  readonly property var navDestinations: {
-    var list = []
-    for (var i = 0; i < root.settingsTabs.length; i++) {
-      var tab = root.settingsTabs[i]
-      list.push({ id: tab.id, label: tab.label })
-    }
-    list.push({ id: "history", label: "History" })
-    return list
-  }
+  // The strip puts Recording, Visuals, History, and Shortcuts as four equal
+  // pages cycled left to right with Tab.
+  readonly property var navDestinations: [
+    { id: "recording", label: "Recording" },
+    { id: "visuals", label: "Visuals" },
+    { id: "history", label: "History" },
+    { id: "shortcuts", label: "Shortcuts" }
+  ]
 
   function isNavActive(id) {
-    if (root.page === "shortcuts") return false
     if (id === "history") return root.page === "history"
     if (root.page === "devices") return root.settingsTab === id
     return root.page === "home" && root.settingsTab === id
@@ -548,6 +544,7 @@ Panel {
 
   property string page: "home"
   property string shortcutsReturnPage: "home"
+  property string shortcutsReturnTab: "recording"
   property int lastRecentsCount: 0
   // Relative take times only move as the clock does, so the history list needs
   // a dependency that advances. takeMeta() reads this counter and re-runs its
@@ -1743,10 +1740,6 @@ Panel {
   }
 
   function back() {
-    if (root.page === "shortcuts") {
-      root.closeShortcuts()
-      return
-    }
     if (root.page === "devices") {
       root.closeDevices()
       return
@@ -1805,23 +1798,6 @@ Panel {
     Qt.callLater(root.focusPanelKeys)
   }
 
-  function closeHistory() {
-    root.clearHover()
-    root.page = "home"
-    root.focusSection = "settings"
-    root.selectedIndex = 0
-    root.settingsIndex = 0
-    root.cursorActive = false
-    root.historyAnchorPath = ""
-    root.suppressHistoryHover = false
-    Qt.callLater(root.focusPanelKeys)
-  }
-
-  function toggleHistory() {
-    if (root.page === "history") root.closeHistory()
-    else root.openHistory()
-  }
-
   // The Webcam device row can only offer the cameras in root.cameras, so read
   // them before the row is shown: on panel open (the row is reachable straight
   // from the settings section) and again whenever settings open, which is the
@@ -1860,42 +1836,31 @@ Panel {
   }
 
   function openShortcuts() {
-    if (root.page === "shortcuts") return
-    root.clearHover()
+    if (root.page === "home" && root.settingsTab === "shortcuts") return
     root.shortcutsReturnPage = root.page === "history" ? "history" : "home"
-    root.page = "shortcuts"
-    root.focusSection = "settings"
-    root.settingsIndex = 0
-    root.cursorActive = false
-    root.typingPrefix = false
-    root.resetScroll()
-    Qt.callLater(root.focusPanelKeys)
+    root.shortcutsReturnTab = root.settingsTab
+    root.selectNav("shortcuts")
   }
 
   function closeShortcuts() {
-    if (root.page !== "shortcuts") return
+    if (!(root.page === "home" && root.settingsTab === "shortcuts")) return
     if (root.shortcutsReturnPage === "history") {
       root.openHistory()
       return
     }
-    root.clearHover()
-    root.page = "home"
-    root.focusSection = "settings"
-    root.settingsIndex = 0
-    root.cursorActive = false
-    root.beginKeyboardScroll()
-    root.resetScroll()
-    Qt.callLater(root.focusPanelKeys)
+    var target = root.shortcutsReturnTab === "shortcuts" || root.shortcutsReturnTab === ""
+      ? "recording" : root.shortcutsReturnTab
+    root.selectNav(target)
   }
 
   function toggleShortcuts() {
-    if (root.page === "shortcuts") root.closeShortcuts()
+    if (root.page === "home" && root.settingsTab === "shortcuts") root.closeShortcuts()
     else root.openShortcuts()
   }
 
   function toggleSettings() {
-    if (root.page === "shortcuts") root.closeShortcuts()
-    else if (root.page === "devices") root.closeDevices()
+    if (root.page === "devices") root.closeDevices()
+    else if (root.page === "home" && root.settingsTab === "shortcuts") root.closeShortcuts()
     else if (root.focusSection === "settings") root.closeSettings()
     else root.openSettings()
   }
@@ -1912,7 +1877,7 @@ Panel {
 
   function activeRows() {
     if (root.page === "devices") return root.deviceRows()
-    if (root.page === "shortcuts") return root.shortcutRows
+    if (root.page === "home" && root.settingsTab === "shortcuts") return root.shortcutRows
     return root.settingsRows()
   }
 
@@ -1949,13 +1914,14 @@ Panel {
       root.cursorActive = true
       return
     }
+    var onShortcuts = root.page === "home" && root.settingsTab === "shortcuts"
     if (dy !== 0) {
       var rows = root.activeRows()
-      var disabled = (root.page === "devices" || root.page === "shortcuts")
+      var disabled = (root.page === "devices" || onShortcuts)
         ? ({}) : root.disabledSettingsMap()
       var next = Model.nextEnabledIndex(rows, root.settingsIndex, dy, disabled)
       if (next < 0) {
-        if (dy < 0 && root.page !== "devices" && root.page !== "shortcuts") {
+        if (dy < 0 && root.page !== "devices" && !onShortcuts) {
           root.focusSection = "primary"
           root.selectedIndex = 0
         }
@@ -1965,7 +1931,7 @@ Panel {
       return
     }
     if (dx !== 0) {
-      if (root.page === "devices" || root.page === "shortcuts") return
+      if (root.page === "devices" || onShortcuts) return
       var row = root.settingsRows()[root.settingsIndex]
       if (row && !root.settingDisabled(row.key) && row.kind !== "info" && row.kind !== "page")
         root.cycleOption(row.key, dx)
@@ -1974,12 +1940,12 @@ Panel {
 
   function footerHints() {
     var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
-    if (root.page === "shortcuts") {
+    if (root.page === "home" && root.settingsTab === "shortcuts") {
       return [
         { key: "↑/↓", label: "Move" },
         { key: "r", label: recordLabel },
         { key: "Tab", label: "Pages" },
-        { key: "Esc", label: "Back" }
+        { key: "Esc", label: "Hide" }
       ]
     }
     if (root.page === "devices") {
@@ -2070,7 +2036,7 @@ Panel {
       root.chooseDevice(root.deviceRows()[root.settingsIndex])
       return
     }
-    if (root.page === "shortcuts") return
+    if (root.page === "home" && root.settingsTab === "shortcuts") return
     var row = root.settingsRows()[root.settingsIndex]
     if (!row || root.settingDisabled(row.key)) return
     if (row.kind === "page") {
@@ -2499,10 +2465,6 @@ Panel {
         if (!root.takeMenuOpen) root.cycleNav(direction)
       }
       onTextKey: function(text) { root.onTextKey(text) }
-      onHistoryRequested: {
-        if (root.takeMenuOpen) root.closeTakeMenu()
-        else root.toggleHistory()
-      }
       ColumnLayout {
         anchors.fill: parent
         spacing: Style.space(10)
@@ -2738,7 +2700,7 @@ Panel {
             rowIndex: 0
             label: root.primaryLabel()
             glyph: root.primaryGlyph()
-            tone: root.liveTake ? "urgent" : "accent"
+            tone: "accent"
             primary: true
             hint: "r"
           }
@@ -2766,8 +2728,8 @@ Panel {
           }
         }
 
-        // The strip is the panel's navigation: three equal pages (Recording,
-        // Visuals, History); Shortcuts opens via ? in the footer.
+        // The strip is the panel's navigation: four equal pages (Recording,
+        // Visuals, History, Shortcuts) cycled left to right with Tab.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
@@ -2796,6 +2758,7 @@ Panel {
                   readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
 
                   Row {
+                    id: tabLabelRow
                     anchors.centerIn: parent
                     spacing: Style.space(5)
 
@@ -2813,16 +2776,6 @@ Panel {
                       Behavior on color {
                         ColorAnimation { duration: 150 }
                       }
-                    }
-
-                    KeyHintChip {
-                      visible: modelData.key !== undefined && modelData.key !== ""
-                      label: modelData.key || ""
-                      modifier: modelData.modifier || ""
-                      horizontalPadding: modelData.id === "history"
-                        ? Style.space(12) : Style.space(9)
-                      active: settingsTabItem.active
-                      anchors.verticalCenter: parent.verticalCenter
                     }
                   }
 
@@ -2907,7 +2860,7 @@ Panel {
                 spacing: Style.space(12)
 
                 Repeater {
-                  model: Model.groupBySection(root.settingsRows())
+                  model: root.settingsTab === "shortcuts" ? [] : Model.groupBySection(root.settingsRows())
 
                   Column {
                     id: sectionGroup
@@ -3050,31 +3003,12 @@ Panel {
             // ---------- shortcuts page ----------
 
             Column {
-              visible: root.page === "shortcuts"
+              visible: root.page === "home" && root.settingsTab === "shortcuts"
               width: parent.width
-              spacing: Style.space(8)
+              spacing: Style.space(5)
 
-              Item {
-                width: parent.width
-                implicitHeight: Math.max(shortcutsHeader.implicitHeight, shortcutsBackHint.implicitHeight)
-
-                SectionMicroHeader {
-                  id: shortcutsHeader
-                  text: "Shortcuts"
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  id: shortcutsBackHint
-                  textFormat: Text.PlainText
-                  text: "? or esc back"
-                  color: Util.alpha(root.foreground, 0.50)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                }
+              SectionMicroHeader {
+                text: "Shortcuts"
               }
 
               Rectangle {
@@ -3092,7 +3026,7 @@ Panel {
                   spacing: 0
 
                   Repeater {
-                    model: root.page === "shortcuts" ? root.shortcutRows : []
+                    model: root.page === "home" && root.settingsTab === "shortcuts" ? root.shortcutRows : []
 
                     Column {
                       required property var modelData
@@ -3313,57 +3247,6 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                   }
                 }
-              }
-            }
-
-            Rectangle {
-              id: shortcutsToggleBtn
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(20)
-              height: Style.space(16)
-              radius: root.chipRadius(Style.space(3))
-              color: root.page === "shortcuts" ? Util.alpha(root.accent, 0.16)
-                : shortcutsToggleMouse.containsMouse && root.pointerActive
-                  ? Style.hoverFillFor(root.foreground, root.accent)
-                : Util.alpha(root.foreground, 0.06)
-              border.width: 1
-              border.color: root.page === "shortcuts" ? root.accent
-                : shortcutsToggleMouse.containsMouse && root.pointerActive
-                  ? root.accent
-                : Util.alpha(root.foreground, 0.14)
-
-              Behavior on color {
-                ColorAnimation { duration: Style.duration(120) }
-              }
-              Behavior on border.color {
-                ColorAnimation { duration: Style.duration(120) }
-              }
-
-              Text {
-                anchors.centerIn: parent
-                textFormat: Text.PlainText
-                text: "?"
-                color: root.page === "shortcuts" || (shortcutsToggleMouse.containsMouse && root.pointerActive)
-                  ? root.foreground : Util.alpha(root.foreground, 0.78)
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.bold: true
-              }
-
-              MouseArea {
-                id: shortcutsToggleMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onPositionChanged: function(mouse) { root.notePointerMotion(shortcutsToggleMouse, mouse) }
-                onClicked: root.toggleShortcuts()
-              }
-
-              PanelToolTip {
-                visible: shortcutsToggleMouse.containsMouse && root.pointerActive
-                text: root.page === "shortcuts" ? "Close shortcuts (?)" : "Shortcuts (?)"
-                fontFamily: root.fontFamily
               }
             }
           }
@@ -3811,8 +3694,8 @@ Panel {
 
   // ---------- helpers -----------------------------------------------------
 
-  // Reel owns the key map because h/l are vim-style movement while Shift+H
-  // opens history. PanelKeyCatcher reserves h for vim-left, which swallowed it.
+  // Reel owns the key map because h/l are vim-style movement. PanelKeyCatcher
+  // reserves h for vim-left and Tab for its own focus ring.
   component ReelKeyCatcher: Item {
     id: catcher
 
@@ -3824,7 +3707,6 @@ Panel {
     signal deleteRequested()
     signal tabRequested(int direction)
     signal textKey(string text, int modifiers)
-    signal historyRequested()
     focus: true
     Keys.priority: Keys.BeforeItem
 
@@ -3858,16 +3740,6 @@ Panel {
       }
       // Letter shortcuts follow the key's position on non-Latin layouts.
       var text = Model.shortcutText(event.text, event.nativeScanCode)
-      var keyText = text.toLowerCase()
-      var shifted = (event.modifiers & Qt.ShiftModifier) !== 0
-      // Shift+H is the only history shortcut. Plain h/l are horizontal
-      // movement; the focused section decides whether that moves the cursor
-      // or cycles an option.
-      if (shifted && (event.key === Qt.Key_H || keyText === "h")) {
-        catcher.historyRequested()
-        event.accepted = true
-        return
-      }
       if (text === "h") {
         catcher.moveRequested(-1, 0)
         event.accepted = true
@@ -4687,7 +4559,8 @@ Panel {
     property int rowIndex: 0
 
     readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
-    readonly property bool selected: root.cursorActive && root.page === "shortcuts"
+    readonly property bool selected: root.cursorActive
+      && root.page === "home" && root.settingsTab === "shortcuts"
       && root.focusSection === "settings" && root.settingsIndex === rowIndex
 
     hasCursor: pointerHovered || (selected && !root.hoverPainted)

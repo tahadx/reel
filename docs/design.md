@@ -140,8 +140,8 @@ layout.
 | Foreground | `foreground` | bar foreground or `Commons.Color.foreground` | Text, icons, active controls                          |
 | Muted      | `dim`        | `Commons.Color.muted`                        | Meta, hints, inactive labels                          |
 | Secondary  | `secondary`  | foreground at `0.72`                         | Readable body text at rest                            |
-| Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary record action, active tab, cursor, bar dot |
-| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, live stop/panel status |
+| Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary action (Record/Stop/Cancel), active tab, cursor, bar dot |
+| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, live hero recording status |
 
 ### State aliases
 
@@ -227,9 +227,9 @@ Rules:
 - Sentence case for row labels and controls. “Record”, “Stop”, “Discard?”,
   “Open the recordings folder”.
 - Labels are nouns or short verbs. Values are nouns: `30 fps`, `2.0x`, `Off`.
-- Shortcut hints are lowercase key names: `r`, `shift+h`, `enter`. Exception:
-  `Shift+U` / `Shift+H` in shortcut tables/tooltips and `Space` / `Enter` /
-  `Esc` / `Tab` in inline and footer keycaps.
+- Shortcut hints are lowercase key names: `r`, `o`, `enter`. Exception:
+  `Shift+U` in shortcut tables/tooltips and `Space` / `Enter` / `Esc` / `Tab`
+  in inline and footer keycaps.
 - Uppercase copy is reserved for tracked section micro-headers (`AUDIO`, `VIDEO`,
   `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `SHORTCUTS`).
 - Errors state cause + fix, one line. “No microphone found. Pick one in Audio.”
@@ -267,7 +267,7 @@ here.`
   `Style.space(436)`).
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `4` above, `0` below) + `1` px hairline. The strip is
-  navigation: three equal pages (`Recording`, `Visuals`, `History`).
+  navigation: four equal pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
 - Fixed footer: `1` px hairline + `8` px top/bottom margin around the `16` px
   keyhint row below the scroll region, centered between hairline and card edge.
 - The scroll region receives the remaining height and never changes size.
@@ -460,17 +460,17 @@ for identity text or quality metadata.
 
 Three equal buttons, one row, gap `Style.space(8)`, height `38`.
 
-| Slot | Label                        | Glyph                  | Tone                              | Key |
-| :--- | :--------------------------- | :--------------------- | :-------------------------------- | :-- |
-| 1    | `Record` / `Stop` / `Cancel` | record / stop / cancel | accent at rest, urgent while live | `r` |
-| 2    | `Pause` / `Resume`           | pause / play           | neutral                           | `p` |
-| 3    | `Discard` / `Discard?`       | trash                  | neutral, relabels when armed      | `d` |
+| Slot | Label                        | Glyph                  | Tone                         | Key |
+| :--- | :--------------------------- | :--------------------- | :--------------------------- | :-- |
+| 1    | `Record` / `Stop` / `Cancel` | record / stop / cancel | accent                       | `r` |
+| 2    | `Pause` / `Resume`           | pause / play           | neutral                      | `p` |
+| 3    | `Discard` / `Discard?`       | trash                  | neutral, relabels when armed | `d` |
 
 Rules:
 
-- Primary is the only solid accent surface. It has a subtle vertical shade and a
-  `1` px top highlight. When a take is live, it switches to urgent so “Stop”
-  reads as the interrupt.
+- Primary is the only solid accent surface. It keeps the theme `accent` tone
+  across `Record`, `Stop`, and `Cancel` with a subtle vertical shade and a `1` px
+  top highlight.
 - All three buttons use bare `Style.font.icon` monochrome glyphs (no icon box)
   and always show their `KeyHintChip` (`r`, `p`, `d`).
 - Secondary buttons use `restFill` + `0.10` foreground border; cursor uses
@@ -495,35 +495,36 @@ Rules:
 The strip sits above the scroll area and stays fixed on **every** destination,
 History included, while the body scrolls underneath it.
 
-- Height `30`; three equal tabs across the strip (`Recording`, `Visuals`,
-  `History`).
+- Height `30`; four equal tabs across the strip (`Recording`, `Visuals`,
+  `History`, `Shortcuts`).
 - Label `bodySmall`; active `foreground` + bold; inactive foreground at `0.58`;
   hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- `Tab` / `Shift+Tab` cycles left to right across the three strip pages
-  (`Recording`, `Visuals`, `History`); Shortcuts opens via `?` or the `[?]`
-  button on the right edge of the footer.
+- `Tab` / `Shift+Tab` cycles left to right across the four strip pages
+  (`Recording`, `Visuals`, `History`, `Shortcuts`), and `?` jumps to/from
+  `Shortcuts`.
 - Each panel open returns to `Recording` and starts without a visible
   keyboard cursor on any destination until the user presses an arrow key or
   `j` / `k` / `h` / `l`.
 
 ### 6.5.1 Settings taxonomy
 
-The two settings tabs are fixed (`Recording` and `Visuals`). History and
-Shortcuts are destinations beside them.
+The three workflow pages lead (`Recording`, `Visuals`, `History`), followed by
+the read-only `Shortcuts` reference on the trailing end.
 
 | Destination | Belongs here                                                          | Does not belong                  |
 | :---------- | :-------------------------------------------------------------------- | :------------------------------- |
 | Recording   | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
 | Visuals     | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
-| Shortcuts   | Read-only shortcut reference (opened via `?` or footer `[?]`)         | Editable key bindings            |
 | History     | Takes, the recordings folder, take actions                            | Settings of any kind             |
+| Shortcuts   | Read-only shortcut reference (tab + `?` keyboard toggle)              | Editable key bindings            |
 
 Rules:
 
-- No third settings tab. `Tab` / `Shift+Tab` and `?` are the visible navigation
-  controls (`Shift+H` and `s` remain keyboard-only shortcuts).
+- Four top-level strip pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
+  `Tab` / `Shift+Tab` and `?` are the visible navigation shortcuts (`s` remains a
+  keyboard-only shortcut).
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab. In Recording,
   Audio and Video lead; Capture and Saving follow.
@@ -711,11 +712,11 @@ It must never become a separate overlay plugin kind.
 
 - **Footer:** Height `16` keyhint row below the `1` px hairline (`8` px top gap
   from hairline, `8` px bottom margin to card edge). Context-aware hints hide
-  row-action caps while `cursorActive` is `false`, add `o Folder` on History,
-  and show a `20 × 16` `[?]` button on the right edge that toggles Shortcuts.
+  row-action caps while `cursorActive` is `false` and add `o Folder` on
+  History.
 - **Tooltips:** Use `PanelToolTip` from `qs.Ui` (never build a custom tooltip).
-  Include the shortcut when one exists (e.g. `Shortcuts (?)`, `Close shortcuts
-  (?)`, `Shift+U`). Hover only, one line, `caption`, sentence case.
+  Include the shortcut when one exists (e.g. `Shift+U`). Hover only, one line,
+  `caption`, sentence case.
 
 ---
 
@@ -770,13 +771,12 @@ Rules:
 | `←` `→`           | Move across actions or step options  |
 | `h` `l`           | Move horizontally or cycle an option |
 | `enter` / `space` | Start, stop, save, open, or activate (when cursor active) |
-| `tab`             | Cycle `Recording` / `Visuals` / `History` |
+| `tab`             | Cycle `Recording` / `Visuals` / `History` / `Shortcuts` |
 | `?`               | Open or close shortcuts              |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
 | `Ctrl+Scroll`     | Zoom during a take                   |
-| `shift+h`         | Open or close history                |
 | `s`               | Focus the settings rows              |
 | `t`               | Cut the selected take in Omacut      |
 | `a`               | Open the take actions menu           |
