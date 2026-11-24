@@ -4910,15 +4910,14 @@ Panel {
     foreground: root.foreground
     accent: root.accent
     fill: root.cursorFill
-    color: setting.hasCursor ? root.cursorFill
-      : (setting.dependent ? Util.alpha(Commons.Color.background, 0.28) : "transparent")
+    color: setting.hasCursor ? root.cursorFill : "transparent"
     borderSpec: Border.none()
     implicitHeight: setting.subtitle !== "" ? Style.space(42) : Style.space(34)
     radius: 0
 
     Row {
       anchors.left: parent.left
-      anchors.leftMargin: setting.dependent ? Style.space(26) : Style.space(12)
+      anchors.leftMargin: Style.space(12)
       anchors.right: trailingControls.left
       anchors.rightMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter

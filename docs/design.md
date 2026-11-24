@@ -261,8 +261,7 @@ are the fixed frame.
 
 ### Layout rules
 
-- Align labels on one left edge (dependent sub-rows such as `Noise reduction`
-  indent cleanly under their parent). Values and inline
+- Align labels on one left edge. Values and inline
   steppers are right-aligned and never push a label into wrapping.
 - Settings row height: `34` (`42` with a device subtitle). Action height: `38`.
   Tab height: `30`. Footer keyhint row: `16` with `8` px top/bottom margin below `1` px hairline.
@@ -515,12 +514,11 @@ lists when it opens.
   (+ optional `caption` subtitle for audio/camera routing), contextual inline
   keyhint (`Space` / `←/→` / `Enter` shown only on the active row), and value
   control.
-- Dependent sub-rows (`Noise reduction` under `Microphone`) sit on a subtly
-  recessed surface (`0.28` background tint) with extra left indentation (`26` px
-  instead of `12` px) and no connector line. When their parent switch is off,
-  they dim (`0.36` opacity), show a quiet `Mic off` hint, keep their toggle
-  neutral, and are non-interactive (skipped by keyboard navigation and ignoring
-  hover/clicks).
+- Dependent sub-rows (`Noise reduction` under `Microphone`) stay aligned flush
+  with the rest of the section (`12` px left margin, transparent resting row
+  fill). When their parent switch is off, they dim (`0.36` opacity), show a
+  quiet `Mic off` hint, keep their toggle neutral, and are non-interactive
+  (skipped by keyboard navigation and ignoring hover/clicks).
 - Cycle rows use an unboxed inline stepper (`‹  value  ›`) where `‹` and `›`
   can be clicked directly to step backward/forward.
 - Page rows (`Input devices`) show `Manage ›`.
