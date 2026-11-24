@@ -289,8 +289,18 @@ Panel {
     return ""
   }
 
-  function settingDimmed(key) {
-    return key === "noiseCancellation" && root.currentValue("microphoneAudio") !== "on"
+  function disabledSettingsMap() {
+    return {
+      "noiseCancellation": root.currentValue("microphoneAudio") !== "on"
+    }
+  }
+
+  function settingDisabled(key) {
+    return root.disabledSettingsMap()[key] === true
+  }
+
+  function settingDependencyHint(key) {
+    return root.settingDisabled(key) ? "Mic off" : ""
   }
 
   readonly property var defaults: ({
@@ -1899,18 +1909,24 @@ Panel {
       return
     }
     if (dy !== 0) {
-      if (dy < 0 && root.settingsIndex === 0 && root.page !== "devices") {
-        root.focusSection = "primary"
-        root.selectedIndex = 0
+      var rows = root.activeRows()
+      var disabled = root.page === "devices" ? ({}) : root.disabledSettingsMap()
+      var next = Model.nextEnabledIndex(rows, root.settingsIndex, dy, disabled)
+      if (next < 0) {
+        if (dy < 0 && root.page !== "devices") {
+          root.focusSection = "primary"
+          root.selectedIndex = 0
+        }
         return
       }
-      root.settingsIndex = Model.clamp(root.settingsIndex + dy, 0, root.settingsCount() - 1)
+      root.settingsIndex = next
       return
     }
     if (dx !== 0) {
       if (root.page === "devices" || root.settingsTab === "shortcuts") return
       var row = root.settingsRows()[root.settingsIndex]
-      if (row && row.kind !== "info" && row.kind !== "page") root.cycleOption(row.key, dx)
+      if (row && !root.settingDisabled(row.key) && row.kind !== "info" && row.kind !== "page")
+        root.cycleOption(row.key, dx)
     }
   }
 
@@ -1944,7 +1960,7 @@ Panel {
     var actionLabel = "Toggle"
     if (root.focusSection === "settings") {
       var activeRow = root.settingsRows()[root.settingsIndex]
-      if (activeRow) {
+      if (activeRow && !root.settingDisabled(activeRow.key)) {
         if (activeRow.kind === "page") {
           actionKey = "Enter"
           actionLabel = "Open"
@@ -1973,11 +1989,12 @@ Panel {
     }
     if (root.settingsTab === "shortcuts") return
     var row = root.settingsRows()[root.settingsIndex]
-    if (row && row.kind === "page") {
+    if (!row || root.settingDisabled(row.key)) return
+    if (row.kind === "page") {
       root.openDevices()
       return
     }
-    if (row && row.kind !== "info") root.cycleOption(row.key, 1)
+    if (row.kind !== "info") root.cycleOption(row.key, 1)
   }
 
   // ---------- scroll ------------------------------------------------------
@@ -2863,7 +2880,8 @@ Panel {
                               rowIndex: modelData.flatIndex
                               dependent: modelData.dependent === true
                               subtitle: root.settingSubtitle(modelData.key)
-                              dimmed: root.settingDimmed(modelData.key)
+                              disabled: root.settingDisabled(modelData.key)
+                              dependencyHint: root.settingDependencyHint(modelData.key)
                             }
                           }
                         }
@@ -4725,47 +4743,33 @@ Panel {
     property string infoValue: ""
     property bool dependent: false
     property string subtitle: ""
-    property bool dimmed: false
+    property bool disabled: false
+    property string dependencyHint: ""
 
     readonly property int stepperMaxWidth: Math.max(Style.space(90), width * 0.42)
-    readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
-    readonly property bool selected: root.cursorActive
+    readonly property bool pointerHovered: !setting.disabled
+      && root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
+    readonly property bool selected: !setting.disabled && root.cursorActive
       && root.page === "home"
       && root.focusSection === "settings"
       && root.settingsIndex === rowIndex
     readonly property bool switchRow: setting.kind !== "info" && root.isSwitch(setting.settingKey)
     readonly property bool switchOn: root.currentValue(setting.settingKey) === "on"
-    readonly property string inlineHint: setting.kind === "info" ? ""
+    readonly property string inlineHint: setting.kind === "info" || setting.disabled ? ""
       : setting.switchRow ? "Space"
       : setting.kind === "page" ? "Enter"
       : "←/→"
 
-    hasCursor: pointerHovered || (selected && !root.hoverPainted)
+    hasCursor: !setting.disabled && (pointerHovered || (selected && !root.hoverPainted))
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
     fill: root.cursorFill
+    color: setting.hasCursor ? root.cursorFill
+      : (setting.dependent ? Util.alpha(Commons.Color.background, 0.28) : "transparent")
     borderSpec: Border.none()
     implicitHeight: setting.subtitle !== "" ? Style.space(42) : Style.space(34)
     radius: 0
-
-    // Subtle tree connector for dependent sub-settings (e.g., Noise reduction under Microphone).
-    Rectangle {
-      visible: setting.dependent
-      x: Style.space(16)
-      y: 0
-      width: 1
-      height: Math.round(parent.height * 0.5) + 1
-      color: Util.alpha(root.foreground, 0.16)
-    }
-    Rectangle {
-      visible: setting.dependent
-      x: Style.space(16)
-      y: Math.round(parent.height * 0.5)
-      width: Style.space(7)
-      height: 1
-      color: Util.alpha(root.foreground, 0.16)
-    }
 
     Row {
       anchors.left: parent.left
@@ -4774,7 +4778,7 @@ Panel {
       anchors.rightMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(10)
-      opacity: setting.dimmed ? 0.44 : 1.0
+      opacity: setting.disabled ? 0.36 : 1.0
 
       Text {
         id: settingGlyph
@@ -4820,10 +4824,20 @@ Panel {
       anchors.rightMargin: Style.space(10)
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.space(8)
-      opacity: setting.dimmed ? 0.50 : 1.0
+      opacity: setting.disabled ? 0.40 : 1.0
+
+      Text {
+        visible: setting.disabled && setting.dependencyHint !== ""
+        textFormat: Text.PlainText
+        text: setting.dependencyHint
+        color: Util.alpha(root.foreground, 0.65)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        anchors.verticalCenter: parent.verticalCenter
+      }
 
       KeyHintChip {
-        visible: setting.hasCursor && setting.inlineHint !== ""
+        visible: setting.hasCursor && !setting.disabled && setting.inlineHint !== ""
         anchors.verticalCenter: parent.verticalCenter
         horizontalPadding: Style.space(8)
         label: setting.inlineHint
@@ -4897,9 +4911,11 @@ Panel {
           MouseArea {
             id: prevStepMouse
             anchors.fill: parent
+            enabled: !setting.disabled
             hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            cursorShape: setting.disabled ? Qt.ArrowCursor : Qt.PointingHandCursor
             onClicked: {
+              if (setting.disabled) return
               root.cursorActive = true
               root.focusSection = "settings"
               root.settingsIndex = setting.rowIndex
@@ -4938,9 +4954,11 @@ Panel {
           MouseArea {
             id: nextStepMouse
             anchors.fill: parent
+            enabled: !setting.disabled
             hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
+            cursorShape: setting.disabled ? Qt.ArrowCursor : Qt.PointingHandCursor
             onClicked: {
+              if (setting.disabled) return
               root.cursorActive = true
               root.focusSection = "settings"
               root.settingsIndex = setting.rowIndex
@@ -4958,9 +4976,9 @@ Panel {
         width: Style.space(32)
         height: Style.space(16)
         radius: root.badgeRadius(height)
-        color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.16)
+        color: setting.switchOn && !setting.disabled ? root.accent : Util.alpha(root.foreground, 0.14)
         border.width: 1
-        border.color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.20)
+        border.color: setting.switchOn && !setting.disabled ? root.accent : Util.alpha(root.foreground, 0.18)
         Behavior on color {
           ColorAnimation { duration: Style.duration(120) }
         }
@@ -4974,7 +4992,8 @@ Panel {
           radius: root.badgeRadius(width)
           y: (parent.height - height) / 2
           x: setting.switchOn ? parent.width - width - Style.space(2) : Style.space(2)
-          color: setting.switchOn ? root.inkOn(root.accent) : Util.alpha(root.foreground, 0.68)
+          color: setting.switchOn && !setting.disabled
+            ? root.inkOn(root.accent) : Util.alpha(root.foreground, 0.65)
 
           Behavior on x {
             NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
@@ -4998,13 +5017,18 @@ Panel {
     MouseArea {
       anchors.fill: parent
       z: -1
-      hoverEnabled: true
-      cursorShape: setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
+      enabled: !setting.disabled
+      hoverEnabled: !setting.disabled
+      cursorShape: setting.disabled || setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
-      onContainsMouseChanged: root.setRowHover("settings", setting.rowIndex, containsMouse)
-      onPositionChanged: function(mouse) { root.pointerMoved("settings", setting.rowIndex, setting, mouse) }
+      onContainsMouseChanged: {
+        if (!setting.disabled) root.setRowHover("settings", setting.rowIndex, containsMouse)
+      }
+      onPositionChanged: function(mouse) {
+        if (!setting.disabled) root.pointerMoved("settings", setting.rowIndex, setting, mouse)
+      }
       onClicked: function(mouse) {
-        if (setting.kind === "info") return
+        if (setting.disabled || setting.kind === "info") return
         root.cursorActive = true
         root.focusSection = "settings"
         root.settingsIndex = setting.rowIndex

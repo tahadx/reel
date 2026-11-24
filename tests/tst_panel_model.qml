@@ -50,4 +50,19 @@ TestCase {
     compare(Model.groupBySection([]), [])
     compare(Model.groupBySection(null), [])
   }
+
+  function test_nextEnabledIndexSkipsDisabledDependentRows() {
+    var rows = [
+      { key: "desktopAudio" },
+      { key: "microphoneAudio" },
+      { key: "noiseCancellation" },
+      { key: "fps" }
+    ]
+    var disabled = { noiseCancellation: true }
+    compare(Model.nextEnabledIndex(rows, 1, 1, disabled), 3)
+    compare(Model.nextEnabledIndex(rows, 3, -1, disabled), 1)
+    compare(Model.nextEnabledIndex(rows, 0, -1, disabled), -1)
+    compare(Model.nextEnabledIndex(rows, 3, 1, disabled), -1)
+    compare(Model.nextEnabledIndex(rows, 1, 1, {}), 2)
+  }
 }

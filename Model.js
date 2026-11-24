@@ -379,6 +379,21 @@ function groupBySection(rows) {
   return groups
 }
 
+// Find the next selectable row index in `delta` direction (-1 or +1),
+// skipping any row whose key is marked disabled in `disabledKeys`.
+// Returns -1 when no enabled row exists in that direction.
+function nextEnabledIndex(rows, current, delta, disabledKeys) {
+  var list = Array.isArray(rows) ? rows : []
+  var disabled = object(disabledKeys)
+  var step = delta < 0 ? -1 : 1
+  for (var i = current + step; i >= 0 && i < list.length; i += step) {
+    var row = object(list[i])
+    var key = String(row.key || "")
+    if (!disabled[key]) return i
+  }
+  return -1
+}
+
 // ---------- capture preview geometry -------------------------------------
 
 // The picker and the compositor both speak logical desktop coordinates.
