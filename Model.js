@@ -297,6 +297,28 @@ function takeMeta(row, tick) {
   return parts.join(" · ")
 }
 
+// The panel's single-key shortcuts are Latin letters. On a Cyrillic, Greek,
+// Hebrew or Arabic layout the same physical key types another script, so the
+// shortcut would never fire. For a non-ASCII character typed on a letter key,
+// return the US QWERTY letter at that position instead, keeping its case. A
+// key that already types ASCII (any Latin layout, Dvorak and AZERTY included)
+// keeps its own text. Keycodes are xkb's: the evdev code plus 8.
+var QWERTY_LETTER_ROWS = [[24, "qwertyuiop"], [38, "asdfghjkl"], [52, "zxcvbnm"]]
+
+function shortcutText(text, scanCode) {
+  var raw = String(text || "")
+  if (raw.length !== 1 || raw.charCodeAt(0) < 0x80) return raw
+  for (var i = 0; i < QWERTY_LETTER_ROWS.length; i++) {
+    var offset = Number(scanCode) - QWERTY_LETTER_ROWS[i][0]
+    var letters = QWERTY_LETTER_ROWS[i][1]
+    if (offset >= 0 && offset < letters.length) {
+      var latin = letters.charAt(offset)
+      return raw !== raw.toLowerCase() ? latin.toUpperCase() : latin
+    }
+  }
+  return raw
+}
+
 function truthy(value) {
   if (value === true || value === 1) return true
   var text = String(value === undefined || value === null ? "" : value).toLowerCase()

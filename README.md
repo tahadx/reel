@@ -17,9 +17,9 @@ without stepping on each other.
   continuously).
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Scroll`, capped at 2× by default.
-- Optional auto zoom in the save pass: clicks become smooth camera blocks, and
-  every take with telemetry writes an editable `project.json` into a hidden
-  `.reel/` folder for re-rendering.
+- Optional auto zoom in the save pass: clicks become camera blocks that use the
+  same spring as manual zoom, and every take with telemetry writes an editable
+  `project.json` into a hidden `.reel/` folder for re-rendering.
 - Optional click effects in the save pass: a premium theme-accent ripple or
   halo is drawn at each click, follows the auto zoom camera, and stays on the
   clicked content when manual zoom magnified a monitor take.
@@ -204,22 +204,31 @@ Manual zoom is on by default (Settings → **Manual zoom**). It only acts while 
 take is recording; pausing or stopping resets the view to 1×.
 
 - Touchpad pinch zooms at the pointer. Once already zoomed, a pinch that reads
-  as a pan moves the viewport instead of changing the factor.
+  as a pan moves the viewport instead of changing the factor. With the opt-in
+  `zoomFollow push` camera a pinch only zooms.
 - `Ctrl + Alt + =` / `Ctrl + Alt + -` zoom in and out, `Ctrl + Alt + 0` resets,
   and `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
-- `Ctrl + Scroll` zooms in and out, smoothly, the same way a pinch does. Reel
+- `Ctrl + Scroll` zooms in and out, smoothly: each notch moves the target and
+  a short in-compositor ease glides the camera to it instead of stepping. Reel
   registers it when the take starts and removes it when the take ends, so
   Ctrl+scroll keeps its normal meaning in applications the rest of the time.
   `Ctrl + Alt + Scroll` also works when the optional shortcut block is
   installed.
-- Monitor takes follow the pointer: moving the mouse pans the view and keeps the
-  cursor near the middle of the crop. Window and area takes keep the camera
-  detached, so the pointer stays where it really is instead of being pulled to
-  the screen centre and out of a small capture. `Ctrl + Alt + ←/→/↑/↓` nudges a
-  monitor take's view from the keyboard (hold to keep moving, `Shift` for a
-  longer step). A nudge moves 60 px by default (`reel config set panStep 30` or
-  `120` changes it). Panning never changes the zoom depth, and it stays inside
-  the recorded monitor.
+- Monitor takes follow the pointer with a loose camera: the content under the
+  pointer stays under it, so the cursor keeps moving normally instead of being
+  pinned to the middle, and the view follows behind it. The zoom transition
+  itself is the new spring, so the frame glides into the new depth instead of
+  stepping. `Ctrl + Alt + ←/→/↑/↓` also pans from the keyboard (hold to keep
+  moving, `Shift` for a longer step). A nudge moves the view about 60 px at the
+  default depth (`reel config set panStep 30` or `120` changes it). Panning
+  never changes the zoom depth, and it stays inside the recorded monitor. Set
+  `reel config set zoomFollow push` for the stable detached camera instead: the
+  frame holds still while the pointer moves and only pans when the pointer
+  reaches the edge. A take with **Auto zoom** or **Click effects** on always
+  follows the pointer, so those save-pass effects stay aligned with what was
+  clicked. Window and area takes keep the camera detached, so the pointer stays
+  where it really is instead of being pulled to the screen centre and out of a
+  small capture.
 
 Zoom depth is 2× by default; `reel config set zoomMax 1.5`, `2.5`, or `3`
 changes it. The keyboard and pan controls come from the optional shortcut

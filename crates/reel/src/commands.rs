@@ -1047,6 +1047,12 @@ fn follow_pointer(paths: &Paths) -> bool {
         == Some("monitor")
 }
 
+/// Whether a monitor take uses the stable detached push camera instead of the
+/// default pointer-following camera.
+fn push_camera(paths: &Paths) -> bool {
+    follow_pointer(paths) && !config::zoom_follows_pointer(config::load(paths).get("zoomFollow"))
+}
+
 /// One step up, capped at the configured depth. A zoom that is already above a
 /// lowered cap is left where it is: this only limits increases.
 fn zoom_in_target(current: f64, step: f64, cap: f64) -> f64 {
@@ -1064,9 +1070,20 @@ pub fn zoom_in(paths: &Paths, step: f64) -> Result<()> {
     let current = crate::zoom::compositor_zoom();
     let step = if step > 0.01 { step } else { 0.25 };
     let target = zoom_in_target(current, step, configured_zoom_max(paths));
-    let immediate = step <= 0.16;
-    let new_z =
-        crate::zoom::animate_compositor_zoom(paths, target, immediate, follow_pointer(paths));
+    // During the take the compositor controller owns the motion. Adding to its
+    // target lets repeated presses or notches accumulate smoothly instead of
+    // each one restarting from the half-applied factor.
+    if crate::zoom::step_compositor_zoom(paths, step) {
+        println!("Reel zoom: {:.2}x", target);
+        return Ok(());
+    }
+    let new_z = crate::zoom::animate_compositor_zoom(
+        paths,
+        target,
+        step <= 0.16,
+        follow_pointer(paths),
+        push_camera(paths),
+    );
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -1078,9 +1095,17 @@ pub fn zoom_out(paths: &Paths, step: f64) -> Result<()> {
     let current = crate::zoom::compositor_zoom();
     let step = if step > 0.01 { step } else { 0.25 };
     let target = (current - step).max(1.0);
-    let immediate = step <= 0.16;
-    let new_z =
-        crate::zoom::animate_compositor_zoom(paths, target, immediate, follow_pointer(paths));
+    if crate::zoom::step_compositor_zoom(paths, -step) {
+        println!("Reel zoom: {:.2}x", target);
+        return Ok(());
+    }
+    let new_z = crate::zoom::animate_compositor_zoom(
+        paths,
+        target,
+        step <= 0.16,
+        follow_pointer(paths),
+        push_camera(paths),
+    );
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -1111,7 +1136,18 @@ pub fn zoom_toggle(paths: &Paths, factor: f64) -> Result<()> {
     }
     let current = crate::zoom::compositor_zoom();
     let target = zoom_toggle_target(current, factor, configured_zoom_max(paths));
-    let new_z = crate::zoom::animate_compositor_zoom(paths, target, false, follow_pointer(paths));
+    let factor = (factor > 1.05).then_some(factor);
+    if crate::zoom::toggle_compositor_zoom(paths, factor) {
+        println!("Reel zoom: {:.2}x", target);
+        return Ok(());
+    }
+    let new_z = crate::zoom::animate_compositor_zoom(
+        paths,
+        target,
+        false,
+        follow_pointer(paths),
+        push_camera(paths),
+    );
     println!("Reel zoom: {:.2}x", new_z);
     Ok(())
 }
@@ -1181,9 +1217,18 @@ pub fn zoom_pan(
     if !follow_pointer(paths) {
         return Ok(());
     }
-    if crate::zoom::compositor_zoom() <= 1.01 {
+    // The stable push camera has no attached pan. The arrow keys work in the
+    // default follow camera, where moving the pointer pans the view.
+    if !config::zoom_follows_pointer(config::load(paths).get("zoomFollow")) {
         return Ok(());
     }
+    let zoom = crate::zoom::compositor_zoom();
+    if zoom <= 1.01 {
+        return Ok(());
+    }
+    // The loose camera travels (zoom - 1) / zoom of the pointer, so the
+    // pointer covers the rest and the view still moves by the pan step.
+    let mut gain = crate::zoom::follow_gain(zoom);
     let configured = config::cfg(paths, "panStep", "60")
         .trim()
         .parse::<f64>()
@@ -1196,7 +1241,7 @@ pub fn zoom_pan(
     let bounds = pan_bounds(paths);
 
     if !hold {
-        if crate::zoom::pan_view(dx, dy, bounds) {
+        if crate::zoom::pan_view(dx * gain, dy * gain, bounds) {
             println!("Reel zoom: pan {direction}");
         }
         return Ok(());
@@ -1215,12 +1260,16 @@ pub fn zoom_pan(
         }
         // A reset to 1x during the hold leaves nothing to pan. Probe a few
         // times a second rather than spawning hyprctl on every 33 ms tick.
-        if ticks.is_multiple_of(10) && crate::zoom::compositor_zoom() <= 1.01 {
-            break;
+        if ticks.is_multiple_of(10) {
+            let zoom = crate::zoom::compositor_zoom();
+            if zoom <= 1.01 {
+                break;
+            }
+            gain = crate::zoom::follow_gain(zoom);
         }
         ticks = ticks.wrapping_add(1);
         let (step_x, step_y) = if first { (dx, dy) } else { (hold_x, hold_y) };
-        if !crate::zoom::pan_view(step_x, step_y, bounds) {
+        if !crate::zoom::pan_view(step_x * gain, step_y * gain, bounds) {
             break;
         }
         first = false;

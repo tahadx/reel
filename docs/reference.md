@@ -241,9 +241,13 @@ zoom:
 - Scrolling inside the zoomed viewport keeps the block alive. Each wheel or
   touchpad tick holds the camera until 1.2 s after the last tick, so reading
   through a page does not zoom out mid-scroll.
-- Each block eases in over 500 ms before the first click, holds through the
-  last click plus 900 ms, and eases out over 500 ms. Velocity is zero at every
-  keyframe.
+- Each block eases in with the same critically damped spring as manual zoom:
+  a 0.11 s half-life settling over up to 1.2 s. The move starts up to 1.2 s
+  before the first click, so the click lands as the spring comes to rest rather
+  than at the end of a 500 ms snap. It then holds through the last click plus
+  900 ms and eases back over as much of the gap before the next block as
+  fits, up to 1.2 s, leaving a short rest at 1x when there is room. The click
+  timing and depth are unchanged. Velocity is zero at every keyframe.
 - Blocks that overlap in time stay zoomed and pan between the two areas, so a
   quick click somewhere else does not flash back to 1x for a millisecond. The
   pan takes about 450 ms and ends on the new click; a shift smaller than 12% of
@@ -301,11 +305,15 @@ composited before the camera pass, so a zoom moves and scales the effect with
 the picture under it.
 
 When **Manual zoom** is on, the compositor has already magnified the recorded
-frames. On a monitor take, Reel mirrors the live zoom factor into the runtime
-folder, telemetry records it on every press, and the save pass moves each click
-into the pixels the recorded frame actually shows. The effect therefore stays
-on the content that was clicked instead of appearing at its unzoomed desktop
-position.
+frames. Reel mirrors the live zoom factor into the runtime folder so telemetry
+can stamp each press. A monitor take uses the attached loose camera, so the
+clicked content stays under the pointer and the click is already at the
+position the recorded frame shows; the save pass uses that position directly
+for click effects and auto zoom. Window and area takes keep a detached camera
+whose position telemetry does not record, so their points stay at their real
+positions rather than being guessed. A take that opts into the stable
+`zoomFollow push` camera has no save-pass clicks unless **Auto zoom** or **Click
+effects** is on; those settings force the attached camera for that take.
 
 Telemetry starts at encoder launch, but the video starts at its first captured
 frame. A cold encoder can take seconds to produce that frame, so the first
@@ -358,7 +366,7 @@ or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
 "camera": {
   "style": "auto",
   "depth": 2.0,
-  "easing": "smoothstep",
+  "easing": "spring",
   "keyframes": [
     { "t": 0.0, "zoom": 1.0, "x": 1280.0, "y": 720.0 },
     { "t": 1.5, "zoom": 2.0, "x": 1900.0, "y": 620.0 },
@@ -369,9 +377,13 @@ or `2.5`), and `keyframes` is an ordered list of `t`, `zoom`, `x`, `y`:
 
 `t` is seconds in the saved take. `x` and `y` are the viewport centre in source
 capture pixels. Keyframes are sorted by `t`, `zoom` is at least `1`, and every
-viewport is clamped so the frame never shows space outside the capture. Values
-between keyframes use smoothstep, so the camera is still at each keyframe.
-`style: "off"` disables the zoom even when keyframes are present.
+viewport is clamped so the frame never shows space outside the capture. New
+auto zoom writes `easing: "spring"`: values between keyframes use the manual
+zoom's critically damped spring curve, and the camera is still at every
+keyframe. A normal move spans up to 1.2 s so it reads like the live spring;
+shorter gaps use a shorter span. Projects written before the spring (and any
+unknown easing value) keep the historical `"smoothstep"` path. `style: "off"`
+disables the zoom even when keyframes are present.
 
 The `ripples` object holds the click effects: `enabled`, `style`
 (`ripple` or `halo`), `color` (a `#rrggbb` accent, or empty for the live
@@ -477,20 +489,33 @@ file.
 
 Manual zoom is enabled by the **Manual zoom** setting (on by default) and only
 acts while a take is recording. Pausing or stopping resets the compositor to
-1×. Zoom depth and pan step have no panel rows; they stay config-only.
+1×. Zoom depth, follow mode, and pan step have no panel rows; they stay
+config-only.
 
 - Touchpad pinch zooms at the pointer and is registered when a take starts.
   Once zoomed in, a pinch that reads as a pan moves the viewport instead.
 - `Ctrl + Alt + =` / `-` step by 0.25×, `Ctrl + Alt + 0` resets, and
   `Ctrl + Alt + 8` toggles between 1× and the zoom depth.
 - `Ctrl + Scroll` zooms in and out the way the pinch does: each notch moves a
-  target and a 16 ms timer eases the camera toward it. Reel registers the binds
-  for the take only, so Ctrl+scroll keeps its normal meaning in applications
-  outside a take. `Ctrl + Alt + Scroll` steps by 0.15× per wheel event when the
-  optional shortcut block is installed.
-- Scale changes use a critically damped spring, with a half-life of 180 ms
-  zooming in and 260 ms zooming out. A new step changes only the destination;
-  it never zeroes the velocity or snaps the current factor.
+  shared target and a 16 ms in-compositor timer eases the applied factor toward
+  it. Reel registers the binds for the take only, so Ctrl+scroll keeps its
+  normal meaning in applications outside a take. `Ctrl + Alt + Scroll` steps by
+  0.15× per wheel event when the optional shortcut block is installed.
+- Scale changes share one critically damped spring: wheel notches, key steps,
+  pinch, toggle, and reset move a target, and a 16 ms timer advances the spring.
+  The half-life is 110 ms for a wheel notch, 150 ms for a key step, 60 ms for a
+  pinch, and 160 ms for reset. A new input changes only the destination and
+  keeps the momentum; a reversal stops the old motion cleanly instead of
+  overshooting. The Rust fallback, used only when the compositor controller is
+  not installed, uses the same shape with the older 180/260 ms half-lives.
+- `zoomFollow` is `follow` by default and has no panel row. `follow` is the
+  attached loose camera: the content under the pointer stays under it, so the
+  cursor keeps moving normally instead of being pinned to the middle, and the
+  view follows at `(zoom - 1) / zoom` of the pointer's movement. `reel config
+  set zoomFollow push` opts into the detached camera that holds the frame still
+  and pans only when the pointer reaches the edge. A take with **Auto zoom** or
+  **Click effects** on always uses the attached camera, because the save pass
+  needs to place those clicks in the recorded frame exactly.
 - Manual zoom owns the camera while it is above 1×. An automatic timeout may
   not reset it; only `Ctrl + Alt + 0`, or stepping manually back to 1×, returns
   control to the automatic camera. The save-pass auto zoom is a separate
@@ -502,29 +527,38 @@ acts while a take is recording. Pausing or stopping resets the compositor to
 
 ### Panning
 
-Follow mode is for **monitor** takes. While zoomed, the camera is attached to
-the pointer: moving the mouse pans the view and keeps the cursor near the centre
-of the crop. This is a tight, one-to-one pan with no smoothing, so it cannot
-feel floaty.
+The default camera is **follow** for monitor takes. While zoomed, Hyprland
+keeps the camera attached but **loose**: the content under the pointer stays
+under it, so the cursor moves normally on screen and the view follows at
+`(zoom - 1) / zoom` of the pointer's movement — half at 2×. The pointer is not
+pulled to the middle of the crop. The new spring smooths the zoom depth, and the
+camera moves with it as the frame glides in.
 
-Window and area takes keep the camera detached while zoomed. The pointer keeps
-its real position, so a take of a small window in a corner still shows the
+Set `zoomFollow push` for the stable detached camera instead. The frame holds
+still while the pointer moves and pans only when the pointer reaches the edge,
+so the picture never chases every mouse move.
+
+Window and area takes always keep the camera detached while zoomed. The pointer
+keeps its real position, so a take of a small window in a corner still shows the
 pointer inside the frame instead of pulling it toward the screen centre. Pinch
 zoom still works there; only panning is monitor-only, and `zoom-pan` does
 nothing for a window or area.
 
-- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard. A tap moves 60 px by default
-  (`reel config set panStep 30` or `120` changes it), holding keeps panning at
-  a steady speed, and `Shift` covers three times as much. The view moves
-  immediately and the cursor stays over the point being panned toward. A hold
-  stops as soon as the zoom returns to 1×.
+- `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard in **follow** mode. A tap pans
+  the view about 60 px at the default 2× (`reel config set panStep 30` or `120`
+  changes it), holding keeps panning at a steady speed, and `Shift` covers three
+  times as much. The pointer moves far enough that the loose camera travels the
+  whole step; at a very shallow zoom the pointer step is capped, so the view
+  moves a little less. A hold stops as soon as the zoom returns to 1×. The push
+  camera has no attached pan; move the pointer to the edge to pan.
 - Panning never changes the zoom factor, so the depth stays locked.
 - The pan target is clamped to the recorded monitor, so the view cannot walk off
   the capture. The compositor additionally clamps it to the monitor.
 - Returning to 1×, pausing, or stopping restores the detached camera, which is
   the normal desktop state.
-- A pinch that reads as a pan uses the same pointer movement, so gesture zoom
-  and manual pan do not fight each other.
+- In **follow** mode, a pinch that reads as a pan uses the same pointer movement
+  and camera, so gesture zoom and manual pan do not fight each other. In push
+  mode a pinch only zooms.
 
 The keyboard and scroll bindings come from the optional shortcut block. Pinch
 does not. If the user already had a two-finger pinch gesture, Hyprland rejects a

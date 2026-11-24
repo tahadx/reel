@@ -28,6 +28,7 @@ pub fn defaults() -> Value {
         "notifications": false,
         "manualZoom": "on",
         "zoomMax": 2.0,
+        "zoomFollow": "follow",
         "panStep": 60,
         "autoZoom": false,
         "autoZoomDepth": 2.0,
@@ -106,6 +107,28 @@ pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
     parsed
         .filter(|zoom| zoom.is_finite())
         .map(|zoom| zoom.clamp(1.1, 4.0))
+}
+
+/// Whether a monitor take's camera follows the pointer continuously.
+///
+/// The default is `follow`: Hyprland's attached loose camera keeps the content
+/// under the pointer under it, so the cursor moves normally while the view
+/// follows. `zoomFollow=push` opts into the detached camera that holds the
+/// frame still and pans only at the edge.
+pub fn zoom_follows_pointer(value: Option<&Value>) -> bool {
+    let Some(value) = value else {
+        return true;
+    };
+    let text = match value {
+        Value::String(text) => text.clone(),
+        Value::Bool(true) => "follow".to_string(),
+        Value::Bool(false) => "push".to_string(),
+        _ => return true,
+    };
+    !matches!(
+        text.trim().to_ascii_lowercase().as_str(),
+        "push" | "fixed" | "off"
+    )
 }
 
 /// Keys the retired live-compositor zoom wrote beside `autoZoom`. A file that
@@ -288,6 +311,27 @@ mod tests {
         assert_eq!(zoom_max_value(None), None);
         assert_eq!(zoom_max_value(Some(&serde_json::json!("0.8"))), Some(1.1));
         assert_eq!(zoom_max_value(Some(&serde_json::json!(9))), Some(4.0));
+    }
+
+    #[test]
+    fn zoom_follows_by_default_and_push_is_opt_in() {
+        assert!(super::zoom_follows_pointer(None));
+        assert!(super::zoom_follows_pointer(Some(&serde_json::json!(
+            "follow"
+        ))));
+        assert!(super::zoom_follows_pointer(Some(&serde_json::json!(
+            "nonsense"
+        ))));
+        assert!(super::zoom_follows_pointer(Some(&serde_json::json!(true))));
+        assert!(!super::zoom_follows_pointer(Some(&serde_json::json!(
+            "push"
+        ))));
+        assert!(!super::zoom_follows_pointer(Some(&serde_json::json!(
+            " fixed "
+        ))));
+        assert!(!super::zoom_follows_pointer(Some(&serde_json::json!(
+            false
+        ))));
     }
 
     #[test]

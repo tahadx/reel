@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Shapes
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -2172,43 +2173,43 @@ Panel {
       height: width
       scale: button.pressScale
 
-      // The outline and the dot share one canvas. As two separate rectangles
-      // each rounded its own edges to the pixel grid, which walked the dot a
-      // device pixel off the screen's centre as the bar's text size changed;
-      // painted together they always share one centre. The mark itself sits on
-      // the bar's centre line like the glyphs beside it.
-      Canvas {
-        id: idleCanvas
-        anchors.fill: parent
-        renderStrategy: Canvas.Cooperative
-        property color ink: root.barInk
-        onInkChanged: requestPaint()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
+      // The outline and the dot are two paths of one Shape, so they share one
+      // coordinate system and land on the same device pixels. Vector paths stay
+      // sharp at every bar size, display scale, and press animation; a Canvas
+      // rasterises the mark at bar size and the texture softens once the
+      // compositor scales it, which is what made it look low quality.
+      Shape {
+        id: idleShape
+        width: 24
+        height: 24
+        preferredRendererType: Shape.CurveRenderer
+        antialiasing: true
 
-        onPaint: {
-          var ctx = getContext("2d")
-          ctx.reset()
-          var unit = width / 24
-          if (unit <= 0) return
+        transform: Scale {
+          xScale: idleMark.width / idleShape.width
+          yScale: idleMark.height / idleShape.height
+        }
 
-          // The 19 × 15 screen with its stroke kept inside the box, then the
-          // 6.4 record dot on the same centre point.
-          var line = Math.max(1, Math.round(1.6 * unit))
-          ctx.strokeStyle = idleCanvas.ink
-          ctx.lineWidth = line
-          ctx.globalAlpha = 0.9
-          ctx.beginPath()
-          ctx.roundedRect(2.5 * unit + line / 2, 4.5 * unit + line / 2,
-            19 * unit - line, 15 * unit - line,
-            4.5 * unit - line / 2, 4.5 * unit - line / 2)
-          ctx.stroke()
+        // The 19 × 15 screen with its 1.6-unit stroke kept inside the box: the
+        // centreline is inset by half the stroke, and the 3.7 corner radius
+        // leaves the 4.5 outer radius.
+        ShapePath {
+          strokeColor: Util.alpha(root.barInk, 0.9)
+          strokeWidth: 1.6
+          fillColor: "transparent"
+          joinStyle: ShapePath.RoundJoin
+          PathSvg {
+            path: "M 7 5.3 H 17 A 3.7 3.7 0 0 1 20.7 9 V 15 A 3.7 3.7 0 0 1 17 18.7 H 7 A 3.7 3.7 0 0 1 3.3 15 V 9 A 3.7 3.7 0 0 1 7 5.3 Z"
+          }
+        }
 
-          ctx.globalAlpha = 1
-          ctx.fillStyle = idleCanvas.ink
-          ctx.beginPath()
-          ctx.arc(width / 2, height / 2, 3.2 * unit, 0, Math.PI * 2)
-          ctx.fill()
+        // The 6.4 record dot on the same centre point.
+        ShapePath {
+          fillColor: root.barInk
+          strokeWidth: -1
+          PathSvg {
+            path: "M 12 8.8 A 3.2 3.2 0 1 0 12 15.2 A 3.2 3.2 0 1 0 12 8.8 Z"
+          }
         }
       }
     }
@@ -3449,7 +3450,9 @@ Panel {
         event.accepted = true
         return
       }
-      var keyText = String(event.text || "").toLowerCase()
+      // Letter shortcuts follow the key's position on non-Latin layouts.
+      var text = Model.shortcutText(event.text, event.nativeScanCode)
+      var keyText = text.toLowerCase()
       var shifted = (event.modifiers & Qt.ShiftModifier) !== 0
       // Shift+H is the only history shortcut. Plain h/l are horizontal
       // movement; the focused section decides whether that moves the cursor
@@ -3459,22 +3462,22 @@ Panel {
         event.accepted = true
         return
       }
-      if (event.text === "h") {
+      if (text === "h") {
         catcher.moveRequested(-1, 0)
         event.accepted = true
         return
       }
-      if (event.text === "l") {
+      if (text === "l") {
         catcher.moveRequested(1, 0)
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Down || event.text === "j") {
+      if (event.key === Qt.Key_Down || text === "j") {
         catcher.moveRequested(0, 1)
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Up || event.text === "k") {
+      if (event.key === Qt.Key_Up || text === "k") {
         catcher.moveRequested(0, -1)
         event.accepted = true
         return
@@ -3499,21 +3502,21 @@ Panel {
         event.accepted = true
         return
       }
-      if (event.key === Qt.Key_Delete || event.text === "x" || event.text === "X") {
+      if (event.key === Qt.Key_Delete || text === "x" || text === "X") {
         catcher.deleteRequested()
         event.accepted = true
         return
       }
       // Share is handled here as well as in the root key map so it works while
       // the actions menu is open and survives any other text-key handling.
-      if (event.text === "u") {
+      if (text === "u") {
         if (root.takeMenuOpen) root.closeTakeMenu()
         root.shareSelected()
         event.accepted = true
         return
       }
-      if (event.text && event.text.length === 1) {
-        catcher.textKey(event.text, event.modifiers)
+      if (text.length === 1) {
+        catcher.textKey(text, event.modifiers)
       }
     }
   }
