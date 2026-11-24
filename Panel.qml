@@ -484,7 +484,7 @@ Panel {
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
     { keys: "tab", what: "switch pages" },
-    { keys: "1–3", what: "jump to settings tabs" },
+    { keys: "?", what: "open or close shortcuts" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -507,12 +507,10 @@ Panel {
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "clickEffects", label: "Click effects", glyph: "󰝁" },
       { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" }
-    ] },
-    { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
+    ] }
   ]
-  // The strip is navigation, not settings: the three settings tabs plus History,
-  // which is a page beside them. Keeping the same strip on both pages is what
-  // makes History a destination rather than a mode with its own frame.
+  // The strip groups configuration tabs (Recording, Visuals) on the left and
+  // History on the right of a vertical hairline; Shortcuts lives on the footer ? key.
   readonly property var navDestinations: {
     var list = []
     for (var i = 0; i < root.settingsTabs.length; i++) {
@@ -524,6 +522,7 @@ Panel {
   }
 
   function isNavActive(id) {
+    if (root.page === "shortcuts") return false
     if (id === "history") return root.page === "history"
     if (root.page === "devices") return root.settingsTab === id
     return root.page === "home" && root.settingsTab === id
@@ -548,6 +547,7 @@ Panel {
   // ---------- panel state -------------------------------------------------
 
   property string page: "home"
+  property string shortcutsReturnPage: "home"
   // Relative take times only move as the clock does, so the history list needs
   // a dependency that advances. takeMeta() reads this counter and re-runs its
   // binding; the value itself is never used.
@@ -1703,6 +1703,10 @@ Panel {
       return
     }
     if (root.typingPrefix) return
+    if (raw === "?") {
+      root.toggleShortcuts()
+      return
+    }
     // Shift+U is the updater. Check the unlowered text so it does not fall
     // through to u, which shares the selected take.
     if (raw === "U") {
@@ -1710,20 +1714,6 @@ Panel {
       return
     }
     var key = raw.toLowerCase()
-    if (key.length === 1 && key >= "1" && key <= "4") {
-      var tab = Number(key) - 1
-      if (tab >= 0 && tab < root.settingsTabs.length) {
-        root.clearHover()
-        if (root.page !== "home") root.page = "home"
-        root.settingsTab = root.settingsTabs[tab].id
-        root.settingsIndex = 0
-        root.focusSection = "settings"
-        root.cursorActive = true
-        root.beginKeyboardScroll()
-        Qt.callLater(root.resetScroll)
-      }
-      return
-    }
     if (key === "q") {
       root.close()
       return
@@ -1751,6 +1741,10 @@ Panel {
   }
 
   function back() {
+    if (root.page === "shortcuts") {
+      root.closeShortcuts()
+      return
+    }
     if (root.page === "devices") {
       root.closeDevices()
       return
@@ -1867,8 +1861,43 @@ Panel {
     if (keyCatcher) keyCatcher.forceActiveFocus()
   }
 
+  function openShortcuts() {
+    if (root.page === "shortcuts") return
+    root.clearHover()
+    root.shortcutsReturnPage = root.page === "history" ? "history" : "home"
+    root.page = "shortcuts"
+    root.focusSection = "settings"
+    root.settingsIndex = 0
+    root.cursorActive = true
+    root.typingPrefix = false
+    root.resetScroll()
+    Qt.callLater(root.focusPanelKeys)
+  }
+
+  function closeShortcuts() {
+    if (root.page !== "shortcuts") return
+    if (root.shortcutsReturnPage === "history") {
+      root.openHistory()
+      return
+    }
+    root.clearHover()
+    root.page = "home"
+    root.focusSection = "settings"
+    root.settingsIndex = 0
+    root.cursorActive = true
+    root.beginKeyboardScroll()
+    root.resetScroll()
+    Qt.callLater(root.focusPanelKeys)
+  }
+
+  function toggleShortcuts() {
+    if (root.page === "shortcuts") root.closeShortcuts()
+    else root.openShortcuts()
+  }
+
   function toggleSettings() {
-    if (root.page === "devices") root.closeDevices()
+    if (root.page === "shortcuts") root.closeShortcuts()
+    else if (root.page === "devices") root.closeDevices()
     else if (root.focusSection === "settings") root.closeSettings()
     else root.openSettings()
   }
@@ -1884,7 +1913,9 @@ Panel {
   }
 
   function activeRows() {
-    return root.page === "devices" ? root.deviceRows() : root.settingsRows()
+    if (root.page === "devices") return root.deviceRows()
+    if (root.page === "shortcuts") return root.shortcutRows
+    return root.settingsRows()
   }
 
   function switchSettingsTab(delta) {
@@ -1922,10 +1953,11 @@ Panel {
     }
     if (dy !== 0) {
       var rows = root.activeRows()
-      var disabled = root.page === "devices" ? ({}) : root.disabledSettingsMap()
+      var disabled = (root.page === "devices" || root.page === "shortcuts")
+        ? ({}) : root.disabledSettingsMap()
       var next = Model.nextEnabledIndex(rows, root.settingsIndex, dy, disabled)
       if (next < 0) {
-        if (dy < 0 && root.page !== "devices") {
+        if (dy < 0 && root.page !== "devices" && root.page !== "shortcuts") {
           root.focusSection = "primary"
           root.selectedIndex = 0
         }
@@ -1935,7 +1967,7 @@ Panel {
       return
     }
     if (dx !== 0) {
-      if (root.page === "devices" || root.settingsTab === "shortcuts") return
+      if (root.page === "devices" || root.page === "shortcuts") return
       var row = root.settingsRows()[root.settingsIndex]
       if (row && !root.settingDisabled(row.key) && row.kind !== "info" && row.kind !== "page")
         root.cycleOption(row.key, dx)
@@ -1943,16 +1975,24 @@ Panel {
   }
 
   function footerHints() {
+    if (root.page === "shortcuts") {
+      return [
+        { key: "↑/↓", label: "Move" },
+        { key: "r", label: root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record") },
+        { key: "Tab", label: "Pages" },
+        { key: "Esc", label: "Back" }
+      ]
+    }
     if (root.page === "devices") {
       return [
-        { key: "↑/↓", label: "Navigate" },
+        { key: "↑/↓", label: "Move" },
         { key: "Enter", label: "Select" },
         { key: "Esc", label: "Back" }
       ]
     }
     if (root.page === "history") {
       return [
-        { key: "↑/↓", label: "Navigate" },
+        { key: "↑/↓", label: "Move" },
         { key: "Enter", label: "Open" },
         { key: "a", label: "Actions" },
         { key: "x", label: "Trash" },
@@ -1960,14 +2000,6 @@ Panel {
       ]
     }
     var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
-    if (root.settingsTab === "shortcuts") {
-      return [
-        { key: "↑/↓", label: "Navigate" },
-        { key: "r", label: recordLabel },
-        { key: "Tab", label: "Pages" },
-        { key: "Esc", label: "Hide" }
-      ]
-    }
     var actionKey = "Space"
     var actionLabel = "Toggle"
     if (root.focusSection === "settings") {
@@ -1986,7 +2018,7 @@ Panel {
       actionLabel = "Activate"
     }
     return [
-      { key: "↑/↓", label: "Navigate" },
+      { key: "↑/↓", label: "Move" },
       { key: actionKey, label: actionLabel },
       { key: "r", label: recordLabel },
       { key: "Tab", label: "Pages" },
@@ -1999,7 +2031,7 @@ Panel {
       root.chooseDevice(root.deviceRows()[root.settingsIndex])
       return
     }
-    if (root.settingsTab === "shortcuts") return
+    if (root.page === "shortcuts") return
     var row = root.settingsRows()[root.settingsIndex]
     if (!row || root.settingDisabled(row.key)) return
     if (row.kind === "page") {
@@ -2702,8 +2734,9 @@ Panel {
           }
         }
 
-        // The strip is the panel's navigation: three numbered config tabs on
-        // the left, separated by a vertical hairline from History on the right.
+        // The strip is the panel's navigation: settings tabs (Recording,
+        // Visuals) on the left, separated by a vertical hairline from History on
+        // the right; Shortcuts opens via ? in the footer.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
@@ -2714,7 +2747,7 @@ Panel {
             id: settingsTabRow
             anchors.fill: parent
             spacing: 0
-            readonly property real configClusterWidth: Math.round(width * 0.72)
+            readonly property real settingsClusterWidth: Math.round(width * 0.62)
 
             Repeater {
               model: root.navDestinations
@@ -2735,8 +2768,8 @@ Panel {
                 Item {
                   id: settingsTabItem
                   width: modelData.separated === true
-                    ? Math.max(0, settingsTabRow.width - settingsTabRow.configClusterWidth - 1)
-                    : Math.round(settingsTabRow.configClusterWidth / (root.navDestinations.length - 1))
+                    ? Math.max(0, settingsTabRow.width - settingsTabRow.settingsClusterWidth - 1)
+                    : Math.round(settingsTabRow.settingsClusterWidth / (root.navDestinations.length - 1))
                   height: settingsTabRow.height
 
                   readonly property bool active: root.isNavActive(modelData.id)
@@ -2744,7 +2777,6 @@ Panel {
 
                   Row {
                     anchors.centerIn: parent
-                    anchors.horizontalCenterOffset: modelData.separated === true ? Style.space(4) : 0
                     spacing: Style.space(5)
 
                     Text {
@@ -2767,7 +2799,7 @@ Panel {
                       visible: modelData.key !== undefined && modelData.key !== ""
                       label: modelData.key || ""
                       modifier: modelData.modifier || ""
-                      horizontalPadding: modelData.separated === true
+                      horizontalPadding: modelData.id === "history"
                         ? Style.space(12) : Style.space(9)
                       active: settingsTabItem.active
                       anchors.verticalCenter: parent.verticalCenter
@@ -2856,7 +2888,7 @@ Panel {
                 spacing: Style.space(12)
 
                 Repeater {
-                  model: root.settingsTab === "shortcuts" ? [] : Model.groupBySection(root.settingsRows())
+                  model: Model.groupBySection(root.settingsRows())
 
                   Column {
                     id: sectionGroup
@@ -2993,52 +3025,73 @@ Panel {
                     }
                   }
                 }
+              }
+            }
+
+            // ---------- shortcuts page ----------
+
+            Column {
+              visible: root.page === "shortcuts"
+              width: parent.width
+              spacing: Style.space(8)
+
+              Item {
+                width: parent.width
+                implicitHeight: Math.max(shortcutsHeader.implicitHeight, shortcutsBackHint.implicitHeight)
+
+                SectionMicroHeader {
+                  id: shortcutsHeader
+                  text: "Shortcuts"
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Text {
+                  id: shortcutsBackHint
+                  textFormat: Text.PlainText
+                  text: "? or esc back"
+                  color: Util.alpha(root.foreground, 0.50)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+              }
+
+              Rectangle {
+                width: parent.width
+                implicitHeight: shortcutsCol.implicitHeight
+                radius: root.panelRadius
+                color: root.cardFill
+                border.width: 1
+                border.color: root.cardBorder
+                clip: true
 
                 Column {
-                  visible: root.settingsTab === "shortcuts"
+                  id: shortcutsCol
                   width: parent.width
-                  spacing: Style.space(5)
+                  spacing: 0
 
-                  SectionMicroHeader {
-                    text: "Shortcuts"
-                  }
-
-                  Rectangle {
-                    width: parent.width
-                    implicitHeight: shortcutsCol.implicitHeight
-                    radius: root.panelRadius
-                    color: root.cardFill
-                    border.width: 1
-                    border.color: root.cardBorder
-                    clip: true
+                  Repeater {
+                    model: root.page === "shortcuts" ? root.shortcutRows : []
 
                     Column {
-                      id: shortcutsCol
+                      required property var modelData
+                      required property int index
                       width: parent.width
                       spacing: 0
 
-                      Repeater {
-                        model: root.settingsTab === "shortcuts" ? root.shortcutRows : []
+                      Rectangle {
+                        visible: index > 0
+                        width: parent.width
+                        height: 1
+                        color: root.rowDivider
+                      }
 
-                        Column {
-                          required property var modelData
-                          required property int index
-                          width: parent.width
-                          spacing: 0
-
-                          Rectangle {
-                            visible: index > 0
-                            width: parent.width
-                            height: 1
-                            color: root.rowDivider
-                          }
-
-                          ShortcutRow {
-                            width: parent.width
-                            row: modelData
-                            rowIndex: index
-                          }
-                        }
+                      ShortcutRow {
+                        width: parent.width
+                        row: modelData
+                        rowIndex: index
                       }
                     }
                   }
@@ -3222,9 +3275,10 @@ Panel {
           }
 
           Row {
-            anchors.centerIn: parent
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
             anchors.verticalCenterOffset: Style.space(2)
-            spacing: Style.space(10)
+            spacing: Style.space(8)
 
             Repeater {
               model: root.footerHints()
@@ -3263,6 +3317,58 @@ Panel {
                   anchors.verticalCenter: parent.verticalCenter
                 }
               }
+            }
+          }
+
+          Rectangle {
+            id: shortcutsToggleBtn
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: Style.space(2)
+            width: Style.space(20)
+            height: Style.space(16)
+            radius: root.chipRadius(Style.space(3))
+            color: root.page === "shortcuts" ? Util.alpha(root.accent, 0.16)
+              : shortcutsToggleMouse.containsMouse && root.pointerActive
+                ? Style.hoverFillFor(root.foreground, root.accent)
+              : Util.alpha(root.foreground, 0.06)
+            border.width: 1
+            border.color: root.page === "shortcuts" ? root.accent
+              : shortcutsToggleMouse.containsMouse && root.pointerActive
+                ? root.accent
+              : Util.alpha(root.foreground, 0.14)
+
+            Behavior on color {
+              ColorAnimation { duration: Style.duration(120) }
+            }
+            Behavior on border.color {
+              ColorAnimation { duration: Style.duration(120) }
+            }
+
+            Text {
+              anchors.centerIn: parent
+              textFormat: Text.PlainText
+              text: "?"
+              color: root.page === "shortcuts" || (shortcutsToggleMouse.containsMouse && root.pointerActive)
+                ? root.foreground : Util.alpha(root.foreground, 0.78)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            MouseArea {
+              id: shortcutsToggleMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onPositionChanged: function(mouse) { root.notePointerMotion(shortcutsToggleMouse, mouse) }
+              onClicked: root.toggleShortcuts()
+            }
+
+            PanelToolTip {
+              visible: shortcutsToggleMouse.containsMouse && root.pointerActive
+              text: root.page === "shortcuts" ? "Close shortcuts (?)" : "Shortcuts (?)"
+              fontFamily: root.fontFamily
             }
           }
         }
@@ -4585,7 +4691,7 @@ Panel {
     property int rowIndex: 0
 
     readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
-    readonly property bool selected: root.cursorActive && root.page === "home"
+    readonly property bool selected: root.cursorActive && root.page === "shortcuts"
       && root.focusSection === "settings" && root.settingsIndex === rowIndex
 
     hasCursor: pointerHovered || (selected && !root.hoverPainted)

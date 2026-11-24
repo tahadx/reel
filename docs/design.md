@@ -451,35 +451,35 @@ Rules:
 The strip sits above the scroll area and stays fixed on **every** destination,
 History included, while the body scrolls underneath it.
 
-- Height `30`; the three settings tabs (`Recording`, `Visuals`, `Shortcuts`)
-  occupy the leading `72%`, followed by a `1` px vertical hairline and
-  `History [⇧H]` at the trailing edge.
+- Height `30`; the two settings tabs (`Recording`, `Visuals`) occupy the
+  leading `62%`, followed by a `1` px vertical hairline and `History [⇧H]` on
+  the trailing `38%`.
 - Label `bodySmall`; active `foreground` + bold; inactive foreground at `0.58`;
   hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- `Tab` / `Shift+Tab` cycles across all four pages (`Recording`, `Visuals`,
-  `Shortcuts`, `History`); `History` carries a `KeyHintChip` (`⇧H`) and `1`–`3`
-  remain direct shortcuts to the settings tabs.
+- `Tab` / `Shift+Tab` cycles across the three strip pages (`Recording`,
+  `Visuals`, `History`); `History` carries a `KeyHintChip` (`⇧H`), and
+  Shortcuts opens via `?` or the `[?]` button on the right edge of the footer.
 - Each panel open returns to Recording with the first settings row (`Desktop
   audio`) focused so keyboard focus is unmistakable on open.
 
 ### 6.5.1 Settings taxonomy
 
-The three settings tabs are fixed. New settings must fit one of them; History
-is not a setting.
+The two settings tabs are fixed (`Recording` and `Visuals`). History and
+Shortcuts are destinations beside them.
 
-| Tab     | Belongs here                                                              | Does not belong                  |
-| :------ | :------------------------------------------------------------------------ | :------------------------------- |
-| Recording | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
-| Visuals   | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
-| Shortcuts | Read-only shortcut reference                                              | Editable key bindings            |
-| History | Takes, the recordings folder, take actions                                | Settings of any kind             |
+| Destination | Belongs here                                                          | Does not belong                  |
+| :---------- | :-------------------------------------------------------------------- | :------------------------------- |
+| Recording   | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
+| Visuals     | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
+| Shortcuts   | Read-only shortcut reference (opened via `?` or footer `[?]`)         | Editable key bindings            |
+| History     | Takes, the recordings folder, take actions                            | Settings of any kind             |
 
 Rules:
 
-- No fourth settings tab. The `1`–`3` and `Shift+H` shortcuts are part of the
-  interface contract.
+- No third settings tab. `Tab`, `Shift+H`, and `?` are part of the interface
+  contract.
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab. In Recording,
   Audio and Video lead; Capture and Saving follow.
@@ -730,8 +730,8 @@ Rules:
 | `←` `→`           | Move across the action row           |
 | `h` `l`           | Move horizontally or cycle an option |
 | `enter` / `space` | Start, stop, save, open, or activate |
-| `tab`             | Switch sections or settings tabs     |
-| `1`–`4`           | Jump to a settings tab               |
+| `tab`             | Switch pages                         |
+| `?`               | Open or close shortcuts              |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
