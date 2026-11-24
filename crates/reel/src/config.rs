@@ -111,10 +111,10 @@ pub fn zoom_max_value(value: Option<&Value>) -> Option<f64> {
 
 /// Whether a monitor take's camera follows the pointer continuously.
 ///
-/// The default is `follow`: Hyprland's attached loose camera keeps the content
-/// under the pointer under it, so the cursor moves normally while the view
-/// follows. `zoomFollow=push` opts into the detached camera that holds the
-/// frame still and pans only at the edge.
+/// The default is `follow`: Hyprland's attached rigid camera pins the point
+/// under the pointer to the middle of the crop, so the subject keeps the whole
+/// frame around it. `zoomFollow=push` opts into the detached camera that holds
+/// the frame still and pans only at the edge.
 pub fn zoom_follows_pointer(value: Option<&Value>) -> bool {
     let Some(value) = value else {
         return true;

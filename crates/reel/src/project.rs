@@ -670,11 +670,8 @@ impl Telemetry {
     /// sparse (syncs and presses), so the last sample at or before `t` wins.
     /// Older logs and takes without manual zoom have no timeline and read 1x.
     ///
-    /// The loose camera keeps clicks under the pointer, so the save pass no
-    /// longer needs to remap through this timeline. It stays on the reader for
-    /// re-renders that may consult the recorded depth, and for the tests that
-    /// pin the wire format.
-    #[allow(dead_code)]
+    /// The rigid camera remaps each click through the zoom live at its press,
+    /// and pointer samples use this timeline to land in the same frame space.
     pub fn zoom_at(&self, t: f64) -> f64 {
         if !t.is_finite() {
             return 1.0;

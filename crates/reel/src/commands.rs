@@ -1226,9 +1226,9 @@ pub fn zoom_pan(
     if zoom <= 1.01 {
         return Ok(());
     }
-    // The loose camera travels (zoom - 1) / zoom of the pointer, so the
-    // pointer covers the rest and the view still moves by the pan step.
-    let mut gain = crate::zoom::follow_gain(zoom);
+    // The rigid camera moves the crop with the pointer, so a pan step needs no
+    // gain: the point under the pointer stays centred instead of drifting into
+    // the edge of the frame as it would with the loose camera.
     let configured = config::cfg(paths, "panStep", "60")
         .trim()
         .parse::<f64>()
@@ -1241,7 +1241,7 @@ pub fn zoom_pan(
     let bounds = pan_bounds(paths);
 
     if !hold {
-        if crate::zoom::pan_view(dx * gain, dy * gain, bounds) {
+        if crate::zoom::pan_view(dx, dy, bounds) {
             println!("Reel zoom: pan {direction}");
         }
         return Ok(());
@@ -1260,16 +1260,12 @@ pub fn zoom_pan(
         }
         // A reset to 1x during the hold leaves nothing to pan. Probe a few
         // times a second rather than spawning hyprctl on every 33 ms tick.
-        if ticks.is_multiple_of(10) {
-            let zoom = crate::zoom::compositor_zoom();
-            if zoom <= 1.01 {
-                break;
-            }
-            gain = crate::zoom::follow_gain(zoom);
+        if ticks.is_multiple_of(10) && crate::zoom::compositor_zoom() <= 1.01 {
+            break;
         }
         ticks = ticks.wrapping_add(1);
         let (step_x, step_y) = if first { (dx, dy) } else { (hold_x, hold_y) };
-        if !crate::zoom::pan_view(step_x * gain, step_y * gain, bounds) {
+        if !crate::zoom::pan_view(step_x, step_y, bounds) {
             break;
         }
         first = false;

@@ -306,10 +306,10 @@ the picture under it.
 
 When **Manual zoom** is on, the compositor has already magnified the recorded
 frames. Reel mirrors the live zoom factor into the runtime folder so telemetry
-can stamp each press. A monitor take uses the attached loose camera, so the
-clicked content stays under the pointer and the click is already at the
-position the recorded frame shows; the save pass uses that position directly
-for click effects and auto zoom. Window and area takes keep a detached camera
+can stamp each press. A monitor take uses the attached rigid camera, which
+centres the clicked content in the recorded frame (or clamps it at the edge);
+the save pass maps each pointer event through its zoom so click effects and
+auto zoom land on that content. Window and area takes keep a detached camera
 whose position telemetry does not record, so their points stay at their real
 positions rather than being guessed. A take that opts into the stable
 `zoomFollow push` camera has no save-pass clicks unless **Auto zoom** or **Click
@@ -509,11 +509,11 @@ config-only.
   overshooting. The Rust fallback, used only when the compositor controller is
   not installed, uses the same shape with the older 180/260 ms half-lives.
 - `zoomFollow` is `follow` by default and has no panel row. `follow` is the
-  attached loose camera: the content under the pointer stays under it, so the
-  cursor keeps moving normally instead of being pinned to the middle, and the
-  view follows at `(zoom - 1) / zoom` of the pointer's movement. `reel config
-  set zoomFollow push` opts into the detached camera that holds the frame still
-  and pans only when the pointer reaches the edge. A take with **Auto zoom** or
+  attached rigid camera: the point under the pointer is pinned to the middle of
+  the crop, so the subject keeps the whole frame around it instead of sitting
+  on the edge, and moving the pointer pans the view. `reel config set
+  zoomFollow push` opts into the detached camera that holds the frame still and
+  pans only when the pointer reaches the edge. A take with **Auto zoom** or
   **Click effects** on always uses the attached camera, because the save pass
   needs to place those clicks in the recorded frame exactly.
 - Manual zoom owns the camera while it is above 1×. An automatic timeout may
@@ -528,11 +528,12 @@ config-only.
 ### Panning
 
 The default camera is **follow** for monitor takes. While zoomed, Hyprland
-keeps the camera attached but **loose**: the content under the pointer stays
-under it, so the cursor moves normally on screen and the view follows at
-`(zoom - 1) / zoom` of the pointer's movement — half at 2×. The pointer is not
-pulled to the middle of the crop. The new spring smooths the zoom depth, and the
-camera moves with it as the frame glides in.
+keeps the camera attached and **rigid**: the point under the pointer is pinned
+to the middle of the crop, so the subject has the whole frame around it instead
+of being pushed into the edge. Moving the pointer pans that centred view. A
+loose camera would instead leave the subject under the cursor and let it drift
+against the crop edge as you zoom or pan. The spring smooths the zoom depth, and
+the camera moves with it as the frame glides in.
 
 Set `zoomFollow push` for the stable detached camera instead. The frame holds
 still while the pointer moves and pans only when the pointer reaches the edge,
@@ -547,18 +548,18 @@ nothing for a window or area.
 - `Ctrl + Alt + ←/→/↑/↓` pans from the keyboard in **follow** mode. A tap pans
   the view about 60 px at the default 2× (`reel config set panStep 30` or `120`
   changes it), holding keeps panning at a steady speed, and `Shift` covers three
-  times as much. The pointer moves far enough that the loose camera travels the
-  whole step; at a very shallow zoom the pointer step is capped, so the view
-  moves a little less. A hold stops as soon as the zoom returns to 1×. The push
-  camera has no attached pan; move the pointer to the edge to pan.
+  times as much. The rigid camera moves the crop with the pointer, so a step
+  pans by the same amount at every depth and the subject stays centred. A hold
+  stops as soon as the zoom returns to 1×. The push camera has no attached pan;
+  move the pointer to the edge to pan.
 - Panning never changes the zoom factor, so the depth stays locked.
 - The pan target is clamped to the recorded monitor, so the view cannot walk off
   the capture. The compositor additionally clamps it to the monitor.
 - Returning to 1×, pausing, or stopping restores the detached camera, which is
   the normal desktop state.
-- In **follow** mode, a pinch that reads as a pan uses the same pointer movement
-  and camera, so gesture zoom and manual pan do not fight each other. In push
-  mode a pinch only zooms.
+- In **follow** mode, a pinch that reads as a pan uses the same rigid pointer
+  movement and camera, so gesture zoom and manual pan do not fight each other.
+  In push mode a pinch only zooms.
 
 The keyboard and scroll bindings come from the optional shortcut block. Pinch
 does not. If the user already had a two-finger pinch gesture, Hyprland rejects a

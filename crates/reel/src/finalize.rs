@@ -629,15 +629,43 @@ fn project_from_telemetry(
         .map(|name| name.to_string_lossy().to_string())
         .unwrap_or_default();
     // Manual zoom happens inside the compositor, so a take recorded while
-    // zoomed already shows a magnified frame. The monitor camera is attached
-    // and loose: the clicked content stays under the pointer, so a click
-    // already sits at the position the saved frame shows and needs no
-    // transform. Window and area takes keep a detached camera whose position
-    // telemetry does not record; their points stay as they are rather than
-    // being guessed.
-    let presses: Vec<project::Click> = telemetry.presses;
-    let clicks: Vec<project::Click> = telemetry.clicks;
-    let samples: Vec<(f64, f64, f64)> = telemetry.samples;
+    // zoomed already shows a magnified frame. Pointer telemetry is still in
+    // desktop pixels; map every pointer event into the pixels the saved frame
+    // actually shows before the camera or the click effects use it. A monitor
+    // take runs Hyprland's attached rigid camera, which can be reconstructed
+    // from the click and its zoom alone. A window or area take runs a detached
+    // camera whose position telemetry does not record, so its points stay as
+    // they are rather than being guessed.
+    let attached = project.capture.kind == "monitor";
+    let frame_width = f64::from(width);
+    let frame_height = f64::from(height);
+    let recorded = |x: f64, y: f64, zoom: f64| {
+        crate::zoom::recorded_point(x, y, zoom, frame_width, frame_height, attached)
+    };
+    let presses: Vec<project::Click> = telemetry
+        .presses
+        .iter()
+        .map(|press| {
+            let (x, y) = recorded(press.x, press.y, press.zoom);
+            project::Click { x, y, ..*press }
+        })
+        .collect();
+    let clicks: Vec<project::Click> = telemetry
+        .clicks
+        .iter()
+        .map(|click| {
+            let (x, y) = recorded(click.x, click.y, click.zoom);
+            project::Click { x, y, ..*click }
+        })
+        .collect();
+    let samples: Vec<(f64, f64, f64)> = telemetry
+        .samples
+        .iter()
+        .map(|&(t, x, y)| {
+            let (x, y) = recorded(x, y, telemetry.zoom_at(t));
+            (t, x, y)
+        })
+        .collect();
     let refiner = activity::Refiner::new(app_paths, input, trim).with_samples(samples);
     let refine = |enter: f64, hold: f64, cx: f64, cy: f64| -> Option<Vec<(f64, f64, f64)>> {
         refiner.targets(enter, hold, cx, cy, width as f64, height as f64)
@@ -1326,16 +1354,16 @@ mod tests {
     }
 
     #[test]
-    fn a_zoomed_monitor_click_stays_under_the_pointer() {
+    fn a_zoomed_monitor_click_lands_in_the_recorded_frame() {
         let root = temp_root("effects-zoom");
         let videos = root.join("Videos");
         fs::create_dir_all(&videos).unwrap();
         let take = videos.join("reel-zoomed.mp4");
         fs::write(&take, b"video").unwrap();
         let telemetry = root.join("zoomed.telemetry.jsonl");
-        // A 2x monitor take runs the loose camera: the clicked content stays
-        // under the pointer, so telemetry's (2300, 700) is already the position
-        // the recorded frame shows.
+        // A 2x monitor take: the click near the right edge cannot be centred,
+        // so the rigid camera records it at (2040, 720), not where the unzoomed
+        // desktop put it (2300, 700).
         fs::write(
             &telemetry,
             concat!(
@@ -1368,11 +1396,12 @@ mod tests {
 
         assert_eq!(project.camera.easing, "spring");
         let click = &project.ripples.clicks[0];
-        assert!((click.x - 2300.0).abs() < 0.01, "click x: {}", click.x);
-        assert!((click.y - 700.0).abs() < 0.01, "click y: {}", click.y);
-        // The auto zoom camera is built from the same click. Its viewport
-        // centre is clamped to the frame: at 2x the farthest right centre is
-        // 1920, so the click sits off-centre but stays in view.
+        assert!((click.x - 2040.0).abs() < 0.01, "click x: {}", click.x);
+        assert!((click.y - 720.0).abs() < 0.01, "click y: {}", click.y);
+        // The auto zoom camera is built from the same mapped click, so it aims
+        // at the content the recorded frame shows. The viewport centre is then
+        // clamped to the frame: at 2x the farthest right centre is 1920, so the
+        // click at 2040 sits off-centre but stays in view.
         let entry = project
             .camera
             .keyframes
@@ -1380,7 +1409,7 @@ mod tests {
             .find(|frame| frame.zoom > 1.9)
             .expect("a zoomed keyframe");
         assert!((entry.x - 1920.0).abs() < 0.01, "camera x: {}", entry.x);
-        assert!((entry.y - 700.0).abs() < 0.01, "camera y: {}", entry.y);
+        assert!((entry.y - 720.0).abs() < 0.01, "camera y: {}", entry.y);
         // The save pass gives the auto zoom the same 1.2 s lead-in as the
         // manual spring, clipped to the start of the saved take.
         let start = project

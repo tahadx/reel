@@ -214,19 +214,20 @@ take is recording; pausing or stopping resets the view to 1×.
   Ctrl+scroll keeps its normal meaning in applications the rest of the time.
   `Ctrl + Alt + Scroll` also works when the optional shortcut block is
   installed.
-- Monitor takes follow the pointer with a loose camera: the content under the
-  pointer stays under it, so the cursor keeps moving normally instead of being
-  pinned to the middle, and the view follows behind it. The zoom transition
-  itself is the new spring, so the frame glides into the new depth instead of
-  stepping. `Ctrl + Alt + ←/→/↑/↓` also pans from the keyboard (hold to keep
-  moving, `Shift` for a longer step). A nudge moves the view about 60 px at the
-  default depth (`reel config set panStep 30` or `120` changes it). Panning
-  never changes the zoom depth, and it stays inside the recorded monitor. Set
+- Monitor takes use the attached rigid camera: the point under the pointer is
+  pinned to the middle of the crop, so the subject keeps the whole frame around
+  it instead of being pushed against the edge. Moving the pointer pans that
+  view. The zoom transition itself is the new spring, so the frame glides into
+  the new depth instead of stepping. `Ctrl + Alt + ←/→/↑/↓` also pans from the
+  keyboard (hold to keep moving, `Shift` for a longer step). A nudge moves the
+  view about 60 px at the default depth (`reel config set panStep 30` or `120`
+  changes it). Panning never changes the zoom depth, and it stays inside the
+  recorded monitor. Set
   `reel config set zoomFollow push` for the stable detached camera instead: the
   frame holds still while the pointer moves and only pans when the pointer
   reaches the edge. A take with **Auto zoom** or **Click effects** on always
-  follows the pointer, so those save-pass effects stay aligned with what was
-  clicked. Window and area takes keep the camera detached, so the pointer stays
+  uses the attached camera, so those save-pass effects stay aligned with what
+  was clicked. Window and area takes keep the camera detached, so the pointer stays
   where it really is instead of being pulled to the screen centre and out of a
   small capture.
 

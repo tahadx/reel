@@ -68,22 +68,24 @@ pub fn compositor_zoom() -> f64 {
 
 /// The live zoom camera.
 ///
-/// A monitor take follows the pointer with Hyprland's attached loose camera:
-/// the content under the pointer stays under it, so the cursor moves normally
-/// on screen instead of being pinned to the middle, and the view follows at
-/// `(zoom - 1) / zoom` of the pointer's movement. `zoomFollow=push` opts into
-/// the detached camera instead, where the frame holds still and only pans when
-/// the pointer reaches the edge. A window or area capture keeps the camera
-/// detached either way: the pointer holds its real position, which keeps it
-/// inside a small capture. At 1x the camera is detached, the normal desktop
-/// state.
+/// A monitor take uses Hyprland's attached rigid camera: the point under the
+/// pointer is pinned to the middle of the crop, so the thing being zoomed into
+/// always has the whole frame around it. A loose camera would leave that point
+/// under the cursor instead, which pushes it against the edge of the crop as
+/// soon as the cursor nears the screen edge or the view is panned.
+/// `zoomFollow=push` opts into the detached camera, where the frame holds still
+/// and only pans when the pointer reaches the edge. A window or area capture
+/// keeps the camera detached either way: the pointer holds its real position,
+/// which keeps it inside a small capture. At 1x the camera is detached, the
+/// normal desktop state.
 fn camera_lua(zoom: f64, follow: bool, push: bool) -> String {
     let z = zoom.clamp(1.0, 4.0);
     let zoomed = z > 1.01;
     let attached = follow && !push && zoomed;
     format!(
-        "hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = {}, zoom_rigid = false }} }})",
+        "hl.config({{ cursor = {{ zoom_factor = {z:.3}, zoom_detached_camera = {}, zoom_rigid = {} }} }})",
         !attached,
+        attached,
     )
 }
 
@@ -126,33 +128,62 @@ pub fn pan_target(
     (next_x, next_y)
 }
 
-/// The pointer may travel at most this many times the view step when panning,
-/// so a shallow zoom cannot throw the cursor across the screen.
-const PAN_POINTER_GAIN_MAX: f64 = 4.0;
-
-/// How far the pointer has to move to pan the loose camera by one view step.
+/// Where a capture-local pointer position is drawn in a frame that already
+/// contains the compositor's live zoom.
 ///
-/// The camera travels `(zoom - 1) / zoom` of the pointer, so the pointer
-/// covers the rest. The multiplier is capped so a shallow zoom cannot throw
-/// the cursor across the screen for a small nudge.
-pub fn follow_gain(zoom: f64) -> f64 {
-    if !zoom.is_finite() || zoom <= 1.01 {
-        return 1.0;
+/// A monitor take runs the attached rigid camera (`zoom_detached_camera =
+/// false`, `zoom_rigid = true`): Hyprland places the scene at `z * (p -
+/// pointer) + center` and clamps the box so no empty space enters the output.
+/// The pointer is the click itself, so a click maps without needing any camera
+/// history. Window and area takes run a detached camera whose position Reel
+/// does not record; their points are left alone rather than guessed.
+pub fn recorded_point(
+    x: f64,
+    y: f64,
+    zoom: f64,
+    width: f64,
+    height: f64,
+    attached: bool,
+) -> (f64, f64) {
+    if !attached
+        || !(x.is_finite()
+            && y.is_finite()
+            && zoom.is_finite()
+            && width.is_finite()
+            && height.is_finite())
+        || zoom <= 1.001
+        || width <= 0.0
+        || height <= 0.0
+    {
+        return (x, y);
     }
-    (zoom / (zoom - 1.0)).min(PAN_POINTER_GAIN_MAX)
+    let z = zoom.max(1.0);
+    let axis = |p: f64, dim: f64| {
+        // The scene box starts at center - z * pointer and is shifted back
+        // inside the output when the magnified frame would expose an edge.
+        let offset = (dim / 2.0 - z * p).clamp(dim * (1.0 - z), 0.0);
+        (offset + z * p).clamp(0.0, dim)
+    };
+    (axis(x, width), axis(y, height))
 }
 
 /// Pan the live view by moving the pointer while the camera is attached. The
 /// zoom factor is never touched, so a pan cannot change the depth by accident.
+/// The rigid camera keeps the point under the pointer centred in the crop, so
+/// moving the pointer pans by the same amount at every depth; no gain is
+/// needed, and the subject cannot drift into the edge of the frame.
 pub fn pan_view(dx: f64, dy: f64, bounds: Option<(f64, f64, f64, f64)>) -> bool {
     let Some((x, y)) = cursor_position() else {
         return false;
     };
     let (next_x, next_y) = pan_target(x, y, dx, dy, bounds);
-    let lua = format!(
-        "hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = false }} }})\nhl.dispatch(hl.dsp.cursor.move({{ x = {next_x:.1}, y = {next_y:.1} }}))"
-    );
-    util::run_ok("hyprctl", &["eval", &lua])
+    util::run_ok("hyprctl", &["eval", &pan_lua(next_x, next_y)])
+}
+
+fn pan_lua(x: f64, y: f64) -> String {
+    format!(
+        "hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})\nhl.dispatch(hl.dsp.cursor.move({{ x = {x:.1}, y = {y:.1} }}))"
+    )
 }
 
 const ZOOM_MARKER: &str = "zoom_gestures";
@@ -239,14 +270,13 @@ fn recording_zoom_lua(paths: &Paths, max_zoom: f64, follow: bool, push: bool) ->
 
         _G.reel_zoom_apply = function(z)
             _G.reel_zoom_current = z
-            -- Follow is Hyprland's attached loose camera: the content under
-            -- the pointer stays under it and the view follows at
-            -- (zoom - 1) / zoom of the pointer movement, so the cursor keeps
-            -- moving normally on screen. Push is the detached camera that
-            -- holds still and pans only at the edge. At 1x and for window/area
-            -- takes the camera is detached.
+            -- Follow is Hyprland's attached rigid camera: the point under the
+            -- pointer is pinned to the middle of the crop, so the subject has
+            -- the whole frame around it instead of sitting on the edge. Push is
+            -- the detached camera that holds still and pans only at the edge.
+            -- At 1x and for window/area takes the camera is detached.
             local attached = follow and not push and z > 1.01
-            hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = not attached, zoom_rigid = false }} }})
+            hl.config({{ cursor = {{ zoom_factor = z, zoom_detached_camera = not attached, zoom_rigid = attached }} }})
             _G.reel_zoom_mirror(z)
         end
 
@@ -389,7 +419,7 @@ fn recording_zoom_lua(paths: &Paths, max_zoom: f64, follow: bool, push: bool) ->
                             mode = 'zoom'
                         elseif pan_dist >= 8.0 and pan_dist > (scale_diff * 400.0) then
                             mode = 'pan'
-                            hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = false }} }})
+                            hl.config({{ cursor = {{ zoom_detached_camera = false, zoom_rigid = true }} }})
                         end
                     end
 
@@ -470,8 +500,9 @@ fn clear_zoom_lua() -> &'static str {
 /// touchpad pinch gestures, and binds Ctrl+scroll for smooth wheel zoom.
 ///
 /// `follow` is true for monitor captures. A monitor take uses the stable
-/// detached push camera unless `push` is false, in which case it uses the loose
-/// cursor-following camera. Window and area captures keep the camera detached
+/// detached push camera unless `push` is false, in which case it uses the
+/// attached rigid camera that keeps the subject centred. Window and area
+/// captures keep the camera detached
 /// so the pointer keeps its real position instead of being pulled toward the
 /// screen centre.
 pub fn enable_recording_zoom(paths: &Paths, max_zoom: f64, follow: bool, push: bool) {
@@ -672,13 +703,13 @@ mod tests {
     }
 
     #[test]
-    fn monitor_zoom_follows_the_pointer_loosely_by_default() {
+    fn monitor_zoom_pins_the_subject_to_the_middle_of_the_crop() {
         let zoomed = super::camera_lua(2.0, true, false);
         assert!(zoomed.contains("zoom_detached_camera = false"));
-        // Rigid would pin the cursor to the middle of the crop. The loose
-        // camera keeps the content under the pointer under it, so the cursor
-        // moves normally while the view follows.
-        assert!(zoomed.contains("zoom_rigid = false"));
+        // The rigid camera pins the point under the pointer to the middle of
+        // the crop. A loose camera would leave it under the cursor and push it
+        // into the edge of the frame as the cursor moved.
+        assert!(zoomed.contains("zoom_rigid = true"));
         let full = super::camera_lua(1.0, true, false);
         assert!(full.contains("zoom_detached_camera = true"));
         assert!(full.contains("zoom_rigid = false"));
@@ -702,16 +733,15 @@ mod tests {
     }
 
     #[test]
-    fn the_loose_follow_gain_compensates_pointer_movement() {
-        // The camera travels (zoom - 1) / zoom of the pointer, so the pointer
-        // has to cover the rest. At 2x both move the same distance.
-        assert!((super::follow_gain(2.0) - 2.0).abs() < 1e-9);
-        assert!((super::follow_gain(4.0) - 4.0 / 3.0).abs() < 1e-9);
-        // A shallow zoom is capped so one nudge cannot throw the cursor across
-        // the screen.
-        assert!((super::follow_gain(1.1) - super::PAN_POINTER_GAIN_MAX).abs() < 1e-9);
-        assert_eq!(super::follow_gain(1.0), 1.0);
-        assert_eq!(super::follow_gain(f64::NAN), 1.0);
+    fn panning_keeps_the_camera_rigid_so_the_subject_does_not_reach_the_edge() {
+        // A pan moves the pointer that the rigid camera centres on, so every
+        // step keeps the subject in the middle of the crop. The old loose
+        // camera needed a >1 gain and let the subject drift into the edge.
+        let lua = super::pan_lua(120.5, 80.0);
+        assert!(lua.contains("zoom_rigid = true"));
+        assert!(lua.contains("zoom_detached_camera = false"));
+        assert!(lua.contains("hl.dsp.cursor.move({ x = 120.5, y = 80.0 })"));
+        assert!(!lua.contains('*'));
     }
 
     #[test]
@@ -730,6 +760,53 @@ mod tests {
             (199.0, 199.0)
         );
         assert_eq!(super::pan_target(10.0, 10.0, 5.0, 5.0, None), (15.0, 15.0));
+    }
+
+    #[test]
+    fn a_click_follows_the_attached_zoom_camera() {
+        // At 2x with room around the pointer, Hyprland centres the clicked
+        // content, so the effect belongs at the centre of the recorded frame.
+        assert_eq!(
+            super::recorded_point(1440.0, 810.0, 2.0, 2880.0, 1620.0, true),
+            (1440.0, 810.0)
+        );
+        // A click near the right edge cannot be centred: the camera clamps to
+        // the output, exactly like Hyprland's zoom transform.
+        assert_eq!(
+            super::recorded_point(2644.0, 1010.0, 2.0, 2880.0, 1620.0, true),
+            (2408.0, 810.0)
+        );
+        assert_eq!(
+            super::recorded_point(1440.0, 1010.0, 2.0, 2880.0, 1620.0, true),
+            (1440.0, 810.0)
+        );
+    }
+
+    #[test]
+    fn a_point_outside_the_zoom_camera_stays_inside_the_frame() {
+        // The corner click with the zoom pushed to the cap: the clamp keeps
+        // every recorded position within the encoded frame.
+        let (x, y) = super::recorded_point(0.0, 0.0, 2.0, 2880.0, 1620.0, true);
+        assert_eq!((x, y), (0.0, 0.0));
+        let (x, y) = super::recorded_point(2879.0, 1619.0, 2.0, 2880.0, 1620.0, true);
+        assert!((0.0..2880.0).contains(&x) && (0.0..1620.0).contains(&y));
+    }
+
+    #[test]
+    fn a_plain_frame_or_a_detached_camera_leaves_the_point_alone() {
+        let point = (120.0, 340.0);
+        assert_eq!(
+            super::recorded_point(point.0, point.1, 1.0, 2880.0, 1620.0, true),
+            point
+        );
+        assert_eq!(
+            super::recorded_point(point.0, point.1, 2.5, 2880.0, 1620.0, false),
+            point
+        );
+        assert_eq!(
+            super::recorded_point(point.0, point.1, f64::NAN, 2880.0, 1620.0, true),
+            point
+        );
     }
 
     #[test]
@@ -797,7 +874,7 @@ mod tests {
         assert!(lua.contains("local key_half_life = 0.15"));
         assert!(lua.contains("_G.reel_zoom_velocity"));
         assert!(lua.contains("_G.reel_zoom_key_step"));
-        assert!(lua.contains("zoom_rigid = false"));
+        assert!(lua.contains("zoom_rigid = attached"));
 
         let push = super::recording_zoom_lua(&paths, 2.0, true, true);
         assert!(push.contains("local push = true"));
