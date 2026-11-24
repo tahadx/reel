@@ -337,6 +337,48 @@ function clamp(value, low, high) {
   return Math.max(low, Math.min(high, value))
 }
 
+// Derive internal chip/badge radii from Hyprland's cornerRadius so 0px mode
+// stays sharply machined while rounded mode scales proportionally.
+function scaledRadius(cornerRadius, maxRadius) {
+  var r = Number(cornerRadius)
+  if (!isFinite(r) || r <= 0) return 0
+  var cap = Math.max(0, Number(maxRadius) || 0)
+  if (cap <= 0) return 0
+  return Math.min(cap, Math.max(1, Math.round(r * 0.5)))
+}
+
+// Derive pill/toggle radii from cornerRadius: 0 when sharp, full half-height
+// pill once cornerRadius reaches 6px, and smooth intermediate rounding in between.
+function pillRadius(cornerRadius, height) {
+  var r = Number(cornerRadius)
+  if (!isFinite(r) || r <= 0) return 0
+  var half = Math.floor(Math.max(0, Number(height) || 0) / 2)
+  if (half <= 0) return 0
+  return r >= 6 ? half : Math.min(half, Math.max(1, Math.round(r)))
+}
+
+// Group a flat row array into section cards while preserving each row's
+// original flat index so keyboard cursor indices stay exact.
+function groupBySection(rows) {
+  var list = Array.isArray(rows) ? rows : []
+  var groups = []
+  var current = null
+  for (var i = 0; i < list.length; i++) {
+    var row = object(list[i])
+    var sectionName = row.section !== undefined && String(row.section) !== ""
+      ? String(row.section) : ""
+    if (!current || (sectionName !== "" && sectionName !== current.section)) {
+      current = { section: sectionName, rows: [] }
+      groups.push(current)
+    }
+    var item = {}
+    for (var key in row) item[key] = row[key]
+    item.flatIndex = i
+    current.rows.push(item)
+  }
+  return groups
+}
+
 // ---------- capture preview geometry -------------------------------------
 
 // The picker and the compositor both speak logical desktop coordinates.

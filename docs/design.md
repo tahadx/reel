@@ -163,7 +163,8 @@ Rules:
 
 - Body text is regular weight. Bold is for values, clocks, active tabs, the
   primary action, and the active state, never for paragraphs.
-- Section labels use `caption` + `dim` + bold. Do not uppercase labels.
+- Section headers are tracked uppercase micro-labels (`caption` + bold +
+  `letterSpacing: 1.0`, `foreground` at `0.48`), introducing grouped section cards.
 - The countdown number is `display × 2.2`. It is the only oversized text.
 - Numbers that change must not shift width. Use monospace and fixed slots for
   clocks and counters.
@@ -174,11 +175,14 @@ Rules:
 
 ### Copy
 
-- Sentence case. “Record”, “Stop”, “Discard?”, “Open the recordings folder”.
+- Sentence case for row labels and controls. “Record”, “Stop”, “Discard?”,
+  “Open the recordings folder”.
 - Labels are nouns or short verbs. Values are nouns: `30 fps`, `2.0x`, `Off`.
 - Shortcut hints are lowercase key names: `r`, `shift+h`, `enter`. Exception:
-  the display form `Shift+H` in tooltips.
-- No uppercase UI copy.
+  the display form `Shift+H` in tooltips and `Space` / `Enter` / `Esc` in
+  inline and footer keycaps.
+- Uppercase copy is reserved for tracked section micro-headers (`AUDIO`, `VIDEO`,
+  `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `SHORTCUTS`).
 - Errors state cause + fix, one line. “No microphone found. Pick one in Audio.”
 - No exclamation marks. No “Please”. No marketing voice inside the tool.
 - Toasts are one sentence and never modal.
@@ -210,18 +214,20 @@ here.`
 
 ### Panel geometry
 
-- Content: **440 × 410** logical pixels (`fittedContentWidth(Style.space(440))`,
-  `Style.space(410)`).
+- Content: **440 × 436** logical pixels (`fittedContentWidth(Style.space(440))`,
+  `Style.space(436)`).
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
-  settings tabs (30 high, `8` above, `2` below) + `1` px hairline. The strip is
+  settings tabs (30 high, `4` above, `0` below) + `1` px hairline. The strip is
   navigation: three settings tabs and History.
+- Fixed footer: `1` px hairline + keyhint strip (`24` high) below the scroll
+  region.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
-- Page body spacing: `10`. History list spacing: `8`.
-- Row outer padding: `6` left, `6`–`8` right.
-- Never add a horizontal margin to the fixed header that the scroll body does
-  not share.
+- Page body spacing: `12` between section groups, `0` between rows inside a
+  section card (separated by `1` px dividers). History list spacing: `8`.
+- Never add a horizontal margin to the fixed header or footer that the scroll
+  body does not share.
 
 ### Fixed frame rule
 
@@ -232,7 +238,7 @@ ColumnLayout {
   anchors.fill: parent
   spacing: Style.space(10)
 
-  PanelHero { Layout.fillWidth: true /* timer pill + update/history */ }
+  PanelHero { Layout.fillWidth: true /* status badge + update cue */ }
 
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
@@ -241,57 +247,62 @@ ColumnLayout {
   ScrollView {
     Layout.fillWidth: true
     Layout.fillHeight: true
-    // settings, history
+    // settings, devices, history
   }
+
+  Item { Layout.fillWidth: true /* fixed keyhint footer strip */ }
 }
 ```
 
-Do not put the hero, primary actions, or tab strip back inside the `ScrollView`.
-Do not give the `ScrollView` `anchors.fill: parent` inside the layout. Do not
-set `implicitHeight` on the key catcher. The header is the frame.
+Do not put the hero, primary actions, tab strip, or footer strip inside the
+`ScrollView`. Do not give the `ScrollView` `anchors.fill: parent` inside the
+layout. Do not set `implicitHeight` on the key catcher. The header and footer
+are the fixed frame.
 
 ### Layout rules
 
-- Align labels on one left edge. Values are right-aligned and never push a
-  label into wrapping.
-- Settings row height: `30`. Action height: `38`. Tab height: `30`.
+- Align labels on one left edge (dependent sub-rows such as `Noise reduction`
+  indent with a `1` px connector line under their parent). Values and inline
+  steppers are right-aligned and never push a label into wrapping.
+- Settings row height: `34` (`42` with a device subtitle). Action height: `38`.
+  Tab height: `30`. Footer height: `24`.
 - Take row height: `56`. Thumbnail: `84 × 48`.
-- Value chip height: `20`.
 - Toggle: `32 × 16`, thumb `12`.
 - Icon buttons: at least `22 × 22`, whole and odd where possible.
-- Separators are `1` px at `0.12` foreground, used between groups only.
+- Separators are `1` px at `0.06` foreground inside section cards, and `0.12`
+  foreground for the navigation and footer hairlines.
 - Media and thumbnails sit on a 2 px grid.
-- Reserve space for every dynamic value. The header clock has a fixed `60 × 22`
-  slot; the bar width expands from `Style.bar.iconSlot` when recording.
+- Reserve space for every dynamic value. The header clock has at least a
+  `64 × 22` slot; the bar width expands from `Style.bar.iconSlot` when
+  recording.
 
 ### Surfaces and corners
 
-Default radius is `Style.cornerRadius` for rows, buttons, inputs, cards, menus,
-and floating layers. Reel is not a pill-heavy interface.
+All radii derive from `Style.cornerRadius` so `0` px sharp mode stays machined
+and rounded mode scales proportionally across every component:
 
-| Surface                                  | Radius                           |
-| :--------------------------------------- | :------------------------------- |
-| Rows, buttons, input, cards, menu, toast | `Style.cornerRadius`             |
-| Key hint chip                            | `Style.space(4)`                 |
-| Value chip                               | `Style.space(4)`                 |
-| Toggle, status pill                      | `height / 2` (allowed exception) |
-| Countdown                                | circle (`width / 2`)             |
-| Glyph tile, thumbnail, shortcut row      | `0` (square)                     |
-| Cursor accent edge                       | `width / 2`                      |
+| Surface                                        | Radius                                            |
+| :--------------------------------------------- | :------------------------------------------------ |
+| Section cards, buttons, inputs, takes, menu, toast | `Style.cornerRadius`                          |
+| Key hint chips, thumbnails                     | `Model.scaledRadius(Style.cornerRadius, 4)` (`0` when sharp) |
+| Footer keycaps                                 | `Model.scaledRadius(Style.cornerRadius, 3)` (`0` when sharp) |
+| Toggle, toggle thumb, status badge             | `Model.pillRadius(Style.cornerRadius, height)` (`0` when sharp, pill when ≥ 6) |
+| Countdown                                      | circle (`width / 2`)                              |
+| Cursor accent edge                             | `0` (flush inside clipped card)                   |
 
 Rules:
 
-- Square corners are correct for glyph tiles, thumbnails, and shortcut rows.
-- Pills are only for toggles and the status pill. Do not use them for tabs,
-  buttons, settings rows, or history rows.
-- Do not add radius to a surface that sits inside a row with its own radius.
-- Borders are hairlines. Use `hairline` at rest, `accent` for the shared cursor,
-  and `strongBorder` only when a surface needs to separate from media.
+- Toggles, status badges, keycaps, section cards, and buttons all follow the
+  user's `Style.cornerRadius` choice (`0` px sharp vs rounded).
+- Bordered boxes are reserved strictly for keycaps; static row and action icons
+  sit bare on their surfaces without borders.
+- Section cards elevate over the canvas with `0.03` foreground fill and a `1` px
+  `0.07` foreground border.
 - Shadows are allowed only on floating layers (toast, take menu, countdown) and
   keycap chips, and only as soft black shadows. Never on rows, tabs, or buttons.
 - The primary action is the only permitted gradient in the panel: a two-stop
-  vertical accent shade plus a `0.16` top highlight. Do not add gradients
-  anywhere else.
+  vertical accent shade plus a top highlight. Do not add gradients anywhere
+  else.
 
 ---
 
@@ -375,46 +386,35 @@ Rules:
 
 ### 6.2 Hero (fixed)
 
-The hero is the recording clock, the update cue, and history access. It is not
-a place for identity text or metadata.
+The hero is the recording status badge and the update cue. It is not a place
+for identity text or quality metadata.
 
-- Height: `22`, the pill height.
-- Leading control: **recording status pill** — at least `60 × 22`, pill radius,
-  always visible. The resting width is `60`; a label that cannot fit (the
-  save count, or a clock past an hour) widens the capsule instead of spilling
-  its last character over the border.
-  - Idle: dim dot + `Ready` in secondary.
-  - Recording: accent dot + live clock, foreground.
-  - Paused: secondary dot + frozen clock, no pulse.
-  - Saving: dim dot + `Saving` in secondary while the encoder finishes the
-    take. Idle save jobs show `Saving N` here and as rows in history.
-  - Dot pulse: `0.35 ↔ 1.0`, `900` ms each way.
-  - Fill `restFill`, hairline border.
+- Height: `22`.
+- Leading control: **recording status badge** — at least `64 × 22`, radius
+  `Model.pillRadius(Style.cornerRadius, height)`, always visible.
+  - Idle: accent dot + `Ready` in foreground on soft accent fill (`0.13`) and
+    accent border (`0.30`).
+  - Recording: urgent dot (pulsing `0.35 ↔ 1.0`, `900` ms) + live clock,
+    foreground, on soft urgent fill (`0.16`) and urgent border (`0.40`).
+  - Paused: secondary dot + frozen clock, no pulse, `restFill` + `hairline`.
+  - Saving: secondary dot + `Saving` / `Saving N` on `restFill` + `hairline`.
 - Trailing control:
   1. **Version cue** — `bodySmall` in a reserved `64`-wide, `22`-high slot at
      the trailing edge. It is a text link, not a pill: no fill and no border in
      any state.
-     - Rest: `vX.Y.Z` in secondary, regular weight. Hover or keyboard cursor
-       raises it to foreground and draws a `1` px accent underline.
-     - Update waiting: the newer `vX.Y.Z` in bold foreground with an accent `↑`
-       after it. When the remote is ahead without a version bump, the running
-       version stays and only the arrow changes. No resting underline; hover or
-       keyboard cursor draws it. Clicking updates.
+     - Rest: `vX.Y.Z` muted (`0.45` foreground), regular weight. Hover or
+       keyboard cursor raises it to foreground and draws a `1` px accent
+       underline.
+     - Update waiting: version remains muted at rest (`0.58` foreground, full
+       foreground + bold on hover) with an accent bold `↑` after it. Clicking
+       updates.
      - Checking: `Checking…` in dim with a `1` px accent sweep travelling
-       across the underline; the control does not respond until the check ends.
-     - Failed check: `Retry` in urgent with an urgent underline. The tooltip
-       carries the cause; clicking checks again.
-     - The slot width is reserved so the trailing edge never moves.
-- There is no history button in the hero: History is a destination in the
-  navigation strip (§6.5).
-- There is no Reel mark or title in the hero. The bar keeps the drawn mark.
-- The `60` resting slot is reserved while the label fits, so the clock's
-  seconds do not move the pill. A label wider than the slot (`Saving 10`, or a
-  clock past an hour) grows the capsule and keeps its eight-point inset.
+       across the underline.
+     - Failed check: `Retry` in urgent with an urgent underline.
 
 ### 6.3 Primary actions (fixed)
 
-Exactly three equal buttons, one row, gap `Style.space(8)`, height `38`.
+Three equal buttons, one row, gap `Style.space(8)`, height `38`.
 
 | Slot | Label                        | Glyph                  | Tone                              | Key |
 | :--- | :--------------------------- | :--------------------- | :-------------------------------- | :-- |
@@ -425,49 +425,42 @@ Exactly three equal buttons, one row, gap `Style.space(8)`, height `38`.
 Rules:
 
 - Primary is the only solid accent surface. It has a subtle vertical shade and a
-  top highlight. When a take is live, it switches to urgent so “Stop” reads as
-  the interrupt.
-- Secondary buttons use `restFill` + `hairline`; cursor uses `hoverFill` +
-  accent border.
-- Disabled buttons sit at opacity `0.35`, keep their slot, and never move.
+  `1` px top highlight. When a take is live, it switches to urgent so “Stop”
+  reads as the interrupt.
+- All three buttons use bare `Style.font.icon` monochrome glyphs (no icon box)
+  and always show their `KeyHintChip` (`r`, `p`, `d`).
+- Secondary buttons use `restFill` + `0.10` foreground border; cursor uses
+  `hoverFill` + `accent` border.
+- Disabled buttons sit at opacity `0.38` on `cardFill`, keep their slot, and
+  never move.
 - Pressed state scales to `0.985` over `90` ms.
 - Discard is a two-step action: first press arms and relabels, second press
-  discards. The warning is the relabel, plus a toast if needed.
-- The row stays visible on every destination, History included. It is part of
-  the fixed frame, so hiding it on one page would move the navigation strip
-  under the pointer.
+  discards.
+- The row stays visible on every destination, History included.
 
 ### 6.4 Separator
 
 - `1` px, `0.12` foreground, full content width.
-- The only divider is the hairline at the bottom of the fixed navigation strip.
-  It separates the fixed actions and strip from the scrolling body, on every
-  destination.
-- There is no second separator between the action row and the strip.
+- Fixed hairlines sit at the bottom of the navigation strip and the top of the
+  footer strip on every destination.
+- Inside grouped section cards, consecutive rows are separated by `1` px
+  `0.06` foreground dividers.
 
 ### 6.5 Navigation strip
 
 The strip sits above the scroll area and stays fixed on **every** destination,
-History included, while the body scrolls underneath it. It is the panel's only
-navigation.
+History included, while the body scrolls underneath it.
 
-- Height `30`; three settings destinations share the strip, then History takes a
-  wider slot whose extra width is the separation — no rule between them. The
-  strip keeps `Style.space(8)` above and `Style.space(2)` below.
-- Label `bodySmall`; active `accent` + bold; inactive foreground at `0.85`; hover `foreground`.
-- Active underline: `2` px accent, inset `Style.space(16)` from each side.
+- Height `30`; the three numbered settings tabs (`Recording [1]`, `Visuals [2]`,
+  `Shortcuts [3]`) occupy the leading `72%`, followed by a `1` px vertical
+  hairline and `History [⇧H]` at the trailing edge.
+- Label `bodySmall`; active `foreground` + bold; inactive foreground at `0.58`;
+  hover `foreground`.
+- Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- Every destination carries a `KeyHintChip`: `1`–`4` for settings, and `H` with a
-  subordinate `⇧` modifier for History (the shift glyph is lighter than the
-  letter, so it reads as one key, not two).
-- No pills, no icons, no counters, no badges.
-- Each panel open returns to Recording; the selected destination is not persisted.
-- Switching is instant. The underline and label colors animate, the body returns
-  to the top, and the settings cursor returns to the first row.
-- Clicking History opens it; clicking a settings tab leaves History and shows
-  that tab. `1`–`4` work from History as well, and `Shift+H` toggles it.
-- The strip is pointer-only, like the old tab strip; the keyboard reaches the
-  same destinations through `1`–`4` and `Shift+H`.
+- Every destination carries a `KeyHintChip` (`active: true` when selected).
+- Each panel open returns to Recording with the first settings row (`Desktop
+  audio`) focused so keyboard focus is unmistakable on open.
 
 ### 6.5.1 Settings taxonomy
 
@@ -513,27 +506,26 @@ lists when it opens.
 
 ### 6.6 Settings rows
 
-- Height `30`, radius `Style.cornerRadius`.
-- Structure: glyph tile, label, value.
-- Glyph tile: `24 × 24`, square, `restFill` fill, `hairline` border, glyph at
-  `Style.font.body` foreground.
-- Label: `body`, foreground, elided from the right.
-- Value chip (cycle rows): height `20`, radius `4`, `restFill`, `hairline`;
-  value at `bodySmall` bold, then `›`. Cursor: `0.10` fill + accent border.
-- Info rows: value `bodySmall` bold, secondary, no chip. They still participate
-  in the row cursor; activation is a no-op.
-- Page rows use the same value chip as cycle rows, but activation opens their
-  detail page instead of changing a value. `Input devices` is the only page row.
-- Toggle rows: `32 × 16` pill. On: accent fill, thumb `onAccent`. Off:
-  foreground at `0.18`, thumb secondary. Thumb moves in `120` ms.
-- Shortcut rows (Shortcuts tab): height `30`, square, key chip + description.
-  Key chip minimum width `56`, height `18`, radius `4`, keycap shadow, caption
-  bold. Chip fill is an opaque theme background plus `0.08` foreground at rest,
-  accent at `0.14` when active; the opaque base keeps the keycap shadow from
-  tinting the pill in light themes. Border is `strongBorder`, accent at `0.55`
-  when active. Description `bodySmall` foreground at `0.82`.
-- The cursor accent edge is `2` px, inset `2` from the left, height row minus
-  `10`.
+- Height `34` (`42` when showing a device subtitle); grouped inside elevated
+  section cards (`0.03` fill, `0.07` `1` px border, `Style.cornerRadius`,
+  `clip: true`) with `1` px `0.06` dividers between rows.
+- Structure: bare monochrome `Style.font.icon` glyph (no icon box), label
+  (+ optional `caption` subtitle for audio/camera routing), contextual inline
+  keyhint (`Space` / `←/→` / `Enter` shown only on the active row), and value
+  control.
+- Dependent sub-rows (`Noise reduction` under `Microphone`) indent with a
+  `1` px connector line and dim to `0.44` opacity when the parent switch is off.
+- Cycle rows use an unboxed inline stepper (`‹  value  ›`) where `‹` and `›`
+  can be clicked directly to step backward/forward.
+- Page rows (`Input devices`) show `Manage ›`.
+- Toggle rows: `32 × 16` track + `12 × 12` thumb, both scaled from
+  `Style.cornerRadius` via `Model.pillRadius` (`0` px sharp when `cornerRadius`
+  is `0`, pill when `≥ 6`). On: accent fill, thumb `onAccent`. Off: foreground
+  at `0.16`, thumb foreground at `0.68`. Thumb moves in `120` ms.
+- Shortcut rows (Shortcuts tab): height `32`, grouped in a section card,
+  `KeyHintChip` + description.
+- The cursor accent edge is `3` px (`Math.max(2, Style.space(3))`), flush left
+  over the full row height, paired with `0.09` accent surface fill.
 - Clicking a cycle row moves forward. Right-click moves backward.
 - Long-press is not used.
 
@@ -887,7 +879,7 @@ signature moments above.
   `BorderSurface`, `KeyboardPanel`, and `PanelToolTip` from `qs.Ui`.
 - Keep one source of cursor state on the panel root.
 - Keep the fixed header structure from §5.
-- Keep `contentHeight: Style.space(410)` and
+- Keep `contentHeight: Style.space(436)` and
   `fittedContentWidth(Style.space(440))`.
 - Add a `Behavior` for every color/border/opacity change that has a state.
 - Update this document in the same change as any visual change.

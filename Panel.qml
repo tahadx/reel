@@ -258,12 +258,40 @@ Panel {
   readonly property color dim: Commons.Color.muted
   readonly property color urgentSoft: Util.alpha(root.urgent, 0.16)
   readonly property color restFill: Util.alpha(root.foreground, 0.04)
+  readonly property color cardFill: Util.alpha(root.foreground, 0.03)
+  readonly property color cardBorder: Util.alpha(root.foreground, 0.07)
+  readonly property color rowDivider: Util.alpha(root.foreground, 0.06)
+  readonly property color cursorFill: Util.alpha(root.accent, 0.09)
   readonly property color selectedFill: Util.alpha(root.foreground, 0.14)
   readonly property color hairline: Util.alpha(root.foreground, 0.12)
   readonly property color strongBorder: Util.alpha(root.foreground, 0.24)
   readonly property color secondary: Util.alpha(root.foreground, 0.72)
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
   readonly property color onAccent: root.inkOn(root.accent)
+  readonly property bool isRounded: Style.cornerRadius > 0
+  readonly property int panelRadius: Style.cornerRadius
+
+  function chipRadius(maxRadius) {
+    return Model.scaledRadius(Style.cornerRadius, maxRadius === undefined ? Style.space(4) : maxRadius)
+  }
+
+  function badgeRadius(height) {
+    return Model.pillRadius(Style.cornerRadius, height)
+  }
+
+  function settingSubtitle(key) {
+    if (key === "desktopAudio")
+      return root.audioDeviceLabel(root.valueString("desktopDevice", ""), "output")
+    if (key === "microphoneAudio")
+      return root.audioDeviceLabel(root.valueString("microphoneDevice", ""), "input")
+    if (key === "webcam" && root.currentValue("webcam") !== "off")
+      return Model.cameraLabel(root.cameras, root.valueString("webcamDevice", ""))
+    return ""
+  }
+
+  function settingDimmed(key) {
+    return key === "noiseCancellation" && root.currentValue("microphoneAudio") !== "on"
+  }
 
   readonly property var defaults: ({
     "desktopAudio": "on",
@@ -428,7 +456,7 @@ Panel {
   readonly property var recordingSettingRows: [
     { key: "desktopAudio", label: "Desktop audio", glyph: "󰕾", section: "Audio" },
     { key: "microphoneAudio", label: "Microphone", glyph: "󰍬" },
-    { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽" },
+    { key: "noiseCancellation", label: "Noise reduction", glyph: "󱑽", dependent: true },
     { key: "fps", label: "Frame rate", glyph: "󰈰", section: "Video" },
     { key: "quality", label: "Quality", glyph: "󰓅" },
     { key: "codec", label: "Video codec", glyph: "󰅴" },
@@ -465,10 +493,10 @@ Panel {
   readonly property var settingsTabs: [
     { id: "recording", label: "Recording", rows: root.recordingSettingRows },
     { id: "visuals", label: "Visuals", rows: [
-      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉" },
+      { key: "manualZoom", label: "Manual zoom", glyph: "󰍉", section: "Zoom" },
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "clickEffects", label: "Click effects", glyph: "󰝁" },
-      { key: "cursor", label: "Record the pointer", glyph: "󰍽" }
+      { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" }
     ] },
     { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
   ]
@@ -1716,10 +1744,6 @@ Panel {
       root.closeDevices()
       return
     }
-    if (root.focusSection === "settings") {
-      root.closeSettings()
-      return
-    }
     if (root.page === "history") {
       root.closeHistory()
       return
@@ -1781,8 +1805,9 @@ Panel {
   function closeHistory() {
     root.clearHover()
     root.page = "home"
-    root.focusSection = "primary"
+    root.focusSection = "settings"
     root.selectedIndex = 0
+    root.settingsIndex = 0
     root.cursorActive = true
     root.historyAnchorPath = ""
     root.suppressHistoryHover = false
@@ -1874,6 +1899,11 @@ Panel {
       return
     }
     if (dy !== 0) {
+      if (dy < 0 && root.settingsIndex === 0 && root.page !== "devices") {
+        root.focusSection = "primary"
+        root.selectedIndex = 0
+        return
+      }
       root.settingsIndex = Model.clamp(root.settingsIndex + dy, 0, root.settingsCount() - 1)
       return
     }
@@ -1882,6 +1912,58 @@ Panel {
       var row = root.settingsRows()[root.settingsIndex]
       if (row && row.kind !== "info" && row.kind !== "page") root.cycleOption(row.key, dx)
     }
+  }
+
+  function footerHints() {
+    if (root.page === "devices") {
+      return [
+        { key: "↑/↓", label: "Navigate" },
+        { key: "Enter", label: "Select" },
+        { key: "Esc", label: "Back" }
+      ]
+    }
+    if (root.page === "history") {
+      return [
+        { key: "↑/↓", label: "Navigate" },
+        { key: "Enter", label: "Open" },
+        { key: "a", label: "Actions" },
+        { key: "x", label: "Trash" },
+        { key: "Esc", label: "Back" }
+      ]
+    }
+    var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
+    if (root.settingsTab === "shortcuts") {
+      return [
+        { key: "↑/↓", label: "Navigate" },
+        { key: "r", label: recordLabel },
+        { key: "1-3", label: "Tabs" },
+        { key: "Esc", label: "Hide" }
+      ]
+    }
+    var actionKey = "Space"
+    var actionLabel = "Toggle"
+    if (root.focusSection === "settings") {
+      var activeRow = root.settingsRows()[root.settingsIndex]
+      if (activeRow) {
+        if (activeRow.kind === "page") {
+          actionKey = "Enter"
+          actionLabel = "Open"
+        } else if (!root.isSwitch(activeRow.key) && activeRow.kind !== "info") {
+          actionKey = "←/→"
+          actionLabel = "Step"
+        }
+      }
+    } else if (root.focusSection === "primary") {
+      actionKey = "Enter"
+      actionLabel = "Activate"
+    }
+    return [
+      { key: "↑/↓", label: "Navigate" },
+      { key: actionKey, label: actionLabel },
+      { key: "r", label: recordLabel },
+      { key: "1-3", label: "Tabs" },
+      { key: "Esc", label: "Hide" }
+    ]
   }
 
   function activateSettings() {
@@ -1994,7 +2076,7 @@ Panel {
       // A new window placement makes the last scene point meaningless.
       root.lastPointerScene = Qt.point(-100000, -100000)
       root.page = "home"
-      root.focusSection = "primary"
+      root.focusSection = "settings"
       root.selectedIndex = 0
       root.cursorActive = true
       root.settingsIndex = 0
@@ -2288,7 +2370,7 @@ Panel {
     open: root.panelUp
     focusTarget: keyCatcher
     contentWidth: keyboardPanel.fittedContentWidth(Style.space(440))
-    contentHeight: Style.space(410)
+    contentHeight: Style.space(436)
 
     // A file drag needs the pointer to leave the panel and reach the window
     // underneath. With the normal full-screen mask the overlay would swallow
@@ -2337,23 +2419,25 @@ Panel {
         PanelHero {
           Layout.fillWidth: true
           iconComponent: Component {
-            // The old recording pill, now always present on the left: it reads
-            // 0:00 at rest and the live elapsed time while a take is running.
-            // It is allowed to grow past the resting 60 slot: the save count
-            // and an hour-long clock are wider than "Ready", and a fixed slot
-            // spilled their last digit outside the capsule. The label keeps
-            // the same eight-point inset at every width.
             Item {
-              width: Math.max(Style.space(60),
+              id: statusPillRoot
+              width: Math.max(Style.space(64),
                 statusRow.implicitWidth + Style.space(16))
               height: Style.space(22)
 
+              readonly property bool recordingLive: (root.status === "recording" || root.capturing) && !root.paused
+              readonly property bool idleReady: !root.active && !root.capturing && !root.finalizing && root.savingJobs.length === 0
+
               Rectangle {
                 anchors.fill: parent
-                radius: height / 2
-                color: root.restFill
+                radius: root.badgeRadius(height)
+                color: statusPillRoot.recordingLive ? Util.alpha(root.urgent, 0.16)
+                  : statusPillRoot.idleReady ? Util.alpha(root.accent, 0.13)
+                  : root.restFill
                 border.width: 1
-                border.color: root.hairline
+                border.color: statusPillRoot.recordingLive ? Util.alpha(root.urgent, 0.40)
+                  : statusPillRoot.idleReady ? Util.alpha(root.accent, 0.30)
+                  : root.hairline
 
                 Row {
                   id: statusRow
@@ -2364,9 +2448,9 @@ Panel {
                     width: Style.space(6)
                     height: width
                     radius: width / 2
-                    color: root.active
-                      ? root.paused ? root.secondary : root.accent
-                      : root.dim
+                    color: statusPillRoot.recordingLive ? root.urgent
+                      : root.paused || root.finalizing || root.savingJobs.length > 0 ? root.secondary
+                      : root.accent
                     anchors.verticalCenter: parent.verticalCenter
 
                     SequentialAnimation on opacity {
@@ -2385,9 +2469,8 @@ Panel {
                       : root.savingJobs.length > 0
                         ? "Saving " + root.savingJobs.length
                         : "Ready"
-                    color: root.active
-                      ? root.paused ? root.secondary : root.foreground
-                      : root.secondary
+                    color: root.paused || root.finalizing || root.savingJobs.length > 0
+                      ? root.secondary : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -2404,9 +2487,8 @@ Panel {
             Row {
               spacing: Style.space(4)
 
-              // The version is the update control. It stays a text slot, not a
-              // badge: a hairline underline answers the pointer, and accent is
-              // reserved for a waiting update or a failed check.
+              // The version is the update control: muted at rest so the status
+              // badge leads the header, with only the update arrow accented.
               Item {
                 id: updateCue
                 anchors.verticalCenter: parent.verticalCenter
@@ -2428,13 +2510,14 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                     textFormat: Text.PlainText
                     text: root.updateCueLabel()
-                    color: root.updateAvailable ? root.foreground
-                      : updateCue.failed ? root.urgent
+                    color: updateCue.failed ? root.urgent
+                      : updateCue.hot ? root.foreground
                       : root.updateChecking ? root.dim
-                      : updateCue.hot ? root.foreground : root.secondary
+                      : root.updateAvailable ? Util.alpha(root.foreground, 0.58)
+                      : Util.alpha(root.foreground, 0.45)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
-                    font.bold: root.updateAvailable
+                    font.bold: root.updateAvailable && updateCue.hot
                     Behavior on color {
                       ColorAnimation { duration: 120 }
                     }
@@ -2452,10 +2535,6 @@ Panel {
                   }
                 }
 
-                // A quiet link: the underline appears on hover or the keyboard
-                // cursor, and stays only for a failed check, where "Retry" is
-                // the action. A waiting update is carried by the bold version
-                // and the accent arrow, not by a line.
                 Rectangle {
                   visible: !root.updateChecking
                   anchors.horizontalCenter: updateCueRow.horizontalCenter
@@ -2539,11 +2618,14 @@ Panel {
         // ---------- primary actions ----------
 
         Row {
+          id: primaryActionRow
           Layout.fillWidth: true
           spacing: Style.space(8)
+          readonly property real buttonWidth: Math.floor((width - spacing * 2) / 3)
 
           ActionButton {
-            width: (parent.width - parent.spacing * 2) / 3
+            id: recordActionBtn
+            width: primaryActionRow.buttonWidth
             rowIndex: 0
             label: root.primaryLabel()
             glyph: root.primaryGlyph()
@@ -2553,7 +2635,8 @@ Panel {
           }
 
           ActionButton {
-            width: (parent.width - parent.spacing * 2) / 3
+            id: pauseActionBtn
+            width: primaryActionRow.buttonWidth
             rowIndex: 1
             label: root.canPause ? (root.paused ? "Resume" : "Pause") : "No pause"
             glyph: root.paused ? "󰐊" : "󰏤"
@@ -2563,7 +2646,8 @@ Panel {
           }
 
           ActionButton {
-            width: (parent.width - parent.spacing * 2) / 3
+            width: Math.max(0, primaryActionRow.width - primaryActionRow.spacing * 2
+              - recordActionBtn.width - pauseActionBtn.width)
             rowIndex: 2
             label: root.discardArmed ? "Discard?" : "Discard"
             glyph: "󰆴"
@@ -2573,105 +2657,115 @@ Panel {
           }
         }
 
-        // The strip is the panel's navigation: three settings tabs and History.
-        // It stays fixed on both pages so History is reachable from the panel
-        // itself, not only from a shortcut.
+        // The strip is the panel's navigation: three numbered config tabs on
+        // the left, separated by a vertical hairline from History on the right.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
-          Layout.topMargin: Style.space(8)
-          Layout.bottomMargin: Style.space(2)
+          Layout.topMargin: Style.space(4)
+          Layout.bottomMargin: 0
 
           Row {
             id: settingsTabRow
             anchors.fill: parent
             spacing: 0
+            readonly property real configClusterWidth: Math.round(width * 0.72)
 
             Repeater {
               model: root.navDestinations
 
-              delegate: Item {
-                id: settingsTabItem
+              delegate: Row {
                 required property var modelData
-                // The three settings tabs share the strip; History takes a wider
-                // slot so its longer label and hint keep their air, and the
-                // extra width itself separates it from the settings run.
-                readonly property real historyShare: 0.24
-                width: modelData.separated === true
-                  ? settingsTabRow.width * historyShare
-                  : settingsTabRow.width * (1 - historyShare) / (root.navDestinations.length - 1)
+                spacing: 0
                 height: settingsTabRow.height
 
-                readonly property bool active: root.isNavActive(modelData.id)
-                readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
+                Rectangle {
+                  visible: modelData.separated === true
+                  width: 1
+                  height: Style.space(14)
+                  anchors.verticalCenter: parent.verticalCenter
+                  color: root.hairline
+                }
 
-                Row {
-                  anchors.centerIn: parent
-                  spacing: Style.space(6)
+                Item {
+                  id: settingsTabItem
+                  width: modelData.separated === true
+                    ? Math.max(0, settingsTabRow.width - settingsTabRow.configClusterWidth - 1)
+                    : Math.round(settingsTabRow.configClusterWidth / (root.navDestinations.length - 1))
+                  height: settingsTabRow.height
 
-                  Text {
-                    textFormat: Text.PlainText
-                    text: settingsTabItem.modelData.label
-                    color: settingsTabItem.active ? root.accent
-                      : settingsTabItem.hot ? root.foreground
-                      : Util.alpha(root.foreground, 0.85)
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.letterSpacing: 0.2
-                    font.bold: settingsTabItem.active
-                    anchors.verticalCenter: parent.verticalCenter
-                    Behavior on color {
-                      ColorAnimation { duration: 150 }
+                  readonly property bool active: root.isNavActive(modelData.id)
+                  readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
+
+                  Row {
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: modelData.separated === true ? Style.space(4) : 0
+                    spacing: Style.space(5)
+
+                    Text {
+                      textFormat: Text.PlainText
+                      text: modelData.label
+                      color: settingsTabItem.active ? root.foreground
+                        : settingsTabItem.hot ? root.foreground
+                        : Util.alpha(root.foreground, 0.58)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      font.letterSpacing: 0.2
+                      font.bold: settingsTabItem.active
+                      anchors.verticalCenter: parent.verticalCenter
+                      Behavior on color {
+                        ColorAnimation { duration: 150 }
+                      }
+                    }
+
+                    KeyHintChip {
+                      label: modelData.key
+                      modifier: modelData.modifier || ""
+                      horizontalPadding: modelData.separated === true
+                        ? Style.space(12) : Style.space(9)
+                      active: settingsTabItem.active
+                      anchors.verticalCenter: parent.verticalCenter
                     }
                   }
 
-                  KeyHintChip {
-                    label: settingsTabItem.modelData.key
-                    modifier: settingsTabItem.modelData.modifier || ""
-                    horizontalPadding: settingsTabItem.modelData.separated === true
-                      ? Style.space(15) : Style.space(10)
-                    active: settingsTabItem.active
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-
-                Rectangle {
-                  anchors.bottom: parent.bottom
-                  anchors.bottomMargin: 1
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  width: Math.max(0, parent.width - Style.space(16))
-                  height: 1
-                  color: Util.alpha(root.foreground, 0.35)
-                  opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
-                  Behavior on opacity {
-                    NumberAnimation { duration: 120 }
-                  }
-                }
-
-                Rectangle {
-                  anchors.bottom: parent.bottom
-                  anchors.bottomMargin: 1
-                  anchors.horizontalCenter: parent.horizontalCenter
-                  z: 1
-                  width: settingsTabItem.active
-                    ? Math.max(0, parent.width - Style.space(16)) : 0
-                  height: Math.max(1, Style.space(2))
-                  color: root.accent
-                  Behavior on width {
-                    NumberAnimation {
-                      duration: 150
-                      easing.type: Easing.OutCubic
+                  Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 1
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.max(0, parent.width - Style.space(14))
+                    height: 1
+                    color: Util.alpha(root.foreground, 0.35)
+                    opacity: settingsTabItem.hot && !settingsTabItem.active ? 1 : 0
+                    Behavior on opacity {
+                      NumberAnimation { duration: 120 }
                     }
                   }
-                }
 
-                MouseArea {
-                  id: settingsTabMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onPositionChanged: function(mouse) { root.notePointerMotion(settingsTabMouse, mouse) }
-                  onClicked: root.selectNav(settingsTabItem.modelData.id)
+                  Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 1
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    z: 1
+                    width: settingsTabItem.active
+                      ? Math.max(0, parent.width - Style.space(14)) : 0
+                    height: Math.max(1, Style.space(2))
+                    color: root.accent
+                    Behavior on width {
+                      NumberAnimation {
+                        duration: 150
+                        easing.type: Easing.OutCubic
+                      }
+                    }
+                  }
+
+                  MouseArea {
+                    id: settingsTabMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onPositionChanged: function(mouse) { root.notePointerMotion(settingsTabMouse, mouse) }
+                    onClicked: root.selectNav(modelData.id)
+                  }
                 }
               }
             }
@@ -2716,116 +2810,192 @@ Panel {
                 spacing: Style.space(12)
 
                 Repeater {
-                  model: root.settingsTab === "shortcuts" ? [] : root.settingsRows()
+                  model: root.settingsTab === "shortcuts" ? [] : Model.groupBySection(root.settingsRows())
 
                   Column {
+                    id: sectionGroup
                     required property var modelData
-                    required property int index
                     width: parent.width
-                    spacing: Style.space(4)
+                    spacing: Style.space(5)
 
-                    PanelSectionHeader {
-                      visible: modelData.section !== undefined
-                        && String(modelData.section) !== ""
-                      text: modelData.section === undefined ? "" : String(modelData.section)
-                      foreground: root.foreground
-                      fontFamily: root.fontFamily
+                    SectionMicroHeader {
+                      visible: sectionGroup.modelData.section !== ""
+                      text: sectionGroup.modelData.section
                     }
 
-                    SettingRow {
+                    Rectangle {
                       width: parent.width
-                      settingKey: modelData.key
-                      label: modelData.label
-                      glyph: modelData.glyph
-                      kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
-                      infoValue: modelData.value === undefined ? "" : String(modelData.value)
-                      rowIndex: index
+                      implicitHeight: sectionCardCol.implicitHeight
+                      radius: root.panelRadius
+                      color: root.cardFill
+                      border.width: 1
+                      border.color: root.cardBorder
+                      clip: true
+
+                      Column {
+                        id: sectionCardCol
+                        width: parent.width
+                        spacing: 0
+
+                        Repeater {
+                          model: sectionGroup.modelData.rows
+
+                          Column {
+                            required property var modelData
+                            required property int index
+                            width: parent.width
+                            spacing: 0
+
+                            Rectangle {
+                              visible: index > 0
+                              width: parent.width
+                              height: 1
+                              color: root.rowDivider
+                            }
+
+                            SettingRow {
+                              width: parent.width
+                              settingKey: modelData.key
+                              label: modelData.label
+                              glyph: modelData.glyph
+                              kind: modelData.kind === undefined ? "cycle" : String(modelData.kind)
+                              infoValue: modelData.value === undefined ? "" : String(modelData.value)
+                              rowIndex: modelData.flatIndex
+                              dependent: modelData.dependent === true
+                              subtitle: root.settingSubtitle(modelData.key)
+                              dimmed: root.settingDimmed(modelData.key)
+                            }
+                          }
+                        }
+
+                        Column {
+                          visible: root.settingsTab === "recording"
+                            && sectionGroup.modelData.section === "Saving"
+                          width: parent.width
+                          spacing: 0
+
+                          Rectangle {
+                            width: parent.width
+                            height: 1
+                            color: root.rowDivider
+                          }
+
+                          Column {
+                            width: parent.width
+                            padding: Style.space(8)
+                            spacing: Style.space(6)
+
+                            Text {
+                              textFormat: Text.PlainText
+                              text: "Filename prefix"
+                              color: Util.alpha(root.foreground, 0.85)
+                              font.family: root.fontFamily
+                              font.pixelSize: Style.font.bodySmall
+                            }
+
+                            Rectangle {
+                              width: parent.width - Style.space(16)
+                              implicitHeight: Style.space(28)
+                              radius: root.panelRadius
+                              color: root.restFill
+                              border.width: 1
+                              border.color: prefixInput.activeFocus ? root.accent : root.hairline
+                              Behavior on border.color {
+                                ColorAnimation { duration: 120 }
+                              }
+
+                              GuardedInput {
+                                id: prefixInput
+                                pasteLimit: root.pasteLimit
+                                anchors.fill: parent
+                                anchors.leftMargin: Style.space(8)
+                                anchors.rightMargin: Style.space(8)
+                                verticalAlignment: TextInput.AlignVCenter
+                                text: root.currentValue("filenamePrefix")
+                                color: root.foreground
+                                selectionColor: root.accent
+                                selectedTextColor: root.inkOn(root.accent)
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.font.body
+                                clip: true
+                                onActiveFocusChanged: {
+                                  root.typingPrefix = activeFocus
+                                  if (!activeFocus) root.cancelPaste("prefix")
+                                }
+                                onTextEdited: root.clearPasteError("prefix")
+                                onEditingFinished: root.writeSetting("filenamePrefix", text)
+                                onBoundedPaste: root.startPaste("prefix", prefixInput, root.pasteLimit)
+                              }
+                            }
+
+                            Text {
+                              textFormat: Text.PlainText
+                              text: root.pasteErrorKind === "prefix" ? root.pasteError
+                                : root.currentValue("filenamePrefix") === ""
+                                  ? "Empty uses reel-<date>. Recordings: " + Model.shortPath(root.outputDir, root.home)
+                                  : "Named " + root.currentValue("filenamePrefix") + "<date>. Recordings: " + Model.shortPath(root.outputDir, root.home)
+                              color: root.pasteErrorKind === "prefix" ? root.urgent : Util.alpha(root.foreground, 0.50)
+                              font.family: root.fontFamily
+                              font.pixelSize: Style.font.caption
+                              wrapMode: Text.WordWrap
+                              width: parent.width - Style.space(16)
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }
 
-                Repeater {
-                  model: root.settingsTab === "shortcuts" ? root.shortcutRows : []
+                Column {
+                  visible: root.settingsTab === "shortcuts"
+                  width: parent.width
+                  spacing: Style.space(5)
 
-                  ShortcutRow {
-                    required property var modelData
-                    required property int index
+                  SectionMicroHeader {
+                    text: "Shortcuts"
+                  }
+
+                  Rectangle {
                     width: parent.width
-                    row: modelData
-                    rowIndex: index
-                  }
-                }
-
-              Column {
-                visible: root.settingsTab === "recording"
-                width: parent.width
-                spacing: Style.space(4)
-
-                PanelSectionHeader {
-                  text: "Filename prefix"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                }
-
-                Rectangle {
-                  width: parent.width
-                  implicitHeight: Style.space(30)
-                  radius: Style.cornerRadius
-                  color: root.restFill
-                  border.width: 1
-                  border.color: prefixInput.activeFocus ? root.accent : root.hairline
-                  Behavior on border.color {
-                    ColorAnimation { duration: 120 }
-                  }
-
-                  GuardedInput {
-                    id: prefixInput
-                    pasteLimit: root.pasteLimit
-                    anchors.fill: parent
-                    anchors.leftMargin: Style.space(9)
-                    anchors.rightMargin: Style.space(9)
-                    verticalAlignment: TextInput.AlignVCenter
-                    text: root.currentValue("filenamePrefix")
-                    color: root.foreground
-                    selectionColor: root.accent
-                    selectedTextColor: root.inkOn(root.accent)
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
+                    implicitHeight: shortcutsCol.implicitHeight
+                    radius: root.panelRadius
+                    color: root.cardFill
+                    border.width: 1
+                    border.color: root.cardBorder
                     clip: true
-                    onActiveFocusChanged: {
-                      root.typingPrefix = activeFocus
-                      if (!activeFocus) root.cancelPaste("prefix")
+
+                    Column {
+                      id: shortcutsCol
+                      width: parent.width
+                      spacing: 0
+
+                      Repeater {
+                        model: root.settingsTab === "shortcuts" ? root.shortcutRows : []
+
+                        Column {
+                          required property var modelData
+                          required property int index
+                          width: parent.width
+                          spacing: 0
+
+                          Rectangle {
+                            visible: index > 0
+                            width: parent.width
+                            height: 1
+                            color: root.rowDivider
+                          }
+
+                          ShortcutRow {
+                            width: parent.width
+                            row: modelData
+                            rowIndex: index
+                          }
+                        }
+                      }
                     }
-                    onTextEdited: root.clearPasteError("prefix")
-                    onEditingFinished: root.writeSetting("filenamePrefix", text)
-                    onBoundedPaste: root.startPaste("prefix", prefixInput, root.pasteLimit)
                   }
                 }
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: root.pasteErrorKind === "prefix" ? root.pasteError
-                    : root.currentValue("filenamePrefix") === ""
-                      ? "Empty uses reel-<date>. The date is added to every take."
-                      : "Takes are named " + root.currentValue("filenamePrefix") + "<date>."
-                  color: root.pasteErrorKind === "prefix" ? root.urgent : root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.WordWrap
-                  width: parent.width
-                }
-              }
-
-              Text {
-                visible: root.settingsTab === "recording"
-                textFormat: Text.PlainText
-                text: "Recordings: " + Model.shortPath(root.outputDir, root.home)
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                elide: Text.ElideMiddle
-                width: parent.width
-              }
               }
             }
 
@@ -2834,17 +3004,15 @@ Panel {
             Column {
               width: parent.width
               visible: root.page === "devices"
-              spacing: Style.space(4)
+              spacing: Style.space(10)
 
               Item {
                 width: parent.width
                 implicitHeight: Math.max(devicesHeader.implicitHeight, devicesHint.implicitHeight)
 
-                PanelSectionHeader {
+                SectionMicroHeader {
                   id: devicesHeader
                   text: "Input devices"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
                 }
@@ -2853,7 +3021,7 @@ Panel {
                   id: devicesHint
                   textFormat: Text.PlainText
                   text: "esc back"
-                  color: root.dim
+                  color: Util.alpha(root.foreground, 0.50)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   anchors.right: parent.right
@@ -2862,26 +3030,57 @@ Panel {
               }
 
               Repeater {
-                model: root.page === "devices" ? root.deviceRows() : []
+                model: root.page === "devices" ? Model.groupBySection(root.deviceRows()) : []
 
-                delegate: Column {
+                Column {
+                  id: deviceSectionGroup
                   required property var modelData
-                  required property int index
                   width: parent.width
-                  spacing: Style.space(4)
+                  spacing: Style.space(5)
 
-                  PanelSectionHeader {
-                    visible: modelData.section !== undefined
-                      && String(modelData.section) !== ""
-                    text: modelData.section === undefined ? "" : String(modelData.section)
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
+                  SectionMicroHeader {
+                    visible: deviceSectionGroup.modelData.section !== ""
+                    text: deviceSectionGroup.modelData.section
                   }
 
-                  DeviceRow {
+                  Rectangle {
                     width: parent.width
-                    row: modelData
-                    rowIndex: index
+                    implicitHeight: deviceCardCol.implicitHeight
+                    radius: root.panelRadius
+                    color: root.cardFill
+                    border.width: 1
+                    border.color: root.cardBorder
+                    clip: true
+
+                    Column {
+                      id: deviceCardCol
+                      width: parent.width
+                      spacing: 0
+
+                      Repeater {
+                        model: deviceSectionGroup.modelData.rows
+
+                        Column {
+                          required property var modelData
+                          required property int index
+                          width: parent.width
+                          spacing: 0
+
+                          Rectangle {
+                            visible: index > 0
+                            width: parent.width
+                            height: 1
+                            color: root.rowDivider
+                          }
+
+                          DeviceRow {
+                            width: parent.width
+                            row: modelData
+                            rowIndex: modelData.flatIndex
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -2899,7 +3098,7 @@ Panel {
                 width: parent.width
                 implicitHeight: Math.max(takesHeader.implicitHeight, takesHint.implicitHeight)
 
-                PanelSectionHeader {
+                SectionMicroHeader {
                   id: takesHeader
                   text: root.savingTake && root.visibleRecents.length === 0
                     ? root.savingCount === 1
@@ -2910,8 +3109,6 @@ Panel {
                       : root.visibleRecents.length === 1
                         ? "1 take"
                         : root.visibleRecents.length + " takes"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
                 }
@@ -2924,7 +3121,7 @@ Panel {
                     : root.visibleRecents.length > 0
                       ? "enter opens · t cuts · a actions · x trashes"
                       : "takes appear here after the first recording"
-                  color: root.secondary
+                  color: Util.alpha(root.foreground, 0.50)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.caption
                   anchors.right: parent.right
@@ -2957,6 +3154,66 @@ Panel {
                   width: parent.width
                   row: modelData
                   rowIndex: index + 1
+                }
+              }
+            }
+          }
+        }
+
+        // ---------- bottom keyhint footer ----------
+
+        Item {
+          id: footerStrip
+          Layout.fillWidth: true
+          Layout.preferredHeight: Style.space(24)
+
+          Rectangle {
+            anchors.top: parent.top
+            width: parent.width
+            height: 1
+            color: root.hairline
+          }
+
+          Row {
+            anchors.centerIn: parent
+            anchors.verticalCenterOffset: Style.space(2)
+            spacing: Style.space(10)
+
+            Repeater {
+              model: root.footerHints()
+
+              Row {
+                required property var modelData
+                spacing: Style.space(4)
+
+                Rectangle {
+                  width: footerKeyText.implicitWidth + Style.space(8)
+                  height: Style.space(16)
+                  radius: root.chipRadius(Style.space(3))
+                  color: Util.alpha(root.foreground, 0.06)
+                  border.width: 1
+                  border.color: Util.alpha(root.foreground, 0.14)
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  Text {
+                    id: footerKeyText
+                    anchors.centerIn: parent
+                    textFormat: Text.PlainText
+                    text: modelData.key
+                    color: Util.alpha(root.foreground, 0.78)
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: modelData.label
+                  color: Util.alpha(root.foreground, 0.50)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
                 }
               }
             }
@@ -3521,6 +3778,19 @@ Panel {
     }
   }
 
+  component SectionMicroHeader: Text {
+    textFormat: Text.PlainText
+    text: ""
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    font.bold: true
+    font.letterSpacing: 1.0
+    font.capitalization: Font.AllUppercase
+    color: Util.alpha(root.foreground, 0.48)
+    leftPadding: Style.space(2)
+    topPadding: Math.ceil(font.pixelSize * 0.15)
+  }
+
   component ActionButton: CursorSurface {
     id: action
     property int rowIndex: 0
@@ -3543,18 +3813,18 @@ Panel {
     accent: root.accent
     fill: Style.hoverFillFor(root.foreground, root.accent)
     currentFill: root.selectedFill
-    color: !enabled ? "transparent"
+    color: !enabled ? root.cardFill
       : primary ? (actionMouse.pressed ? Qt.darker(action.toneColor, 0.92) : action.toneColor)
       : actionMouse.pressed ? root.selectedFill
       : hasCursor ? action.fill
       : root.restFill
     borderSpec: !enabled
-      ? Border.controlSpec("normal", root.dim, root.accent)
+      ? Border.flat(Util.alpha(root.foreground, 0.06), 1)
       : primary ? Border.flat(keyboardCursor ? Qt.lighter(action.toneColor, 1.25) : "transparent",
           keyboardCursor ? 1 : 0)
-      : Border.flat(hasCursor ? root.accent : root.hairline, 1)
+      : Border.flat(hasCursor ? root.accent : Util.alpha(root.foreground, 0.10), 1)
     implicitHeight: Style.space(38)
-    opacity: enabled ? 1.0 : 0.35
+    opacity: enabled ? 1.0 : 0.38
     scale: actionMouse.pressed ? 0.985 : 1.0
     Behavior on scale {
       NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
@@ -3563,7 +3833,7 @@ Panel {
     Rectangle {
       visible: action.primary && action.enabled
       anchors.fill: parent
-      radius: parent.radius
+      radius: root.panelRadius
       gradient: Gradient {
         GradientStop {
           position: 0
@@ -3584,16 +3854,16 @@ Panel {
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.topMargin: 1
-      anchors.leftMargin: 1
-      anchors.rightMargin: 1
+      anchors.leftMargin: Math.max(1, Math.round(root.panelRadius * 0.5))
+      anchors.rightMargin: Math.max(1, Math.round(root.panelRadius * 0.5))
       height: 1
-      color: Util.alpha(root.foreground, 0.16)
-      opacity: 0.6
+      color: Util.alpha(root.foreground, 0.22)
+      opacity: 0.75
     }
 
     Rectangle {
       anchors.fill: parent
-      radius: parent.radius
+      radius: root.panelRadius
       color: !action.primary || !action.enabled ? "transparent"
         : actionMouse.pressed ? Util.alpha(root.foreground, 0.18)
         : action.pointerHovered ? Util.alpha(root.foreground, 0.12)
@@ -3607,37 +3877,29 @@ Panel {
       anchors.left: parent.left
       anchors.leftMargin: Style.space(10)
       anchors.right: hintSlot.left
-      anchors.rightMargin: Style.space(8)
+      anchors.rightMargin: Style.space(6)
       anchors.verticalCenter: parent.verticalCenter
-      spacing: Style.space(10)
+      spacing: Style.space(7)
 
-      Rectangle {
-        width: Style.space(24)
-        height: width
+      Text {
+        id: actionGlyphText
+        textFormat: Text.PlainText
+        text: action.glyph
+        color: action.primary ? action.toneInk : root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
         anchors.verticalCenter: parent.verticalCenter
-        color: action.primary ? "transparent" : root.restFill
-        border.width: action.primary ? 0 : 1
-        border.color: root.hairline
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: action.glyph
-          color: action.primary ? action.toneInk : root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-        }
       }
 
       Text {
-        width: Math.max(0, parent.width - Style.space(24) - parent.spacing)
+        width: Math.max(0, parent.width - actionGlyphText.implicitWidth - parent.spacing)
         textFormat: Text.PlainText
         text: action.label
         color: action.primary ? action.toneInk : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
-        font.letterSpacing: 0.3
-        font.bold: true
+        font.letterSpacing: 0.2
+        font.bold: action.primary
         elide: Text.ElideRight
         anchors.verticalCenter: parent.verticalCenter
       }
@@ -3645,10 +3907,11 @@ Panel {
 
     KeyHintChip {
       id: hintSlot
-      visible: action.hint !== "" && action.enabled
+      visible: action.hint !== ""
       anchors.right: parent.right
       anchors.rightMargin: Style.space(8)
       anchors.verticalCenter: parent.verticalCenter
+      horizontalPadding: Style.space(8)
       label: action.hint
       onAccent: action.primary
       ink: action.toneInk
@@ -3768,8 +4031,10 @@ Panel {
     property string title: ""
 
     implicitHeight: Style.space(56)
-    radius: Style.cornerRadius
-    color: "transparent"
+    radius: root.panelRadius
+    color: root.cardFill
+    border.width: 1
+    border.color: root.cardBorder
     clip: true
 
     // One shared phase drives the three dots, so they pulse in sequence
@@ -3793,6 +4058,7 @@ Panel {
       Rectangle {
         width: Style.space(84)
         height: Style.space(48)
+        radius: root.chipRadius(Style.space(4))
         anchors.verticalCenter: parent.verticalCenter
         color: Util.alpha(root.foreground, 0.04)
         border.width: 1
@@ -3930,9 +4196,11 @@ Panel {
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(take)
     foreground: root.foreground
     accent: root.accent
-    fill: Style.hoverFillFor(root.foreground, root.accent)
+    fill: root.cursorFill
+    color: hasCursor ? root.cursorFill : root.cardFill
+    borderSpec: Border.flat(hasCursor ? root.accent : root.cardBorder, 1)
     implicitHeight: removing ? 0 : Style.space(56)
-    radius: Style.cornerRadius
+    radius: root.panelRadius
     clip: true
     opacity: removing ? 0 : 1
     Behavior on opacity {
@@ -3944,14 +4212,16 @@ Panel {
 
     Row {
       anchors.fill: parent
-      anchors.leftMargin: Style.space(6)
-      anchors.rightMargin: Style.space(6)
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(8)
       spacing: Style.space(9)
 
-      Item {
+      Rectangle {
         width: Style.space(84)
         height: Style.space(48)
+        radius: root.chipRadius(Style.space(4))
         anchors.verticalCenter: parent.verticalCenter
+        color: Util.alpha(root.foreground, 0.08)
         clip: true
 
         // Plain Image keeps the panel working on Omarchy 4.0.x, where
@@ -3974,20 +4244,14 @@ Panel {
           }
         }
 
-        Rectangle {
-          anchors.fill: parent
+        Text {
           visible: take.preview === "" || previewImage.status !== Image.Ready
-          color: Util.alpha(root.foreground, 0.08)
-          border.width: 0
-
-          Text {
-            anchors.centerIn: parent
-            textFormat: Text.PlainText
-            text: "󰕧"
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.title
-          }
+          anchors.centerIn: parent
+          textFormat: Text.PlainText
+          text: "󰕧"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.title
         }
       }
 
@@ -4020,7 +4284,7 @@ Panel {
 
       Row {
         id: actions
-        spacing: Style.space(2)
+        spacing: Style.space(4)
         anchors.verticalCenter: parent.verticalCenter
 
         PanelActionButton {
@@ -4038,12 +4302,10 @@ Panel {
 
     Rectangle {
       visible: take.hasCursor
-      width: Math.max(1, Style.space(2))
-      height: Math.max(0, parent.height - Style.space(12))
+      width: Math.max(2, Style.space(3))
+      height: parent.height
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(2)
       anchors.verticalCenter: parent.verticalCenter
-      radius: width / 2
       color: root.accent
     }
 
@@ -4105,32 +4367,29 @@ Panel {
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(folder)
     foreground: root.foreground
     accent: root.accent
-    fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(30)
-    radius: Style.cornerRadius
+    fill: root.cursorFill
+    color: hasCursor ? root.cursorFill : root.cardFill
+    borderSpec: Border.flat(hasCursor ? root.accent : root.cardBorder, 1)
+    implicitHeight: Style.space(34)
+    radius: root.panelRadius
+    clip: true
 
     Row {
-      anchors.fill: parent
-      anchors.leftMargin: Style.space(6)
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(10)
+      anchors.right: folderHint.visible ? folderHint.left : parent.right
       anchors.rightMargin: Style.space(8)
-      spacing: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(10)
 
-      Rectangle {
-        width: Style.space(24)
-        height: width
+      Text {
+        id: folderGlyph
+        textFormat: Text.PlainText
+        text: "󰉋"
+        color: folder.hasCursor ? root.foreground : Util.alpha(root.foreground, 0.72)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
         anchors.verticalCenter: parent.verticalCenter
-        color: root.restFill
-        border.width: 1
-        border.color: root.hairline
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: "󰉋"
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
       }
 
       Text {
@@ -4141,18 +4400,27 @@ Panel {
         font.pixelSize: Style.font.body
         anchors.verticalCenter: parent.verticalCenter
         elide: Text.ElideRight
-        width: parent.width - Style.space(24)
+        width: Math.max(0, parent.width - folderGlyph.implicitWidth - parent.spacing)
       }
+    }
+
+    KeyHintChip {
+      id: folderHint
+      visible: folder.hasCursor
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalPadding: Style.space(8)
+      label: "Enter"
+      active: true
     }
 
     Rectangle {
       visible: folder.hasCursor
-      width: Math.max(1, Style.space(2))
-      height: Math.max(0, parent.height - Style.space(10))
+      width: Math.max(2, Style.space(3))
+      height: parent.height
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(2)
       anchors.verticalCenter: parent.verticalCenter
-      radius: width / 2
       color: root.accent
     }
 
@@ -4199,7 +4467,7 @@ Panel {
       anchors.leftMargin: Style.space(1)
       anchors.rightMargin: -Style.space(1)
       anchors.bottomMargin: -Style.space(2)
-      radius: chip.radius + Style.space(1)
+      radius: chip.radius > 0 ? chip.radius + Style.space(1) : 0
       color: Util.alpha("#000000", 0.22)
     }
 
@@ -4216,7 +4484,7 @@ Panel {
       id: chip
       width: Math.max(keyHint.minimumWidth, contentRow.implicitWidth + keyHint.horizontalPadding)
       height: Style.space(18)
-      radius: Style.space(4)
+      radius: root.chipRadius(Style.space(4))
       // Opaque base: the keycap shadow sits underneath, and a translucent
       // fill would let it darken the whole pill in light themes.
       color: keyHint.onAccent ? Util.alpha(keyHint.ink, 0.12) : Commons.Color.background
@@ -4277,14 +4545,15 @@ Panel {
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(shortcut)
     foreground: root.foreground
     accent: root.accent
-    fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(30)
+    fill: root.cursorFill
+    borderSpec: Border.none()
+    implicitHeight: Style.space(32)
     radius: 0
 
     Row {
       anchors.fill: parent
-      anchors.leftMargin: Style.space(6)
-      anchors.rightMargin: Style.space(8)
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
       spacing: Style.space(10)
 
       KeyHintChip {
@@ -4309,10 +4578,9 @@ Panel {
 
     Rectangle {
       visible: shortcut.hasCursor
-      width: Math.max(1, Style.space(2))
-      height: Math.max(0, parent.height - Style.space(10))
+      width: Math.max(2, Style.space(3))
+      height: parent.height
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(2)
       anchors.verticalCenter: parent.verticalCenter
       color: root.accent
     }
@@ -4348,39 +4616,36 @@ Panel {
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(device)
     foreground: root.foreground
     accent: root.accent
-    fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(30)
-    radius: Style.cornerRadius
+    fill: root.cursorFill
+    borderSpec: Border.none()
+    implicitHeight: Style.space(34)
+    radius: 0
 
     Row {
-      anchors.fill: parent
-      anchors.leftMargin: Style.space(6)
+      anchors.left: parent.left
+      anchors.leftMargin: Style.space(12)
+      anchors.right: deviceTrailing.left
       anchors.rightMargin: Style.space(8)
-      spacing: Style.space(8)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(10)
 
-      Rectangle {
-        width: Style.space(24)
-        height: width
+      Text {
+        id: deviceGlyph
+        textFormat: Text.PlainText
+        text: device.row === null ? "" : String(device.row.glyph || "")
+        color: device.chosen ? root.accent
+          : device.hasCursor ? root.foreground
+          : Util.alpha(root.foreground, 0.68)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
         anchors.verticalCenter: parent.verticalCenter
-        color: root.restFill
-        border.width: 1
-        border.color: root.hairline
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: device.row === null ? "" : String(device.row.glyph || "")
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
       }
 
       Text {
         id: deviceLabel
         textFormat: Text.PlainText
         text: device.row === null ? "" : String(device.row.label || "")
-        color: device.hasCursor ? root.foreground : root.secondary
+        color: device.hasCursor || device.chosen ? root.foreground : root.secondary
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         font.bold: device.chosen
@@ -4388,8 +4653,23 @@ Panel {
         // A middle ellipsis keeps the distinguishing tail of long ALSA and
         // camera names visible. The full name stays available in a tooltip.
         elide: Text.ElideMiddle
-        width: Math.max(0, parent.width - Style.space(24)
-          - deviceCheck.width - parent.spacing * 2)
+        width: Math.max(0, parent.width - deviceGlyph.implicitWidth - parent.spacing)
+      }
+    }
+
+    Row {
+      id: deviceTrailing
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(8)
+
+      KeyHintChip {
+        visible: device.hasCursor && !device.chosen
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalPadding: Style.space(8)
+        label: "Enter"
+        active: true
       }
 
       Text {
@@ -4403,6 +4683,15 @@ Panel {
         width: Style.space(16)
         horizontalAlignment: Text.AlignHCenter
       }
+    }
+
+    Rectangle {
+      visible: device.hasCursor
+      width: Math.max(2, Style.space(3))
+      height: parent.height
+      anchors.left: parent.left
+      anchors.verticalCenter: parent.verticalCenter
+      color: root.accent
     }
 
     MouseArea {
@@ -4434,12 +4723,11 @@ Panel {
     property int rowIndex: 0
     property string kind: "cycle"
     property string infoValue: ""
+    property bool dependent: false
+    property string subtitle: ""
+    property bool dimmed: false
 
-    // Audio and camera names can run far past the row width. Bound the value
-    // chip so the label keeps readable space and the chip never escapes the
-    // row; the value inside elides with a trailing ellipsis instead.
-    readonly property int chipMaxWidth: Math.max(Style.space(96), width * 0.52)
-
+    readonly property int stepperMaxWidth: Math.max(Style.space(90), width * 0.42)
     readonly property bool pointerHovered: root.pointerActive && root.hoverSection === "settings" && root.hoverIndex === rowIndex
     readonly property bool selected: root.cursorActive
       && root.page === "home"
@@ -4447,51 +4735,99 @@ Panel {
       && root.settingsIndex === rowIndex
     readonly property bool switchRow: setting.kind !== "info" && root.isSwitch(setting.settingKey)
     readonly property bool switchOn: root.currentValue(setting.settingKey) === "on"
+    readonly property string inlineHint: setting.kind === "info" ? ""
+      : setting.switchRow ? "Space"
+      : setting.kind === "page" ? "Enter"
+      : "←/→"
 
     hasCursor: pointerHovered || (selected && !root.hoverPainted)
     onHasCursorChanged: if (hasCursor && root.keyboardScroll) root.ensureCursorVisible(setting)
     foreground: root.foreground
     accent: root.accent
-    fill: Style.hoverFillFor(root.foreground, root.accent)
-    implicitHeight: Style.space(30)
-    radius: Style.cornerRadius
+    fill: root.cursorFill
+    borderSpec: Border.none()
+    implicitHeight: setting.subtitle !== "" ? Style.space(42) : Style.space(34)
+    radius: 0
+
+    // Subtle tree connector for dependent sub-settings (e.g., Noise reduction under Microphone).
+    Rectangle {
+      visible: setting.dependent
+      x: Style.space(16)
+      y: 0
+      width: 1
+      height: Math.round(parent.height * 0.5) + 1
+      color: Util.alpha(root.foreground, 0.16)
+    }
+    Rectangle {
+      visible: setting.dependent
+      x: Style.space(16)
+      y: Math.round(parent.height * 0.5)
+      width: Style.space(7)
+      height: 1
+      color: Util.alpha(root.foreground, 0.16)
+    }
 
     Row {
-      anchors.fill: parent
-      anchors.leftMargin: Style.space(6)
+      anchors.left: parent.left
+      anchors.leftMargin: setting.dependent ? Style.space(26) : Style.space(12)
+      anchors.right: trailingControls.left
       anchors.rightMargin: Style.space(8)
-      spacing: Style.space(8)
-
-      Rectangle {
-        width: Style.space(24)
-        height: width
-        anchors.verticalCenter: parent.verticalCenter
-        color: root.restFill
-        border.width: 1
-        border.color: root.hairline
-
-        Text {
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: setting.glyph
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-        }
-      }
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(10)
+      opacity: setting.dimmed ? 0.44 : 1.0
 
       Text {
+        id: settingGlyph
         textFormat: Text.PlainText
-        text: setting.label
-        color: root.foreground
+        text: setting.glyph
+        color: setting.hasCursor ? root.foreground : Util.alpha(root.foreground, 0.72)
         font.family: root.fontFamily
-        font.pixelSize: Style.font.body
+        font.pixelSize: Style.font.icon
         anchors.verticalCenter: parent.verticalCenter
-        width: Math.max(0, parent.width - Style.space(24)
-          - (setting.switchRow ? Style.space(32)
-            : setting.kind === "info" ? valueText.width : valueChip.width)
-          - parent.spacing * 2)
-        elide: Text.ElideRight
+      }
+
+      Column {
+        width: Math.max(0, parent.width - settingGlyph.implicitWidth - parent.spacing)
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(1)
+
+        Text {
+          width: parent.width
+          textFormat: Text.PlainText
+          text: setting.label
+          color: setting.hasCursor ? root.foreground : Util.alpha(root.foreground, 0.90)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+        }
+
+        Text {
+          visible: setting.subtitle !== ""
+          width: parent.width
+          textFormat: Text.PlainText
+          text: setting.subtitle
+          color: Util.alpha(root.foreground, 0.48)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+        }
+      }
+    }
+
+    Row {
+      id: trailingControls
+      anchors.right: parent.right
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      spacing: Style.space(8)
+      opacity: setting.dimmed ? 0.50 : 1.0
+
+      KeyHintChip {
+        visible: setting.hasCursor && setting.inlineHint !== ""
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalPadding: Style.space(8)
+        label: setting.inlineHint
+        active: true
       }
 
       Text {
@@ -4510,77 +4846,141 @@ Panel {
         elide: Text.ElideMiddle
       }
 
-      Rectangle {
-        id: valueChip
-        visible: !setting.switchRow && setting.kind !== "info"
+      // Page navigation value (e.g. Input devices -> Manage ›)
+      Row {
+        visible: setting.kind === "page"
         anchors.verticalCenter: parent.verticalCenter
-        width: Math.min(valueRow.implicitWidth + Style.space(16), setting.chipMaxWidth)
-        height: Style.space(20)
-        radius: Style.space(4)
-        color: setting.hasCursor ? Util.alpha(root.foreground, 0.10) : root.restFill
-        border.width: 1
-        border.color: setting.hasCursor ? root.accent : root.hairline
+        spacing: Style.space(4)
 
-        Row {
-          id: valueRow
-          anchors.centerIn: parent
-          spacing: Style.space(6)
-
-          Text {
-            textFormat: Text.PlainText
-            text: root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
-            color: setting.hasCursor ? root.foreground : root.secondary
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-            anchors.verticalCenter: parent.verticalCenter
-            // Size from the text's own natural width rather than the chip's,
-            // so the row and the chip do not end up in a binding loop that
-            // collapses the value to nothing.
-            width: Math.min(implicitWidth, Math.max(0, setting.chipMaxWidth
-              - Style.space(16) - valueRow.spacing - valueChevron.implicitWidth))
-            elide: Text.ElideRight
-          }
-
-          Text {
-            id: valueChevron
-            textFormat: Text.PlainText
-            text: "›"
-            color: setting.hasCursor ? root.foreground : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            anchors.verticalCenter: parent.verticalCenter
-          }
+        Text {
+          textFormat: Text.PlainText
+          text: root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
+          color: setting.hasCursor ? root.foreground : root.secondary
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+          anchors.verticalCenter: parent.verticalCenter
         }
 
-        Behavior on color {
-          ColorAnimation { duration: 120 }
-        }
-        Behavior on border.color {
-          ColorAnimation { duration: 120 }
+        Text {
+          textFormat: Text.PlainText
+          text: "›"
+          color: setting.hasCursor ? root.foreground : root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          anchors.verticalCenter: parent.verticalCenter
         }
       }
 
+      // Inline stepper (< 60 fps >) for cycle options so keycaps remain the
+      // only bordered boxes while allowing direct one-click stepping.
+      Row {
+        id: stepperRow
+        visible: !setting.switchRow && setting.kind !== "info" && setting.kind !== "page"
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: Style.space(2)
+
+        Item {
+          width: Style.space(14)
+          height: Style.space(22)
+          anchors.verticalCenter: parent.verticalCenter
+
+          Text {
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: "‹"
+            color: prevStepMouse.containsMouse || setting.hasCursor ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          MouseArea {
+            id: prevStepMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.cursorActive = true
+              root.focusSection = "settings"
+              root.settingsIndex = setting.rowIndex
+              root.cycleOption(setting.settingKey, -1)
+            }
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          text: root.valueLabel(setting.settingKey, root.currentValue(setting.settingKey))
+          color: setting.hasCursor ? root.foreground : Util.alpha(root.foreground, 0.86)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          font.bold: true
+          anchors.verticalCenter: parent.verticalCenter
+          width: Math.min(implicitWidth, setting.stepperMaxWidth)
+          horizontalAlignment: Text.AlignHCenter
+          elide: Text.ElideRight
+        }
+
+        Item {
+          width: Style.space(14)
+          height: Style.space(22)
+          anchors.verticalCenter: parent.verticalCenter
+
+          Text {
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: "›"
+            color: nextStepMouse.containsMouse || setting.hasCursor ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          MouseArea {
+            id: nextStepMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.cursorActive = true
+              root.focusSection = "settings"
+              root.settingsIndex = setting.rowIndex
+              root.cycleOption(setting.settingKey, 1)
+            }
+          }
+        }
+      }
+
+      // Toggle switch: follows Omarchy's cornerRadius (sharp 0px when sharp,
+      // rounded pill when rounded).
       Rectangle {
         visible: setting.switchRow
         anchors.verticalCenter: parent.verticalCenter
         width: Style.space(32)
         height: Style.space(16)
-        radius: height / 2
-        color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.18)
+        radius: root.badgeRadius(height)
+        color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.16)
         border.width: 1
-        border.color: setting.switchOn ? "transparent" : root.hairline
+        border.color: setting.switchOn ? root.accent : Util.alpha(root.foreground, 0.20)
+        Behavior on color {
+          ColorAnimation { duration: Style.duration(120) }
+        }
+        Behavior on border.color {
+          ColorAnimation { duration: Style.duration(120) }
+        }
 
         Rectangle {
           width: parent.height - Style.space(4)
           height: width
-          radius: width / 2
+          radius: root.badgeRadius(width)
           y: (parent.height - height) / 2
           x: setting.switchOn ? parent.width - width - Style.space(2) : Style.space(2)
-          color: setting.switchOn ? root.inkOn(root.accent) : root.secondary
+          color: setting.switchOn ? root.inkOn(root.accent) : Util.alpha(root.foreground, 0.68)
 
           Behavior on x {
-            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: Style.duration(120); easing.type: Easing.OutCubic }
+          }
+          Behavior on color {
+            ColorAnimation { duration: Style.duration(120) }
           }
         }
       }
@@ -4588,17 +4988,16 @@ Panel {
 
     Rectangle {
       visible: setting.hasCursor
-      width: Math.max(1, Style.space(2))
-      height: Math.max(0, parent.height - Style.space(10))
+      width: Math.max(2, Style.space(3))
+      height: parent.height
       anchors.left: parent.left
-      anchors.leftMargin: Style.space(2)
       anchors.verticalCenter: parent.verticalCenter
-      radius: width / 2
       color: root.accent
     }
 
     MouseArea {
       anchors.fill: parent
+      z: -1
       hoverEnabled: true
       cursorShape: setting.kind === "info" ? Qt.ArrowCursor : Qt.PointingHandCursor
       acceptedButtons: Qt.LeftButton | Qt.RightButton
