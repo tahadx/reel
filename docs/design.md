@@ -39,8 +39,8 @@ without restarts or special-case overrides.
 2. **Accent is a signal.** Accent marks live state, the primary action, the
    active tab, or focus. It may appear in several roles at once, but never
    twice for the same role, and never as decoration.
-3. **Fixed frame, moving content.** The hero (status badge + update cue),
-   primary actions, navigation strip, and footer never scroll. Only the page body
+3. **Fixed frame, moving content.** The primary actions, navigation strip, and
+   footer (hints + compact update cue) never scroll. Only the page body
    scrolls.
 4. **Density is respect.** A recorder is a tool. Show more, scroll less, and
    use `Style.space()` for every gap.
@@ -97,7 +97,7 @@ vs rounded corners, and font/DPI scaling.
   widths (`border-width-*`), and `border-gradient` specs from `shell.toml`.
 - **Corner geometry (`Style.cornerRadius`):** Mirrors Hyprland's
   `decoration:rounding`. When `0` px (sharp mode), cards, buttons, inputs,
-  thumbnails, keycaps, switches, and hero pills render machined right angles;
+  thumbnails, keycaps, and switches render machined right angles;
   when `> 0`, components scale cleanly (`Style.cornerRadius`,
   `Model.scaledRadius`, and `Model.pillRadius`).
 - **Clearance & padding:** Outer desktop clearance reads `Style.gapsOut` (half
@@ -141,7 +141,7 @@ layout.
 | Muted      | `dim`        | `Commons.Color.muted`                        | Meta, hints, inactive labels                          |
 | Secondary  | `secondary`  | foreground at `0.72`                         | Readable body text at rest                            |
 | Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary action (Record/Stop/Cancel), active tab, cursor, bar dot |
-| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, live hero recording status |
+| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, update failure      |
 
 ### State aliases
 
@@ -155,7 +155,7 @@ These live on the panel root and are used instead of local expressions.
 | `hairline`     | foreground at `0.12` | Normal border and separator |
 | `strongBorder` | foreground at `0.24` | Emphasized border           |
 | `accentSoft`   | accent at `0.16`     | Accent-tinted confirmation  |
-| `urgentSoft`   | urgent at `0.16`     | Destructive confirmation    |
+| `urgentSoft`   | urgent at `0.16`     | Destructive, update failure |
 | `onAccent`     | `inkOn(accent)`      | Ink over accent fills       |
 | `onUrgent`     | `inkOn(urgent)`      | Ink over urgent fills       |
 
@@ -265,11 +265,12 @@ here.`
 
 - Content: **440 × 436** logical pixels (`fittedContentWidth(Style.space(440))`,
   `Style.space(436)`).
-- Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
-  settings tabs (30 high, `4` above, `0` below) + `1` px hairline. The strip is
-  navigation: four equal pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
+- Fixed header: primary actions (38 high) + `10` gap +
+  navigation strip (30 high, `4` above, `0` below) + `1` px hairline. The strip
+  holds four equal pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
 - Fixed footer: `1` px hairline + `8` px top/bottom margin around the `16` px
-  keyhint row below the scroll region, centered between hairline and card edge.
+  keyhint row and trailing `20 × 16` Update chip below the scroll region,
+  centered between hairline and card edge.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
@@ -287,8 +288,6 @@ ColumnLayout {
   anchors.fill: parent
   spacing: Style.space(10)
 
-  PanelHero { Layout.fillWidth: true /* status badge + update cue */ }
-
   Row { Layout.fillWidth: true /* Record / Pause / Discard */ }
 
   Item { Layout.fillWidth: true /* fixed navigation strip */ }
@@ -299,14 +298,14 @@ ColumnLayout {
     // settings, devices, history
   }
 
-  Item { Layout.fillWidth: true /* fixed keyhint footer strip */ }
+  Item { Layout.fillWidth: true /* fixed keyhint footer + compact update cue */ }
 }
 ```
 
-Do not put the hero, primary actions, tab strip, or footer strip inside the
+Do not put primary actions, the tab strip, or the footer strip inside the
 `ScrollView`. Do not give the `ScrollView` `anchors.fill: parent` inside the
-layout. Do not set `implicitHeight` on the key catcher. The header and footer
-are the fixed frame.
+layout. Do not set `implicitHeight` on the key catcher. The top actions, tabs,
+and footer are the fixed frame.
 
 ### Layout rules
 
@@ -320,9 +319,9 @@ are the fixed frame.
 - Separators are `1` px at `0.06` foreground inside section cards, and `0.12`
   foreground for the navigation and footer hairlines.
 - Media and thumbnails sit on a 2 px grid.
-- Reserve space for every dynamic value. The header clock has at least a
-  `64 × 22` slot; the bar width expands from `Style.bar.iconSlot` when
-  recording.
+- Reserve space for every dynamic value. The bar width expands from
+  `Style.bar.iconSlot` when recording to fit the elapsed clock without moving
+  the bar.
 
 ### Surfaces and corners
 
@@ -333,14 +332,14 @@ and rounded mode scales proportionally across every component:
 | :--------------------------------------------- | :------------------------------------------------ |
 | Section cards, buttons, inputs, takes, menu, toast | `Style.cornerRadius`                          |
 | Key hint chips, thumbnails                     | `Model.scaledRadius(Style.cornerRadius, 4)` (`0` when sharp) |
-| Footer keycaps                                 | `Model.scaledRadius(Style.cornerRadius, 3)` (`0` when sharp) |
-| Toggle, toggle thumb, status badge             | `Model.pillRadius(Style.cornerRadius, height)` (`0` when sharp, pill when ≥ 6) |
+| Footer keycaps, compact update chip            | `Model.scaledRadius(Style.cornerRadius, 3)` (`0` when sharp) |
+| Toggle, toggle thumb                           | `Model.pillRadius(Style.cornerRadius, height)` (`0` when sharp, pill when ≥ 6) |
 | Countdown                                      | circle (`width / 2`)                              |
 | Cursor accent edge                             | `0` (flush inside clipped card)                   |
 
 Rules:
 
-- Toggles, status badges, keycaps, section cards, and buttons all follow the
+- Toggles, keycaps, section cards, and buttons all follow the
   user's `Style.cornerRadius` choice (`0` px sharp vs rounded).
 - Bordered boxes are reserved strictly for keycaps; static row and action icons
   sit bare on their surfaces without borders.
@@ -420,42 +419,19 @@ Rules:
   width change is the state change, and the dot pulse is the only bar loop.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
-- Updates belong to the panel, not the bar: the header readout carries the
-  cue. The bar stays two drawings with one meaning.
+- Updates belong to the panel, not the bar: the compact footer cue carries
+  the signal. The bar stays two drawings with one meaning.
 - `Style.reduceMotion` disables the dot loop rather than shortening it: the dot
   holds full.
 - Hover uses one shared bar hover fill. No per-state hover color.
 - Click opens the panel. Right-click records or pauses. Middle-click opens the
   recordings folder. Tooltips spell this out.
 
-### 6.2 Hero (fixed)
+### 6.2 Top frame & primary actions
 
-The hero is the recording status badge and the update cue. It is not a place
-for identity text or quality metadata.
-
-- Height: `22`.
-- Leading control: **recording status badge** — at least `64 × 22`, radius
-  `Model.pillRadius(Style.cornerRadius, height)`, always visible.
-  - Idle: accent dot + `Ready` in foreground on soft accent fill (`0.13`) and
-    accent border (`0.30`).
-  - Recording: urgent dot (pulsing `0.35 ↔ 1.0`, `900` ms) + live clock,
-    foreground, on soft urgent fill (`0.16`) and urgent border (`0.40`).
-  - Paused: secondary dot + frozen clock, no pulse, `restFill` + `hairline`.
-  - Background save jobs show in History (`SavingRow`), never as `"Saving"` in
-    the top hero badge (which returns straight to `Ready`).
-- Trailing control:
-  1. **Update cue** — `22`-high badge matching the status pill radius
-     (`Model.pillRadius(Style.cornerRadius, height)`) at the trailing edge.
-     - Up to date: `󰑐 Update` quiet (`0.36` label, `0.34` icon) on a
-       transparent fill with a faint `0.06` border; hover or keyboard cursor
-       raises it to `foreground` with `accent` border and `hoverFill`.
-     - Update waiting: `↑ vX.Y.Z` (when bumped) or `↑ Update` (when commits
-       are ahead without a version bump) on neutral `cardFill` + `cardBorder`,
-       with only the `↑` accented so it stays calm beside the status pill.
-       Hover/cursor raises it to `foreground` with `accent` border.
-     - Checking: `Checking…` in `secondary` with an `accent` sweep along the
-       bottom edge.
-     - Failed check: `󰑐 Retry` in `urgent` on `urgentSoft`.
+There is no separate hero status bar above the primary actions, keeping the top
+edge dedicated to controls (`Record` / `Stop` / `Cancel`, `Pause` / `Resume`,
+`Discard` / `Discard?`) while freeing 32 px for the scroll viewport.
 
 ### 6.3 Primary actions (fixed)
 
@@ -640,7 +616,7 @@ earlier takes are written beside a new recording.
 ### 6.9 Empty state
 
 - Shown only on the history page with no visible takes.
-- Centered in the scroll viewport below the fixed hero.
+- Centered in the scroll viewport below the fixed actions and tabs.
 - Icon: `46` circle with `0.45` accent border and `10` accent dot.
 - Headline: `No takes yet`, `heading`, bold, foreground.
 - Body: `Record something and it will appear here.`, `bodySmall`, secondary,
@@ -708,15 +684,26 @@ It must never become a separate overlay plugin kind.
 - Countdown default is **Off**. Options are `0`, `3`, `5`, `10` seconds.
 - The UI must not imply that capture starts after the ring.
 
-### 6.13 Footer & tooltips
+### 6.13 Footer, compact update cue & tooltips
 
 - **Footer:** Height `16` keyhint row below the `1` px hairline (`8` px top gap
   from hairline, `8` px bottom margin to card edge). Context-aware hints hide
   row-action caps while `cursorActive` is `false` and add `o Folder` on
   History.
+- **Update cue:** Compact `20 × 16` chip (`Model.scaledRadius(Style.cornerRadius,
+  3)`) pinned to the right edge of the footer.
+  - Up to date / idle: dimmed `󰑐` (`0.34` foreground ink, `0.08` border,
+    transparent fill) — click or press `Shift+U` to check manually.
+  - Update waiting: `↑` in `accent` on `0.14` accent fill and `0.45` accent
+    border.
+  - Checking: `󰑐` in `secondary` with an animated `2` px `accent` bottom sweep.
+  - Failed check: `󰑐` in `urgent` on `urgentSoft` with `0.45` urgent border.
+  - Hover/cursor raises fill to `hoverFill` and border to `accent` (or `urgent`
+    on error).
 - **Tooltips:** Use `PanelToolTip` from `qs.Ui` (never build a custom tooltip).
-  Include the shortcut when one exists (e.g. `Shift+U`). Hover only, one line,
-  `caption`, sentence case.
+  Include the shortcut when one exists (e.g. `Update available: vX.Y.Z
+  (Shift+U)`, `Check for updates · v0.5.1`). Hover only, one line, `caption`,
+  sentence case.
 
 ---
 
@@ -727,7 +714,7 @@ It must never become a separate overlay plugin kind.
 The panel root owns all cursor state:
 
 - `cursorActive`
-- `focusSection`: `header`, `primary`, `settings`, `recents`
+- `focusSection`: `primary`, `settings`, `recents`, `footer`
 - `selectedIndex` / `settingsIndex`
 - `hoverSection` / `hoverIndex`
 
@@ -806,7 +793,8 @@ Rules:
   line**.
 - Auto-scroll runs on a `16` ms timer and accelerates from `3` to `7` px per
   tick. It stops at the content bounds.
-- The hero, actions, and navigation strip are not part of the scroll region.
+- The primary actions, navigation strip, and footer are not part of the scroll
+  region.
 - Opening the panel, entering history, and switching settings tabs reset the
   scroll to the top.
 
@@ -827,7 +815,6 @@ Rules:
 | Leading toast bar                       | `180` ms           | OutCubic           |
 | Countdown pulse                         | `190` ms           | OutCubic           |
 | Countdown ring                          | `240` ms           | OutCubic           |
-| Status pill pulse                       | `900` ms each way  | InOutQuad          |
 | Bar take dot pulse                      | `1000` ms each way | InOutQuad          |
 
 Rules:
@@ -839,7 +826,7 @@ Rules:
 - No spring, no generic bounce. The toast is the only overshoot, and it is
   capped at `1.06` scale / `1.12` y.
 - Wrap every duration in `Style.duration(ms)`.
-- The recording dot and status pill dot are the only looping animations.
+- The bar recording dot is the only looping animation.
 - Respect `Style.reduceMotion`. Infinite loops must be disabled, not shortened.
 - No animation on scroll.
 - No spinner. Progress is shown by a ring, a bar, or a state label.
@@ -886,7 +873,7 @@ signature moments above.
 
 - Nerd Font glyphs only in the panel. No emoji, no mixed icon sets.
 - The bar has two states, never icon-font glyphs: the resting screen mark, and
-  the bare dot + elapsed clock. The hero leads with the `Ready`/take status pill.
+  the bare dot + elapsed clock.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Every row and action gets its own glyph. Never reuse one glyph for two
   different meanings, even across tabs: a camera is not a camera device, a
@@ -922,7 +909,7 @@ signature moments above.
 ### Do
 
 - Use `Style.*`, `Commons.Color.*`, and `Util.alpha()`.
-- Use `CursorSurface`, `PanelActionButton`, `PanelHero`, `PanelSectionHeader`,
+- Use `CursorSurface`, `PanelActionButton`, `PanelSectionHeader`,
   `BorderSurface`, `KeyboardPanel`, and `PanelToolTip` from `qs.Ui`.
 - Keep one source of cursor state on the panel root.
 - Keep the fixed header structure from §5.

@@ -1019,17 +1019,13 @@ Panel {
     return text
   }
 
-  // The header readout is both the manual refresh and the update cue: the
-  // running version at rest, and the newer version plus an accent arrow when
-  // one is waiting.
+  // The compact footer cue is both the manual refresh and the update signal:
+  // its tooltip carries the running version at rest, and the newer version
+  // once one is waiting.
   function currentVersion() {
     var value = root.service && root.service.version ? String(root.service.version) : ""
     if (value === "") value = String(root.updateInfo.current || "")
     return value
-  }
-
-  function updateCueLabel() {
-    return Model.updateCueLabel(root.updateInfo, root.currentVersion(), root.updateChecking)
   }
 
   function updateVersionLabel() {
@@ -1547,12 +1543,12 @@ Panel {
   // ---------- cursor ------------------------------------------------------
 
   readonly property var sections: root.page === "history"
-    ? ["header", "primary", "recents"]
-    : ["header", "primary", "settings"]
+    ? ["primary", "recents", "footer"]
+    : ["primary", "settings", "footer"]
 
   function sectionCount(section) {
     switch (section) {
-    case "header": return 1
+    case "footer": return 1
     case "primary": return 3
     case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
@@ -1656,9 +1652,9 @@ Panel {
 
   function adjust(direction) {
     root.beginKeyboardScroll()
-    if (root.focusSection === "header") {
-      var headers = root.sectionCount("header")
-      root.selectedIndex = (root.selectedIndex + direction + headers) % headers
+    if (root.focusSection === "footer") {
+      var footers = root.sectionCount("footer")
+      root.selectedIndex = (root.selectedIndex + direction + footers) % footers
       return
     }
     if (root.focusSection === "primary") {
@@ -1672,7 +1668,7 @@ Panel {
     root.clearHover()
     if (!root.cursorActive) return
     switch (root.focusSection) {
-    case "header":
+    case "footer":
       root.handleUpdate()
       break
     case "primary":
@@ -1894,6 +1890,9 @@ Panel {
         if (dy < 0 && root.page !== "devices" && !onShortcuts) {
           root.focusSection = "primary"
           root.selectedIndex = 0
+        } else if (dy > 0 && root.page !== "devices") {
+          root.focusSection = "footer"
+          root.selectedIndex = 0
         }
         return
       }
@@ -1991,6 +1990,9 @@ Panel {
     } else if (root.focusSection === "primary") {
       actionKey = "Enter"
       actionLabel = "Activate"
+    } else if (root.focusSection === "footer") {
+      actionKey = "Enter"
+      actionLabel = root.updateAvailable ? "Update" : "Check"
     }
     return [
       { key: "↑/↓", label: "Move" },
@@ -2438,218 +2440,6 @@ Panel {
       ColumnLayout {
         anchors.fill: parent
         spacing: Style.space(10)
-
-        // ---------- hero ----------
-
-        PanelHero {
-          Layout.fillWidth: true
-          iconComponent: Component {
-            Item {
-              id: statusPillRoot
-              width: Math.max(Style.space(64),
-                statusRow.implicitWidth + Style.space(16))
-              height: Style.space(22)
-
-              readonly property bool recordingLive: (root.status === "recording" || root.capturing) && !root.paused
-              readonly property bool idleReady: !root.active && !root.capturing
-
-              Rectangle {
-                anchors.fill: parent
-                radius: root.badgeRadius(height)
-                color: statusPillRoot.recordingLive ? Util.alpha(root.urgent, 0.16)
-                  : statusPillRoot.idleReady ? Util.alpha(root.accent, 0.13)
-                  : root.restFill
-                border.width: 1
-                border.color: statusPillRoot.recordingLive ? Util.alpha(root.urgent, 0.40)
-                  : statusPillRoot.idleReady ? Util.alpha(root.accent, 0.30)
-                  : root.hairline
-
-                Row {
-                  id: statusRow
-                  anchors.centerIn: parent
-                  spacing: Style.space(5)
-
-                  Rectangle {
-                    width: Style.space(6)
-                    height: width
-                    radius: width / 2
-                    color: statusPillRoot.recordingLive ? root.urgent
-                      : root.paused ? root.secondary
-                      : root.accent
-                    anchors.verticalCenter: parent.verticalCenter
-
-                    SequentialAnimation on opacity {
-                      running: (root.status === "recording" || root.capturing)
-                        && !root.paused && !Style.reduceMotion
-                      loops: Animation.Infinite
-                      NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutQuad }
-                      NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutQuad }
-                    }
-                  }
-
-                  Text {
-                    textFormat: Text.PlainText
-                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "Ready"
-                    color: root.paused ? root.secondary : root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: true
-                    anchors.verticalCenter: parent.verticalCenter
-                  }
-                }
-              }
-            }
-          }
-          title: ""
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          trailingControl: Component {
-            Row {
-              spacing: Style.space(4)
-
-              // Quiet manual update trigger at rest ("󰑐 Update") and calm
-              // neutral badge ("↑ Update") when an update is waiting so it
-              // never competes with the status pill or primary CTA.
-              Item {
-                id: updateCue
-                anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(Style.space(64), updateCueRow.implicitWidth + Style.space(14))
-                height: Style.space(22)
-
-                readonly property bool hot: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 0)
-                  || (root.cursorActive && root.focusSection === "header" && root.selectedIndex === 0
-                    && !root.hoverPainted)
-                readonly property bool failed: !root.updateChecking && !root.updateAvailable
-                  && String(root.updateInfo.error || "") !== ""
-
-                Rectangle {
-                  id: updateBadge
-                  anchors.fill: parent
-                  radius: root.badgeRadius(height)
-                  clip: true
-                  color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.22) : root.urgentSoft)
-                    : updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent)
-                    : root.updateAvailable && !root.updateChecking ? root.cardFill
-                    : "transparent"
-                  border.width: 1
-                  border.color: updateCue.failed
-                    ? (updateCue.hot ? root.urgent : Util.alpha(root.urgent, 0.45))
-                    : updateCue.hot ? root.accent
-                    : root.updateAvailable && !root.updateChecking ? root.cardBorder
-                    : Util.alpha(root.foreground, 0.06)
-
-                  Behavior on color {
-                    ColorAnimation { duration: Style.duration(120) }
-                  }
-                  Behavior on border.color {
-                    ColorAnimation { duration: Style.duration(120) }
-                  }
-
-                  Row {
-                    id: updateCueRow
-                    anchors.centerIn: parent
-                    spacing: Style.space(5)
-
-                    Text {
-                      visible: !root.updateChecking
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: updateCue.failed ? "󰑐"
-                        : root.updateAvailable ? "↑"
-                        : "󰑐"
-                      color: updateCue.failed ? root.urgent
-                        : root.updateAvailable ? root.accent
-                        : (updateCue.hot ? root.foreground : Util.alpha(root.foreground, 0.34))
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: root.updateAvailable || updateCue.failed
-                      Behavior on color {
-                        ColorAnimation { duration: Style.duration(120) }
-                      }
-                    }
-
-                    Text {
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: root.updateCueLabel()
-                      color: updateCue.failed ? root.urgent
-                        : updateCue.hot ? root.foreground
-                        : root.updateChecking ? root.secondary
-                        : root.updateAvailable ? root.secondary
-                        : Util.alpha(root.foreground, 0.36)
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: updateCue.failed || (root.updateAvailable && updateCue.hot)
-                      Behavior on color {
-                        ColorAnimation { duration: Style.duration(120) }
-                      }
-                    }
-                  }
-
-                  Item {
-                    visible: root.updateChecking
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: Math.max(1, Style.space(2))
-                    clip: true
-
-                    Rectangle {
-                      anchors.fill: parent
-                      color: root.hairline
-                    }
-
-                    Rectangle {
-                      id: updateSweep
-                      width: Math.max(4, Math.round(parent.width * 0.34))
-                      height: parent.height
-                      color: root.accent
-
-                      SequentialAnimation on x {
-                        running: root.updateChecking && !Style.reduceMotion
-                        loops: Animation.Infinite
-                        NumberAnimation {
-                          from: 0
-                          to: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                          duration: 850
-                          easing.type: Easing.InOutQuad
-                        }
-                        NumberAnimation {
-                          from: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                          to: 0
-                          duration: 850
-                          easing.type: Easing.InOutQuad
-                        }
-                      }
-                    }
-                  }
-                }
-
-                MouseArea {
-                  id: updateCueMouse
-                  anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
-                  enabled: !root.updateChecking
-                  onContainsMouseChanged: root.setRowHover("header", 0, containsMouse)
-                  onPositionChanged: function(mouse) { root.pointerMoved("header", 0, updateCue, mouse) }
-                  onClicked: {
-                    root.cursorActive = true
-                    root.focusSection = "header"
-                    root.selectedIndex = 0
-                    root.handleUpdate()
-                  }
-                }
-
-                PanelToolTip {
-                  visible: updateCueMouse.containsMouse && root.pointerActive
-                  text: root.updateTooltip()
-                  fontFamily: root.fontFamily
-                }
-              }
-            }
-          }
-        }
 
         // ---------- primary actions ----------
 
@@ -3163,8 +2953,11 @@ Panel {
 
             Row {
               anchors.left: parent.left
+              anchors.right: updateCue.left
+              anchors.rightMargin: Style.space(8)
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(8)
+              clip: true
 
               Repeater {
                 model: root.footerHints()
@@ -3203,6 +2996,127 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                   }
                 }
+              }
+            }
+
+            // Compact manual update trigger on the right edge of the footer:
+            // dimmed when current, accented arrow when waiting, urgent on failure.
+            Item {
+              id: updateCue
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(20)
+              height: Style.space(16)
+
+              readonly property bool hot: (root.pointerActive && root.hoverSection === "footer" && root.hoverIndex === 0)
+                || (root.cursorActive && root.focusSection === "footer" && root.selectedIndex === 0
+                  && !root.hoverPainted)
+              readonly property bool failed: !root.updateChecking && !root.updateAvailable
+                && String(root.updateInfo.error || "") !== ""
+
+              Rectangle {
+                id: updateBadge
+                anchors.fill: parent
+                radius: root.chipRadius(Style.space(3))
+                clip: true
+                color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.22) : root.urgentSoft)
+                  : updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent)
+                  : root.updateAvailable && !root.updateChecking ? Util.alpha(root.accent, 0.14)
+                  : root.updateChecking ? root.cardFill
+                  : "transparent"
+                border.width: 1
+                border.color: updateCue.failed
+                  ? (updateCue.hot ? root.urgent : Util.alpha(root.urgent, 0.45))
+                  : updateCue.hot ? root.accent
+                  : root.updateAvailable && !root.updateChecking ? Util.alpha(root.accent, 0.45)
+                  : root.updateChecking ? root.hairline
+                  : Util.alpha(root.foreground, 0.08)
+
+                Behavior on color {
+                  ColorAnimation { duration: Style.duration(120) }
+                }
+                Behavior on border.color {
+                  ColorAnimation { duration: Style.duration(120) }
+                }
+
+                Text {
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: updateCue.failed ? "󰑐"
+                    : root.updateAvailable && !root.updateChecking ? "↑"
+                    : "󰑐"
+                  color: updateCue.failed ? root.urgent
+                    : updateCue.hot ? root.foreground
+                    : root.updateAvailable && !root.updateChecking ? root.accent
+                    : root.updateChecking ? root.secondary
+                    : Util.alpha(root.foreground, 0.34)
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  font.bold: root.updateAvailable || updateCue.failed
+                  Behavior on color {
+                    ColorAnimation { duration: Style.duration(120) }
+                  }
+                }
+
+                Item {
+                  visible: root.updateChecking
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.bottom: parent.bottom
+                  height: Math.max(1, Style.space(2))
+                  clip: true
+
+                  Rectangle {
+                    anchors.fill: parent
+                    color: root.hairline
+                  }
+
+                  Rectangle {
+                    id: updateSweep
+                    width: Math.max(4, Math.round(parent.width * 0.42))
+                    height: parent.height
+                    color: root.accent
+
+                    SequentialAnimation on x {
+                      running: root.updateChecking && !Style.reduceMotion
+                      loops: Animation.Infinite
+                      NumberAnimation {
+                        from: 0
+                        to: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                        duration: 850
+                        easing.type: Easing.InOutQuad
+                      }
+                      NumberAnimation {
+                        from: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                        to: 0
+                        duration: 850
+                        easing.type: Easing.InOutQuad
+                      }
+                    }
+                  }
+                }
+              }
+
+              MouseArea {
+                id: updateCueMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
+                enabled: !root.updateChecking
+                onContainsMouseChanged: root.setRowHover("footer", 0, containsMouse)
+                onPositionChanged: function(mouse) { root.pointerMoved("footer", 0, updateCue, mouse) }
+                onClicked: {
+                  root.cursorActive = true
+                  root.focusSection = "footer"
+                  root.selectedIndex = 0
+                  root.handleUpdate()
+                }
+              }
+
+              PanelToolTip {
+                visible: updateCueMouse.containsMouse && root.pointerActive
+                text: root.updateTooltip()
+                fontFamily: root.fontFamily
               }
             }
           }

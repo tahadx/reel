@@ -52,9 +52,9 @@ function pasteText(raw, maxChars) {
   return { ok: true, text: text, error: "" }
 }
 
-// The hero update slot doubles as a quiet manual check ("Update" dimmed at
-// rest) and an actionable cue: Checking…, Retry on error, or an available
-// update (vX.Y.Z when version bumped, or Update when commits are ahead).
+// State text for the compact update cue: Checking…, Retry on error, or an
+// available update (vX.Y.Z when version bumped, or Update when commits are
+// ahead). At rest it reads Update as the quiet manual check.
 function updateCueLabel(info, version, checking) {
   if (checking) return "Checking…"
   var update = object(info)

@@ -130,7 +130,7 @@ preview.png              marketplace preview (shows the panel only)
 ## Ground rules & hard constraints
 
 1. **Theme is the brand.** Use `Commons.Color.*`, `Style.*`, and `Util.alpha()`. Never add a private palette or hardcoded UI colors.
-2. **Fixed frame, moving content.** The hero, actions, and settings tabs never scroll; only the page body scrolls.
+2. **Fixed frame, moving content.** The primary actions, settings tabs, and footer never scroll; only the page body scrolls.
 3. **Panel, manifest, and engine stay in sync.** Every new setting requires a `manifest.json` schema entry, a `Panel.qml` row, and `crates/reel` support in the same change. Never render a UI row the engine cannot honor.
 4. **Pointer behavior is sacred.** `cursor` on keeps today's baked pointer and adds pointer telemetry; `cursor` off keeps today's no-pointer take. There is no capture mode. Cursor synthesis is a render choice (`cursorStyle=baked|synthetic`), and it strips the pointer only after telemetry starts.
 5. **Zero new heavy dependencies.** Keep the engine static and self-contained. Do not add `wgpu`, a new workspace crate, or external runtime dependencies without asking first.
