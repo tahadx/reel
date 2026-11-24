@@ -43,7 +43,7 @@ pub enum Command {
         #[arg(long, default_value_t = 8)]
         limit: usize,
     },
-    /// List audio capture devices available to gpu-screen-recorder.
+    /// List audio capture devices available to the active recorder.
     #[command(name = "audio-devices")]
     AudioDevices {
         #[arg(long)]

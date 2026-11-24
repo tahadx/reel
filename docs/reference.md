@@ -19,7 +19,7 @@ its own:
 | `reel toggle-pause` | Pause or resume |
 | `reel status [--json]` | Print the current state |
 | `reel recent [--json] [--limit N]` | List recent takes; the default limit is 8 |
-| `reel audio-devices [--json]` | List audio capture devices available to `gpu-screen-recorder` |
+| `reel audio-devices [--json]` | List audio capture devices available to the active recorder |
 | `reel trash <file>` | Move a take to the trash |
 | `reel thumbnails [--limit N]` | Generate missing thumbnails for recent takes |
 | `reel rename <file> <name>` | Rename a take, keeping its preview and sidecars |
@@ -120,6 +120,37 @@ reel start --target portal
 reel toggle-pause
 reel stop
 ```
+
+## Capture backends
+
+Reel records with `gpu-screen-recorder` when it is installed. If it is missing,
+or it exits before producing a frame — a GPU the recorder does not support, for
+example — Reel falls back to `wf-recorder` and encodes on the CPU, the same
+order Omarchy's own recorder uses. The take then goes through the same save
+pass as a GPU take.
+
+The CPU fallback has a narrower capture surface:
+
+- `--target portal` is GPU-only. Monitor and area takes work.
+- Audio is one stream. With desktop and microphone both on, Reel mixes them
+  through a temporary null sink so the take still carries both; the sink is
+  unloaded when the take stops.
+- `--resolution` is GPU-only. The fallback records at native size.
+- Pause, resume, and the recorder IPC socket are unavailable. The panel labels
+  the control **No pause** for that take, and `reel pause` says so.
+- **Record the pointer** still drives telemetry, and **Manual zoom** still
+  works because it runs in the compositor. `wf-recorder` always includes the
+  pointer in its capture, so a fallback take has the pointer baked in even when
+  **Record the pointer** is off.
+- Quality presets map to libx264, libx265, or libsvtav1 with a CRF; expect a
+  larger file than a hardware take at the same preset.
+
+On AMD Polaris GPUs, even a `gpu-screen-recorder` take is encoded on the CPU:
+that generation's VCE ring can hang mid-recording and take the compositor's
+VRAM with it, so Reel avoids starting hardware encoding there.
+
+`reel doctor` reports which recorder Reel will use. The take's log line starts
+with `capture: backend=...`.
 
 ## Settings
 
@@ -385,7 +416,8 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/last.json` | Metadata for the last completed take |
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log; kept across takes and rotated to `reel.log.1` at 4 MB |
 | `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
-| `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to the recorder |
+| `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to `gpu-screen-recorder` |
+| `$XDG_RUNTIME_DIR/reel/pa.modules` | Temporary PulseAudio modules for the CPU fallback's combined audio |
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
 | `$XDG_RUNTIME_DIR/reel/zoom-factor` | Live manual zoom factor mirrored for telemetry |
 | `$XDG_RUNTIME_DIR/reel/next-preview-*.jpg` | Still produced by `reel preview` |
@@ -527,13 +559,19 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
 - **`reel start` refuses to start** — it validates the output folder and audio
   devices before opening the picker. Check `reel output` and the error shown in
   the panel.
+- **A take is recording with the CPU fallback** — `gpu-screen-recorder` is
+  missing or could not capture this GPU, so Reel is using `wf-recorder`.
+  `reel doctor` and the take's `capture: backend=...` log line confirm it.
+  Pause/resume, portal targets, and resolution limits are unavailable on that
+  path; a GPU take uses them again.
 - **Takes fail on a headless output** — KMS capture only sees real DRM
   connectors, so a headless output has nothing to capture. Reel detects an
   output missing from `gpu-screen-recorder --list-capture-options` and records
   through the desktop portal instead: choose the output in the system dialog,
   and an area take becomes a full-output take. If the portal is unavailable,
   enable xdg-desktop-portal screen sharing or use a physical output. To skip the
-  picker entirely, run `reel start --target portal`.
+  picker entirely, run `reel start --target portal`. Portal capture needs
+  `gpu-screen-recorder`; the CPU fallback cannot use it.
 - **A save-pass effect has no pointer data** — pointer telemetry could not read
   `/dev/input`. Add your user to the `input` group and log in again. The reason
   is written to the log and the take stays usable.

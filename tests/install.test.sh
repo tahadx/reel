@@ -249,6 +249,41 @@ grep -q 'still not answering after the restart' "$TEST_ROOT/install-shell-stuck.
   || fail "installer did not explain the failed post-restart plugin check"
 rm -f -- "$TEST_ROOT/shell-down"
 
+# gpu-screen-recorder is the recommended path, but wf-recorder alone must
+# satisfy the dependency check: that is the CPU fallback Reel ships. Build a
+# PATH with the utilities the installer needs and no system recorder in it, so
+# the check sees exactly what this test provides.
+MINBIN="$TEST_ROOT/minbin"
+mkdir -p -- "$MINBIN"
+for tool in awk cat cp dirname grep head install ln mkdir rm sed readlink; do
+  ln -s -- "$(command -v "$tool")" "$MINBIN/$tool"
+done
+ln -s -- "$TEST_ROOT/bin/omarchy" "$MINBIN/omarchy"
+ln -s -- "$TEST_ROOT/bin/omarchy-shell" "$MINBIN/omarchy-shell"
+ln -s -- "$TEST_ROOT/bin/hyprctl" "$MINBIN/hyprctl"
+ln -s -- "$TEST_ROOT/bin/omarchy-notification-send" "$MINBIN/omarchy-notification-send"
+ln -s -- "$TEST_ROOT/bin/ffmpeg" "$MINBIN/ffmpeg"
+ln -s -- "$TEST_ROOT/bin/ffprobe" "$MINBIN/ffprobe"
+
+cat >"$MINBIN/wf-recorder" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 755 -- "$MINBIN/wf-recorder"
+PATH="$MINBIN:$HOME/.local/bin" "$REPO/install.sh" --yes >"$TEST_ROOT/install-wf-only.log"
+grep -q '== Reel: dependencies ==' "$TEST_ROOT/install-wf-only.log" \
+  || fail "installer did not reach the dependency check with wf-recorder only"
+
+rm -f -- "$MINBIN/wf-recorder"
+set +e
+PATH="$MINBIN:$HOME/.local/bin" "$REPO/install.sh" --yes \
+  >"$TEST_ROOT/install-no-recorder.log" 2>&1
+NO_RECORDER_CODE=$?
+set -e
+[[ "$NO_RECORDER_CODE" -ne 0 ]] || fail "installer succeeded with no recorder installed"
+grep -q 'missing: gpu-screen-recorder or wf-recorder' "$TEST_ROOT/install-no-recorder.log" \
+  || fail "installer did not name both recorder options when neither is installed"
+
 # The test must stay silent on the live desktop even if a probe fails.
 assert_no_file "$TEST_ROOT/notification.log"
 

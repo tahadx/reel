@@ -16,6 +16,7 @@ mod target;
 mod telemetry;
 mod util;
 mod webcam;
+mod wf_recorder;
 mod zoom;
 
 use clap::Parser;

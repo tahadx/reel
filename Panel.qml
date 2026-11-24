@@ -113,6 +113,10 @@ Panel {
   readonly property bool capturing: root.starting
     && (root.stage === "warmup" || root.stage === "capture")
   readonly property bool paused: root.status === "paused"
+  // The CPU fallback records one continuous stream, so pause and resume are
+  // unavailable for that take. Older state files have no flag and are GPU
+  // takes.
+  readonly property bool canPause: root.state.canPause !== false
   readonly property bool finalizing: root.status === "finalizing"
   // `reel start` supervises the encoder for the whole take when pointer
   // telemetry runs (the default), so a live start process is evidence of a
@@ -972,6 +976,7 @@ Panel {
     else if (root.capturing) text = "Reel · recording " + Model.clock(root.elapsed)
     else if (root.starting && root.stage !== "select") text = "Reel · starting the take"
     else if (root.starting) text = "Reel · waiting for a selection"
+    else if (root.active && !root.canPause) text = "Reel · recording " + Model.clock(root.elapsed) + " · CPU fallback, no pause"
     else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
     else if (root.savingJobs.length > 0) text = "Reel · saving " + root.savingJobs.length
       + (root.savingJobs.length === 1 ? " take" : " takes") + " · right-click to record"
@@ -1127,6 +1132,10 @@ Panel {
 
   function togglePause() {
     if (!root.controlsActive || root.starting) return
+    if (!root.canPause) {
+      root.setNotice("This take is using the CPU fallback, which cannot pause.", true)
+      return
+    }
     // A pause/resume already in flight is the current answer. Ignore a second
     // press instead of claiming a recording take is finishing a command.
     if (pauseProc.running) return
@@ -2545,10 +2554,10 @@ Panel {
           ActionButton {
             width: (parent.width - parent.spacing * 2) / 3
             rowIndex: 1
-            label: root.paused ? "Resume" : "Pause"
+            label: root.canPause ? (root.paused ? "Resume" : "Pause") : "No pause"
             glyph: root.paused ? "󰐊" : "󰏤"
             tone: "neutral"
-            enabled: root.controlsActive
+            enabled: root.controlsActive && root.canPause
             hint: "p"
           }
 

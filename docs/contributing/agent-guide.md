@@ -59,7 +59,7 @@ bar widget / panel    Panel.qml + qs.Ui Panel + qs.Commons
 bin/reel wrapper → bin/dist/reel-native   (Rust engine, crates/reel)
         │  Unix socket: $XDG_RUNTIME_DIR/reel/recorder.sock
         ▼
-gpu-screen-recorder / ffmpeg   (capture, then finalize save pass)
+gpu-screen-recorder / wf-recorder / ffmpeg   (capture, then finalize save pass)
         │
         └── config   ~/.config/omarchy/reel.json
             runtime  $XDG_RUNTIME_DIR/reel/{state.json,saves/,reel.log,recorder.sock}
@@ -68,8 +68,8 @@ gpu-screen-recorder / ffmpeg   (capture, then finalize save pass)
 
 **Keep dependencies near zero:** QML, plain JS, and the shipped Rust engine,
 using only what Omarchy already ships (Quickshell, Qt, bash,
-`gpu-screen-recorder`, `ffmpeg`). No new QML import, Node runtime, npm package,
-or native module without asking first.
+`gpu-screen-recorder` or its `wf-recorder` CPU fallback, `ffmpeg`). No new QML
+import, Node runtime, npm package, or native module without asking first.
 
 **Replacement bars:** the stock Omarchy bar gives a widget the live service. A
 replacement bar (Station, for example) gives it a service-less facade whose

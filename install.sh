@@ -47,9 +47,13 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 echo "== Reel: dependencies =="
 missing=()
-for tool in gpu-screen-recorder ffmpeg ffprobe; do
+for tool in ffmpeg ffprobe; do
   have "$tool" || missing+=("$tool")
 done
+# gpu-screen-recorder is the fast path; wf-recorder is Omarchy's CPU fallback.
+if ! have gpu-screen-recorder && ! have wf-recorder; then
+  missing+=("gpu-screen-recorder or wf-recorder")
+fi
 if ((${#missing[@]})); then
   echo "  missing: ${missing[*]}" >&2
   echo "  Install the missing packages with Omarchy's package installer: ${missing[*]}" >&2

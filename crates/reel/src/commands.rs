@@ -948,6 +948,7 @@ pub fn doctor(paths: &Paths) {
     println!("reel output: {}", config::output_dir(paths).display());
     for tool in [
         "gpu-screen-recorder",
+        "wf-recorder",
         "ffmpeg",
         "ffprobe",
         "hyprctl",
@@ -965,6 +966,16 @@ pub fn doctor(paths: &Paths) {
             println!("  ok      {tool}");
         } else {
             println!("  missing {tool}");
+        }
+    }
+    match (util::have("gpu-screen-recorder"), util::have("wf-recorder")) {
+        (true, true) => println!("  capture gpu-screen-recorder (wf-recorder CPU fallback ready)"),
+        (true, false) => println!("  capture gpu-screen-recorder only"),
+        (false, true) => {
+            println!("  capture wf-recorder CPU fallback (gpu-screen-recorder is missing)")
+        }
+        (false, false) => {
+            println!("  capture unavailable (install gpu-screen-recorder or wf-recorder)")
         }
     }
     if util::have("gpu-screen-recorder") {

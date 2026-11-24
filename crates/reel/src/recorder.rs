@@ -7,6 +7,7 @@ use crate::target;
 use crate::telemetry;
 use crate::util;
 use crate::webcam;
+use crate::wf_recorder;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::fs::{self, OpenOptions};
@@ -126,6 +127,48 @@ fn quality_qp_override(quality: &str, codec: &str) -> Option<i64> {
     // gpu-screen-recorder uses the same H.264-equivalent scale for H.264 and
     // HEVC, and a 4x scale for AV1.
     Some(if codec == "av1" { qp * 4 } else { qp })
+}
+
+/// AMD Polaris GPUs can hang their VCE 3.4 encode ring mid-recording and lose
+/// compositor VRAM when the ensuing GPU reset fails (#9555). The recorder's
+/// `-fallback-cpu-encoding` cannot recover from a GPU that has already hung, so
+/// avoid starting hardware encoding there at all. These are amdgpu's
+/// CHIP_POLARIS10, 11, 12 and CHIP_VEGAM ids, read from sysfs so probing does
+/// not wake a suspended dGPU.
+const POLARIS_IDS: &[&str] = &[
+    "0x67c0", "0x67c1", "0x67c2", "0x67c4", "0x67c7", "0x67c8", "0x67c9", "0x67ca", "0x67cc",
+    "0x67cf", "0x67d0", "0x67d4", "0x67df", "0x6fdf", "0x67e0", "0x67e1", "0x67e3", "0x67e7",
+    "0x67e8", "0x67e9", "0x67eb", "0x67ef", "0x67ff", "0x6980", "0x6981", "0x6985", "0x6986",
+    "0x6987", "0x698f", "0x6995", "0x6997", "0x699f", "0x694c", "0x694e", "0x694f",
+];
+
+fn polaris_present(root: &Path) -> bool {
+    let Ok(devices) = fs::read_dir(root) else {
+        return false;
+    };
+    for device in devices.flatten() {
+        let path = device.path();
+        let Ok(vendor) = fs::read_to_string(path.join("vendor")) else {
+            continue;
+        };
+        if vendor.trim() != "0x1002" {
+            continue;
+        }
+        let Ok(id) = fs::read_to_string(path.join("device")) else {
+            continue;
+        };
+        if POLARIS_IDS.contains(&id.trim()) {
+            return true;
+        }
+    }
+    false
+}
+
+fn needs_cpu_encoder() -> bool {
+    let root = std::env::var_os("REEL_PCI_DEVICES_PATH")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/sys/bus/pci/devices"));
+    polaris_present(&root)
 }
 
 /// The take's auto zoom: the panel's per-take argument first, then reel.json.
@@ -268,23 +311,55 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
     })
 }
 
-fn require_tools() -> Result<()> {
-    if !util::have("gpu-screen-recorder") {
-        util::notify(
-            "Reel",
-            Some("gpu-screen-recorder is missing. Install it with Omarchy's package installer"),
-            "critical",
-        );
-        anyhow::bail!(
-            "gpu-screen-recorder is missing. Install it with Omarchy's package installer"
-        );
+/// The capture engine for a take. `Gpu` is preferred exactly as before; `Wf`
+/// is Omarchy's CPU fallback, used when the GPU recorder is missing or dies
+/// before its first frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Backend {
+    Gpu,
+    Wf,
+}
+
+impl Backend {
+    fn id(self) -> &'static str {
+        match self {
+            Backend::Gpu => "gpu-screen-recorder",
+            Backend::Wf => "wf-recorder",
+        }
+    }
+
+    fn can_pause(self) -> bool {
+        matches!(self, Backend::Gpu)
+    }
+}
+
+/// Recorders in the order they are tried, mirroring Omarchy's own script.
+/// Neither installed resolves to an empty list so `require_tools` can report
+/// both names at once.
+fn recorder_backends() -> Vec<Backend> {
+    let mut backends = Vec::new();
+    if util::have("gpu-screen-recorder") {
+        backends.push(Backend::Gpu);
+    }
+    if wf_recorder::available() {
+        backends.push(Backend::Wf);
+    }
+    backends
+}
+
+fn require_tools() -> Result<Vec<Backend>> {
+    let backends = recorder_backends();
+    if backends.is_empty() {
+        let message = "No screen recorder is installed. Install gpu-screen-recorder with Omarchy's package installer, or wf-recorder for CPU capture.";
+        util::notify("Reel", Some(message), "critical");
+        anyhow::bail!(message);
     }
     for tool in ["ffmpeg", "ffprobe"] {
         if !util::have(tool) {
             anyhow::bail!("{tool} is missing.");
         }
     }
-    Ok(())
+    Ok(backends)
 }
 
 fn prepare_output_dir(dir: &str) -> Result<()> {
@@ -316,8 +391,31 @@ pub fn available_audio_raw() -> Option<String> {
     )
 }
 
+/// Audio ids in the shape the panel already parses. The GPU recorder's list is
+/// preferred because its ids are what a GPU take records; without it, the CPU
+/// fallback's PulseAudio sources are the same node names.
+fn audio_devices_raw() -> Option<String> {
+    if let Some(raw) = available_audio_raw() {
+        return Some(raw);
+    }
+    if !wf_recorder::available() {
+        return None;
+    }
+    let devices = wf_recorder::audio_devices();
+    if devices.is_empty() {
+        return None;
+    }
+    Some(
+        devices
+            .into_iter()
+            .map(|(id, label, _kind)| format!("{id}|{label}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
 pub fn list_audio_devices() -> Vec<AudioDevice> {
-    let Some(raw) = available_audio_raw() else {
+    let Some(raw) = audio_devices_raw() else {
         return Vec::new();
     };
     raw.lines()
@@ -366,7 +464,7 @@ fn validate_audio(settings: &Settings) -> Result<()> {
     if !settings.desktop && !settings.mic {
         return Ok(());
     }
-    let Some(devices) = available_audio_raw() else {
+    let Some(devices) = audio_devices_raw() else {
         return Ok(());
     };
     if settings.desktop {
@@ -843,6 +941,102 @@ fn sanitize_prefix(raw: &str) -> String {
     }
 }
 
+/// The GPU recorder's arguments. Kept separate so the fallback loop can build
+/// them only for a GPU attempt.
+fn gpu_capture_args(
+    settings: &Settings,
+    target: &str,
+    capture_file: &str,
+    socket: &Path,
+    write_first_frame: bool,
+    cpu_encoder: bool,
+) -> Result<Vec<String>> {
+    let mut capture: Vec<String> = vec![
+        "-w".into(),
+        String::new(),
+        "-f".into(),
+        settings.fps.to_string(),
+        "-fm".into(),
+        "cfr".into(),
+        "-k".into(),
+        settings.codec.clone(),
+        "-q".into(),
+        quality_preset(&settings.quality).into(),
+        "-bm".into(),
+        "qp".into(),
+        "-cursor".into(),
+        if settings.cursor {
+            "yes".into()
+        } else {
+            "no".into()
+        },
+        "-fallback-cpu-encoding".into(),
+        "yes".into(),
+    ];
+    if write_first_frame {
+        capture.extend(["-write-first-frame-ts".into(), "yes".into()]);
+    }
+    if cpu_encoder {
+        capture.extend(["-encoder".into(), "cpu".into()]);
+    }
+    capture.extend([
+        "-ipc".into(),
+        socket.display().to_string(),
+        "-o".into(),
+        capture_file.to_string(),
+    ]);
+
+    match target {
+        _ if target.starts_with("monitor:") => {
+            capture[1] = target["monitor:".len()..].to_string();
+        }
+        _ if target.starts_with("region:") => {
+            // Geometry goes straight into -w. gpu-screen-recorder 6.1.4
+            // segfaults on the -w region + -region pair.
+            capture[1] = target["region:".len()..].to_string();
+        }
+        "portal" => {
+            capture[1] = "portal".into();
+        }
+        _ => {
+            anyhow::bail!("The picker returned an unsupported target: {target}");
+        }
+    }
+    if settings.resolution != "0x0" {
+        capture.extend(["-s".into(), settings.resolution.clone()]);
+    }
+
+    let mut devices = String::new();
+    if settings.desktop {
+        devices.push_str(settings.effective_desktop_device());
+    }
+    if let Some(qp) = quality_qp_override(&settings.quality, &settings.codec) {
+        capture.extend(["-ffmpeg-video-opts".into(), format!("qp={qp}")]);
+    }
+    if settings.mic {
+        if !devices.is_empty() {
+            devices.push('|');
+        }
+        devices.push_str(settings.effective_microphone_device());
+    }
+    if !devices.is_empty() {
+        capture.extend(["-a".into(), devices, "-ac".into(), "aac".into()]);
+    }
+    Ok(capture)
+}
+
+/// A recorder that really produced a frame, plus the clocks its telemetry
+/// listener needs.
+struct Launched {
+    child: std::process::Child,
+    backend: Backend,
+    pid: u32,
+    t0: Instant,
+    t0_ns: u64,
+    first_frame_us: Option<u64>,
+    estimate: Option<f64>,
+}
+
 /// Count down, start the webcam, launch the encoder, and move to `recording`
 /// only after the encoder really captured its first frame.
 fn run_take(
@@ -850,9 +1044,15 @@ fn run_take(
     settings: &Settings,
     choice: &target::Choice,
     warmup: &mut Option<AudioWarmup>,
-    first_frame_marker: bool,
+    backends: &[Backend],
+    gpu_first_frame_marker: bool,
 ) -> Result<bool> {
     let target = &choice.target;
+    if target == "portal" && !backends.contains(&Backend::Gpu) {
+        let message = "Portal capture needs gpu-screen-recorder. The CPU fallback can record a monitor or an area instead.";
+        fail_start(paths, message);
+        return Err(anyhow::anyhow!(message));
+    }
     if let Err(err) = target::validate_target(target) {
         fail_start(paths, &err);
         return Err(anyhow::anyhow!(err));
@@ -914,7 +1114,7 @@ fn run_take(
     // gpu-screen-recorder writes `<output>.ts` when the first frame is
     // encoded. It is the only honest signal that capture has begun: the
     // container appears earlier, before any pixels exist.
-    let first_frame = first_frame_marker.then(|| format!("{capture_file}.ts"));
+    let first_frame = gpu_first_frame_marker.then(|| format!("{capture_file}.ts"));
     let capture_fps = settings.fps;
 
     // Keep the previous take's log instead of truncating it; a failed save is
@@ -975,106 +1175,14 @@ fn run_take(
         );
     }
 
-    let mut capture: Vec<String> = vec![
-        "-w".into(),
-        String::new(),
-        "-f".into(),
-        capture_fps.to_string(),
-        "-fm".into(),
-        "cfr".into(),
-        "-k".into(),
-        settings.codec.clone(),
-        "-q".into(),
-        quality_preset(&settings.quality).into(),
-        "-bm".into(),
-        "qp".into(),
-        "-cursor".into(),
-        if settings.cursor {
-            "yes".into()
-        } else {
-            "no".into()
-        },
-        "-fallback-cpu-encoding".into(),
-        "yes".into(),
-    ];
-    if first_frame.is_some() {
-        capture.extend(["-write-first-frame-ts".into(), "yes".into()]);
-    }
-    capture.extend([
-        "-ipc".into(),
-        paths.socket.display().to_string(),
-        "-o".into(),
-        capture_file.clone(),
-    ]);
-
-    match target.as_str() {
-        _ if target.starts_with("monitor:") => {
-            capture[1] = target["monitor:".len()..].to_string();
-        }
-        _ if target.starts_with("region:") => {
-            // Geometry goes straight into -w. gpu-screen-recorder 6.1.4
-            // segfaults on the -w region + -region pair.
-            capture[1] = target["region:".len()..].to_string();
-        }
-        "portal" => {
-            capture[1] = "portal".into();
-        }
-        _ => {
-            anyhow::bail!("The picker returned an unsupported target: {target}");
-        }
-    }
-    if settings.resolution != "0x0" {
-        capture.extend(["-s".into(), settings.resolution.clone()]);
-    }
-
-    let mut devices = String::new();
-    if settings.desktop {
-        devices.push_str(settings.effective_desktop_device());
-    }
-    if let Some(qp) = quality_qp_override(&settings.quality, &settings.codec) {
-        capture.extend(["-ffmpeg-video-opts".into(), format!("qp={qp}")]);
-    }
-
-    if settings.mic {
-        if !devices.is_empty() {
-            devices.push('|');
-        }
-        devices.push_str(settings.effective_microphone_device());
-    }
-    if !devices.is_empty() {
-        capture.extend(["-a".into(), devices, "-ac".into(), "aac".into()]);
-    }
-
-    util::debug(&format!(
-        "capture: launching gpu-screen-recorder for {capture_file}"
-    ));
     paths::remove_quiet(&paths.socket);
     paths::remove_quiet(&paths.pid_file);
-    paths::log(
-        paths,
-        &format!(
-            "capture: target={} fps={} cursor={} telemetry={} autoZoom={} output={}",
-            target,
-            capture_fps,
-            if settings.cursor { "on" } else { "off" },
-            if telemetry_ready { "on" } else { "off" },
-            if settings.auto_zoom { "on" } else { "off" },
-            capture_file
-        ),
-    );
-
-    let hardware_cursor = if !settings.cursor && target != "portal" {
-        HardwareCursor::force(paths)
-    } else {
-        None
-    };
 
     let log = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&paths.log)
         .context("cannot open the Reel log")?;
-    let err = log.try_clone()?;
     // Wait for the audio monitor to resume before the encoder opens it, so a
     // suspended sink cannot delay the first frame. A picker interaction
     // usually covers this wait completely.
@@ -1082,35 +1190,278 @@ fn run_take(
         warmup.ready();
     }
 
-    // T0 is the moment the encoder launches. Both T0 and every event use
-    // CLOCK_MONOTONIC through `Instant`.
-    let (t0, t0_ns) = telemetry::clock_start();
-    let child = Command::new("gpu-screen-recorder")
-        .args(&capture)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::from(err))
-        .spawn();
-    let mut child = match child {
-        Ok(child) => child,
-        Err(err) => {
-            if let Some(cursor) = hardware_cursor {
+    // Try the GPU recorder first, then the CPU fallback, exactly as Omarchy's
+    // own recorder does. A recorder that dies or captures no frame releases
+    // the take to the next one; only when every backend fails does the start
+    // fail.
+    let mut hardware_cursor: Option<HardwareCursor> = None;
+    let mut last_error: Option<String> = None;
+    let mut launched: Option<Launched> = None;
+    let cpu_encoder = backends.contains(&Backend::Gpu) && needs_cpu_encoder();
+    if cpu_encoder {
+        paths::log(
+            paths,
+            "capture: AMD Polaris detected; encoding on the CPU to avoid a VCE hang",
+        );
+    }
+
+    for backend in backends {
+        if *backend == Backend::Wf && target == "portal" {
+            continue;
+        }
+
+        paths::remove_quiet(Path::new(&capture_file));
+        paths::remove_quiet(Path::new(&format!("{capture_file}.ts")));
+
+        let (args, marker) = match backend {
+            Backend::Gpu => {
+                if !settings.cursor && target != "portal" {
+                    hardware_cursor = HardwareCursor::force(paths);
+                }
+                (
+                    gpu_capture_args(
+                        settings,
+                        target,
+                        &capture_file,
+                        &paths.socket,
+                        first_frame.is_some(),
+                        cpu_encoder,
+                    )?,
+                    first_frame.as_deref(),
+                )
+            }
+            Backend::Wf => {
+                let desktop = settings
+                    .desktop
+                    .then(|| settings.effective_desktop_device());
+                let microphone = settings.mic.then(|| settings.effective_microphone_device());
+                let audio = wf_recorder::audio(paths, desktop, microphone);
+                for side in &audio.missing {
+                    util::notify(
+                        "Reel",
+                        Some(&format!(
+                            "Recording without {side} audio. The CPU fallback could not find that source."
+                        )),
+                        "normal",
+                    );
+                }
+                if !settings.cursor {
+                    // wf-recorder asks the compositor for the overlay cursor
+                    // unconditionally, so this take cannot honor cursor=off.
+                    paths::log(
+                        paths,
+                        "capture: wf-recorder always includes the pointer; cursor=off cannot be honored",
+                    );
+                    util::notify(
+                        "Reel",
+                        Some("The CPU fallback always includes the pointer in this take."),
+                        "normal",
+                    );
+                }
+                let args = match wf_recorder::capture_args(&wf_recorder::Capture {
+                    target,
+                    fps: capture_fps,
+                    codec: &settings.codec,
+                    quality: &settings.quality,
+                    file: &capture_file,
+                    audio: audio.device.as_deref(),
+                }) {
+                    Ok(args) => args,
+                    Err(err) => {
+                        wf_recorder::cleanup_audio(paths);
+                        last_error = Some(err);
+                        continue;
+                    }
+                };
+                (args, None)
+            }
+        };
+
+        let executable = match backend {
+            Backend::Gpu => "gpu-screen-recorder",
+            Backend::Wf => wf_recorder::BINARY,
+        };
+        util::debug(&format!(
+            "capture: launching {executable} for {capture_file}"
+        ));
+        paths::log(
+            paths,
+            &format!(
+                "capture: backend={} target={} fps={} cursor={} telemetry={} autoZoom={} output={}",
+                backend.id(),
+                target,
+                capture_fps,
+                if settings.cursor { "on" } else { "off" },
+                if telemetry_ready { "on" } else { "off" },
+                if settings.auto_zoom { "on" } else { "off" },
+                capture_file
+            ),
+        );
+
+        let mut command = Command::new(executable);
+        command
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::from(log.try_clone()?));
+
+        // T0 is the moment the encoder launches. Both T0 and every event use
+        // CLOCK_MONOTONIC through `Instant`.
+        let (t0, t0_ns) = telemetry::clock_start();
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(err) => {
+                last_error = Some(format!("{} did not start: {err}", backend.id()));
+                paths::log(
+                    paths,
+                    &format!("capture: {} did not start: {err}", backend.id()),
+                );
+                if *backend == Backend::Wf {
+                    wf_recorder::cleanup_audio(paths);
+                }
+                if let Some(cursor) = hardware_cursor.take() {
+                    cursor.restore(paths);
+                }
+                continue;
+            }
+        };
+        let pid = child.id();
+        util::debug(&format!("capture: recorder pid {pid}"));
+        let _ = paths::write_pid(&paths.pid_file, pid);
+
+        // The recorder is running now, so the take has started even though its
+        // first file can take a moment to appear (a cold GPU can need a second
+        // or more). Announce the capture stage and start the clock here instead
+        // of leaving the bar on the "starting" placeholder until the file
+        // shows up.
+        {
+            let _lock = Lock::acquire(paths).ok();
+            let _ = state::write(
+                paths,
+                &json!({
+                    "status": "starting",
+                    "stage": "warmup",
+                    "pid": pid,
+                    "file": &capture_file,
+                    "output": &file,
+                    "target": target,
+                    "targetKind": &choice.kind,
+                    "targetLabel": &choice.label,
+                    "targetWarning": &choice.warning,
+                    "monitor": &choice.monitor,
+                    "backend": backend.id(),
+                    "canPause": backend.can_pause(),
+                    "telemetry": telemetry_ready,
+                    "settings": settings.to_json(),
+                    "startedAt": paths::now_secs(),
+                }),
+            );
+        }
+
+        let (ready_file, first_frame_us) = wait_for_capture_file(
+            paths,
+            Path::new(&capture_file),
+            marker.map(Path::new),
+            pid as i32,
+            Duration::from_secs(15),
+        );
+        let ready_at = Instant::now();
+        // The encoder now owns the monitor; the warm-up stream is done.
+        warmup.take();
+
+        // A stop during the warmup writes the cancel marker; the take never
+        // got going, so tear it down quietly instead of reporting a start
+        // failure.
+        if cancelled(paths) {
+            if ready_file {
+                stop_child(&mut child, Duration::from_secs(4));
+            } else {
+                kill_child(&mut child);
+            }
+            if *backend == Backend::Wf {
+                wf_recorder::cleanup_audio(paths);
+            }
+            if let Some(cursor) = hardware_cursor.take() {
                 cursor.restore(paths);
             }
             webcam::cleanup(paths);
-            fail_start(
+            paths::remove_quiet(&paths.pid_file);
+            paths::remove_quiet(&paths.socket);
+            paths::remove_quiet(Path::new(&capture_file));
+            paths::remove_quiet(Path::new(&file));
+            let _ = state::write(paths, &state::idle_preserving_last(paths));
+            paths::remove_quiet(&paths.starting);
+            paths::remove_quiet(&paths.cancel);
+            return Ok(false);
+        }
+
+        if !ready_file {
+            // No frame was captured, so there is nothing to flush; killing it
+            // also avoids the GPU encoder's shutdown crash in this state.
+            kill_child(&mut child);
+            if *backend == Backend::Wf {
+                wf_recorder::cleanup_audio(paths);
+            }
+            if let Some(cursor) = hardware_cursor.take() {
+                cursor.restore(paths);
+            }
+            paths::remove_quiet(&paths.pid_file);
+            paths::remove_quiet(Path::new(&capture_file));
+            paths::remove_quiet(Path::new(&format!("{capture_file}.ts")));
+            last_error = Some(format!("{} did not produce a frame", backend.id()));
+            paths::log(
                 paths,
                 &format!(
-                    "The recorder did not start: {err}. See {}",
-                    paths.log.display()
+                    "capture: {} did not produce a frame; trying the next recorder",
+                    backend.id()
                 ),
             );
-            return Err(err.into());
+            continue;
         }
+
+        launched = Some(Launched {
+            child,
+            backend: *backend,
+            pid,
+            t0,
+            t0_ns,
+            first_frame_us,
+            estimate: Some(ready_at.saturating_duration_since(t0).as_secs_f64()),
+        });
+        break;
+    }
+
+    let Some(Launched {
+        mut child,
+        backend,
+        pid,
+        t0,
+        t0_ns,
+        first_frame_us,
+        estimate,
+    }) = launched
+    else {
+        if let Some(cursor) = hardware_cursor.take() {
+            cursor.restore(paths);
+        }
+        webcam::cleanup(paths);
+        wf_recorder::cleanup_audio(paths);
+        paths::remove_quiet(&paths.pid_file);
+        paths::remove_quiet(&paths.socket);
+        paths::remove_quiet(Path::new(&capture_file));
+        paths::remove_quiet(Path::new(&file));
+        let detail = last_error.unwrap_or_else(|| "The recorder did not start".into());
+        let message = format!("{detail}. See {}", paths.log.display());
+        fail_start(paths, &message);
+        return Err(anyhow::anyhow!(message));
     };
-    let pid = child.id();
-    util::debug(&format!("capture: recorder pid {pid}"));
-    let _ = paths::write_pid(&paths.pid_file, pid);
+
+    // Telemetry's t=0 is the encoder launch; the video's t=0 is the first
+    // frame. The GPU recorder states that moment in its marker; the CPU
+    // fallback has no marker, so the file appearing is the best estimate.
+    let first_frame_offset = first_frame_us
+        .map(|us| us as f64 / 1_000_000.0 - t0_ns as f64 / 1_000_000_000.0)
+        .or(estimate);
 
     // The encoder is live. Start the listener when the pointer setting is on;
     // otherwise leave the take exactly as it is today.
@@ -1147,105 +1498,10 @@ fn run_take(
         }
     }
     let telemetry_on = listener.is_some();
-
-    // The encoder is running now, so the take has started even though its
-    // first file can take a moment to appear (a cold GPU can need a second or
-    // more). Announce the capture stage and start the clock here instead of
-    // leaving the bar on the "starting" placeholder until the file shows up.
-    let started_at = paths::now_secs();
-    {
-        let _lock = Lock::acquire(paths).ok();
-        let _ = state::write(
-            paths,
-            &json!({
-                "status": "starting",
-                "stage": "warmup",
-                "pid": pid,
-                "file": &capture_file,
-                "output": &file,
-                "target": target,
-                "targetKind": &choice.kind,
-                "targetLabel": &choice.label,
-                "targetWarning": &choice.warning,
-                "monitor": &choice.monitor,
-                "telemetry": telemetry_on,
-                "settings": settings.to_json(),
-                "startedAt": started_at,
-            }),
-        );
-    }
-
-    let (ready_file, first_frame_us) = wait_for_capture_file(
-        paths,
-        Path::new(&capture_file),
-        first_frame.as_deref().map(Path::new),
-        pid as i32,
-        Duration::from_secs(15),
-    );
-    // The encoder now owns the monitor; the warm-up stream is done.
-    warmup.take();
-
-    // Telemetry's t=0 is the encoder launch; the video's t=0 is the first
-    // frame. Tell the listener the gap so the save pass can put clicks and
-    // keyframes on the frames they belong to.
-    if let (Some(listener), Some(first_frame_us)) = (listener.as_ref(), first_frame_us) {
-        let offset = first_frame_us as f64 / 1_000_000.0 - t0_ns as f64 / 1_000_000_000.0;
+    if let (Some(listener), Some(offset)) = (listener.as_ref(), first_frame_offset) {
         if offset.is_finite() && offset >= 0.0 {
             listener.note_video_start(offset);
         }
-    }
-
-    // A stop during the warmup writes the cancel marker; the take never got
-    // going, so tear it down quietly instead of reporting a start failure.
-    if cancelled(paths) {
-        if ready_file {
-            stop_child(&mut child, Duration::from_secs(4));
-        } else {
-            kill_child(&mut child);
-        }
-        stop_listener(&mut listener, "cancelled", None);
-        if let Some(cursor) = hardware_cursor {
-            cursor.restore(paths);
-        }
-        webcam::cleanup(paths);
-        paths::remove_quiet(&paths.pid_file);
-        paths::remove_quiet(&paths.socket);
-        paths::remove_quiet(Path::new(&capture_file));
-        paths::remove_quiet(Path::new(&file));
-        let _ = state::write(paths, &state::idle_preserving_last(paths));
-        paths::remove_quiet(&paths.starting);
-        paths::remove_quiet(&paths.cancel);
-        return Ok(false);
-    }
-
-    if !ready_file {
-        // No frame was captured, so there is nothing to flush; killing it
-        // also avoids the encoder's shutdown crash in this state.
-        kill_child(&mut child);
-        stop_listener(&mut listener, "error", Some("encoder-failed"));
-        if let Some(cursor) = hardware_cursor {
-            cursor.restore(paths);
-        }
-        webcam::cleanup(paths);
-        let detail = fs::read_to_string(&paths.log).ok().and_then(|log| {
-            log.lines()
-                .rev()
-                .map(str::trim)
-                .find(|line| !line.is_empty() && !line.starts_with('['))
-                .map(str::to_string)
-        });
-        let message = match detail {
-            Some(detail) => format!(
-                "The recorder did not start: {detail}. See {}",
-                paths.log.display()
-            ),
-            None => format!("The recorder did not start. See {}", paths.log.display()),
-        };
-        fail_start(paths, &message);
-        paths::remove_quiet(&paths.pid_file);
-        paths::remove_quiet(Path::new(&capture_file));
-        paths::remove_quiet(Path::new(&file));
-        return Err(anyhow::anyhow!(message));
     }
 
     // The encoder is live now. Show the countdown against a running capture,
@@ -1267,6 +1523,8 @@ fn run_take(
                     "targetLabel": &choice.label,
                     "targetWarning": &choice.warning,
                     "monitor": &choice.monitor,
+                    "backend": backend.id(),
+                    "canPause": backend.can_pause(),
                     "telemetry": telemetry_on,
                     "settings": settings.to_json(),
                     "startedAt": paths::now_secs(),
@@ -1290,6 +1548,7 @@ fn run_take(
                 cursor.restore(paths);
             }
             webcam::cleanup(paths);
+            wf_recorder::cleanup_audio(paths);
             paths::remove_quiet(&paths.pid_file);
             paths::remove_quiet(&paths.socket);
             paths::remove_quiet(Path::new(&capture_file));
@@ -1322,6 +1581,8 @@ fn run_take(
                 "targetLabel": &choice.label,
                 "targetWarning": &choice.warning,
                 "monitor": &choice.monitor,
+                "backend": backend.id(),
+                "canPause": backend.can_pause(),
                 "telemetry": telemetry_on,
                 "quality": settings.quality,
                 "codec": settings.codec,
@@ -1369,6 +1630,7 @@ fn run_take(
             }
         }
         webcam::cleanup(paths);
+        wf_recorder::cleanup_audio(paths);
     }
     Ok(true)
 }
@@ -1384,17 +1646,19 @@ fn stop_listener(listener: &mut Option<telemetry::Listener>, reason: &str, error
 /// Select a target, then count down and record without an intermediate step.
 pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     let settings = resolve_settings(paths, &options)?;
-    require_tools()?;
+    let backends = require_tools()?;
     prepare_output_dir(&settings.output_dir)?;
     let _ = start_guard(paths)?;
+    // A crashed fallback take can leave its temporary audio mix loaded.
+    wf_recorder::cleanup_audio(paths);
 
     // Wake the desktop-audio monitor before the picker opens: a cold sink
     // otherwise stalls the encoder's first frame for seconds, and the picker
     // is time the user is spending anyway.
     let mut warmup = AudioWarmup::start(&settings);
     // The check is a short call, and doing it before the picker keeps it off
-    // the post-selection start path.
-    let first_frame_marker = first_frame_marker_supported();
+    // the post-selection start path. Only the GPU recorder writes the marker.
+    let gpu_first_frame_marker = backends.contains(&Backend::Gpu) && first_frame_marker_supported();
 
     // Check the audio devices before opening the picker, but only once the
     // "already busy" state is ruled out. The probe is a single fast call, and
@@ -1407,8 +1671,25 @@ pub fn start(paths: &Paths, options: StartArgs) -> Result<bool> {
     restore_cursor_mode(paths);
 
     match choose_target(paths, &options)? {
-        Some(choice) => run_take(paths, &settings, &choice, &mut warmup, first_frame_marker),
+        Some(choice) => run_take(
+            paths,
+            &settings,
+            &choice,
+            &mut warmup,
+            &backends,
+            gpu_first_frame_marker,
+        ),
         None => Ok(false),
+    }
+}
+
+/// Whether this take's recorder can pause. Older state files predate the flag
+/// and were all GPU takes, so a missing field stays pausable unless the
+/// backend itself says otherwise.
+fn recorder_can_pause(state: &Value) -> bool {
+    match state.get("canPause").and_then(Value::as_bool) {
+        Some(can_pause) => can_pause,
+        None => state.get("backend").and_then(Value::as_str) != Some(wf_recorder::BINARY),
     }
 }
 
@@ -1440,6 +1721,11 @@ pub fn pause(paths: &Paths) -> Result<()> {
     if status == "paused" {
         return Ok(());
     }
+    if !recorder_can_pause(&current) {
+        let message = "This take is recording with the CPU fallback, which cannot pause.";
+        util::notify("Reel", Some(message), "critical");
+        anyhow::bail!(message);
+    }
     let pid = state::field_i64(&current, "pid").unwrap_or(0) as i32;
     if status != "recording" || !paths::alive(pid) {
         anyhow::bail!("Reel is not recording.");
@@ -1470,6 +1756,11 @@ pub fn resume(paths: &Paths) -> Result<()> {
     let status = state::field_str(&current, "status").unwrap_or_default();
     if status == "recording" {
         return Ok(());
+    }
+    if !recorder_can_pause(&current) {
+        let message = "This take is recording with the CPU fallback, which cannot pause.";
+        util::notify("Reel", Some(message), "critical");
+        anyhow::bail!(message);
     }
     let pid = state::field_i64(&current, "pid").unwrap_or(0) as i32;
     if status != "paused" || !paths::alive(pid) {
@@ -1673,6 +1964,7 @@ pub fn stop(paths: &Paths, discard: bool) -> Result<()> {
 
     restore_cursor_mode(paths);
     webcam::cleanup(paths);
+    wf_recorder::cleanup_audio(paths);
     paths::remove_quiet(&paths.pid_file);
     paths::remove_quiet(&paths.socket);
 
@@ -1849,6 +2141,31 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ))
+    }
+
+    #[test]
+    fn the_cpu_fallback_is_not_pausable() {
+        assert!(!recorder_can_pause(&json!({ "backend": "wf-recorder" })));
+        assert!(!recorder_can_pause(&json!({ "canPause": false })));
+        assert!(recorder_can_pause(
+            &json!({ "backend": "gpu-screen-recorder" })
+        ));
+        assert!(recorder_can_pause(&json!({})));
+    }
+
+    #[test]
+    fn detects_amd_polaris_from_sysfs() {
+        let root = temp_root("polaris");
+        let device = root.join("0000:01:00.0");
+        fs::create_dir_all(&device).unwrap();
+        fs::write(device.join("vendor"), "0x1002\n").unwrap();
+        fs::write(device.join("device"), "0x67df\n").unwrap();
+        assert!(polaris_present(&root));
+
+        fs::write(device.join("device"), "0x73df\n").unwrap();
+        assert!(!polaris_present(&root));
+        assert!(!polaris_present(&root.join("missing")));
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

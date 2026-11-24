@@ -4,14 +4,17 @@ Reel is a screen recorder for [Omarchy](https://omarchy.org). It lives in the
 bar, records a window, monitor, or selected area, and keeps your takes in a
 history you can open, trim with Omacut, or copy its path.
 
-It uses `gpu-screen-recorder` for capture and keeps its state separate from
-Omarchy's stock recorder, so both can be used without stepping on each other.
+It uses `gpu-screen-recorder` for capture, with Omarchy's `wf-recorder` CPU
+fallback when the GPU recorder is missing or cannot capture the machine, and
+keeps its state separate from Omarchy's stock recorder, so both can be used
+without stepping on each other.
 
 ## Features
 
 - Pick a window, monitor, or region with Omarchy's picker; recording starts
   after the countdown.
-- Pause and resume without ending the file.
+- Pause and resume without ending the file (GPU takes; the CPU fallback records
+  continuously).
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
   `Ctrl+Scroll`, capped at 2× by default.
 - Optional auto zoom in the save pass: clicks become smooth camera blocks, and
@@ -36,7 +39,10 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
 ## Requirements
 
 - Omarchy with the Quattro shell (`omarchy-shell`).
-- `gpu-screen-recorder` and `ffmpeg` (which provides `ffprobe`).
+- `gpu-screen-recorder` (recommended) or `wf-recorder`, and `ffmpeg` (which
+  provides `ffprobe`). Without `gpu-screen-recorder`, Reel records with
+  `wf-recorder` on the CPU: pause, portal capture, and resolution limits are
+  unavailable on that path.
 - Omarchy's `omarchy-capture-region` picker and `slurp` for selection.
 - `grim` for still previews.
 - `mpv` for history playback and the webcam overlay.
@@ -48,7 +54,8 @@ Omarchy's stock recorder, so both can be used without stepping on each other.
   source; see [Development](docs/development.md).
 
 Install these with Omarchy's package installer: `gpu-screen-recorder`,
-`ffmpeg`, `grim`, `slurp`, `mpv`, and `wl-clipboard`.
+`wf-recorder` (the CPU fallback), `ffmpeg`, `grim`, `slurp`, `mpv`, and
+`wl-clipboard`.
 
 `omacut` is optional: takes still open in `mpv` without it, but the Cut action
 needs it.

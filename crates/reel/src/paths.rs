@@ -18,6 +18,9 @@ pub struct Paths {
     pub starting: PathBuf,
     pub cancel: PathBuf,
     pub webcam_pid: PathBuf,
+    /// PulseAudio module ids of the fallback recorder's temporary null sink, so
+    /// `stop` can unload them from a separate process.
+    pub pa_modules: PathBuf,
     pub session_telemetry: PathBuf,
     /// The live manual zoom factor, mirrored by the compositor controller so
     /// telemetry can put pointer events in the recorded (zoomed) frame.
@@ -53,6 +56,7 @@ impl Paths {
             starting: root.join("starting.pid"),
             cancel: root.join("cancel"),
             webcam_pid: root.join("webcam.pid"),
+            pa_modules: root.join("pa-modules"),
             session_telemetry: root.join("session.telemetry.jsonl"),
             zoom_factor: root.join("zoom-factor"),
             saves: root.join("saves"),
@@ -114,6 +118,7 @@ impl Paths {
             starting: runtime.join("starting"),
             cancel: runtime.join("cancel"),
             webcam_pid: runtime.join("webcam.pid"),
+            pa_modules: runtime.join("pa.modules"),
             session_telemetry: runtime.join("session.telemetry.jsonl"),
             zoom_factor: runtime.join("zoom-factor"),
             saves: runtime.join("saves"),
