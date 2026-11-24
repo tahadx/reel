@@ -2254,25 +2254,25 @@ Panel {
     - barLabelMetrics.ascent
     + barLabelMetrics.tightBoundingRect("0").height) / 2
 
-  // A bar on the left or right edge is vertical, and the pill turns with it:
-  // the same capsule laid along the bar instead of across it.
+  // A bar on the left or right edge is vertical, and the live timer turns with
+  // it: the same dot + clock laid along the bar instead of across it.
   readonly property bool barVertical: root.bar ? root.bar.vertical === true : false
 
-  // The take's pill: the panel's capsule, carried into the bar, with the live
-  // clock inside and the accent kept for its dot.
-  readonly property real barPillHeight: Style.space(20)
-  readonly property real barPillPad: Style.space(9)
-  readonly property real barPillDot: Style.space(6)
-  readonly property real barPillGap: Style.space(4)
-  readonly property real barPillWidth: root.barPillPad * 2 + root.barPillDot
-    + root.barPillGap + barLabelMetrics.advanceWidth(root.barClockText())
+  // Bare bar timer while a take runs: pulsing dot + elapsed clock in bar ink,
+  // with no outer pill border or fill.
+  readonly property real barTakeHeight: Style.space(20)
+  readonly property real barTakePad: Style.space(6)
+  readonly property real barTakeDot: Style.space(6)
+  readonly property real barTakeGap: Style.space(4)
+  readonly property real barTakeWidth: root.barTakePad * 2 + root.barTakeDot
+    + root.barTakeGap + barLabelMetrics.advanceWidth(root.barClockText())
 
-  // The room the bar gives this widget: the take's pill while frames run, the
+  // The room the bar gives this widget: the take's clock while frames run, the
   // resting mark's icon slot otherwise. The bar lays its neighbours out around
-  // this width, so a take landing narrows the slot and moves everything beside
+  // this width, so a take landing widens the slot and moves everything beside
   // it. The card is not hung from this slot (see panelAnchor below): it must
   // not ride that reflow.
-  readonly property real barSlotWidth: root.busy ? root.barPillWidth
+  readonly property real barSlotWidth: root.busy ? root.barTakeWidth
     : Style.bar.iconSlot
 
   // Where the card hangs from: a point pinned to the widget's centre at the
@@ -2307,21 +2307,14 @@ Panel {
 
   // The colour the bar itself writes in. A transparent bar has no surface of
   // its own: Omarchy samples the strip behind it (omarchy-bar-text-color) and
-  // hands the widgets a foreground that contrasts with that strip. The pill
-  // is built from that ink, never from the theme's raw foreground.
+  // hands the widgets a foreground that contrasts with that strip. Both the
+  // resting mark and live timer use that ink, never the theme's raw
+  // foreground.
   readonly property color barInk: root.bar && root.bar.barForeground
     ? root.bar.barForeground : root.foreground
-  readonly property real barInkLuminance: 0.2126 * root.barInk.r
-    + 0.7152 * root.barInk.g + 0.0722 * root.barInk.b
-  // Dark ink means a light strip, light ink means a dark one. Theme inks sit
-  // at roughly 0.05–0.35 raw luminance for light strips and 0.6–0.95 for dark
-  // ones, so the midpoint separates them cleanly.
-  readonly property bool barOnLight: root.barInkLuminance < 0.5
-  readonly property real barPillFillAlpha: root.barOnLight ? 0.10 : 0.05
-  readonly property real barPillLineAlpha: root.barOnLight ? 0.30 : 0.14
 
-  // The take's pill while a take is live, and the resting mark when nothing
-  // runs. Both are drawings sized from the bar's own tokens, so the widget
+  // The take's bare dot + clock while a take is live, and the resting mark
+  // when nothing runs. Both are sized from the bar's own tokens, so the widget
   // follows the bar's thickness instead of assuming a fixed slot.
   WidgetButton {
     id: button
@@ -2403,42 +2396,35 @@ Panel {
       }
     }
 
-    // The take's pill, for every state a live take can be in: armed at 0:00,
-    // counting while frames run, frozen when paused, dimmed while the encoder
-    // finishes and the save job takes over.
+    // Bare timer for every state a live take can be in: armed at 0:00, counting
+    // while frames run, frozen when paused, steady while the encoder finishes
+    // and the save job takes over.
     Item {
-      id: takePill
+      id: takeClock
       visible: root.busy
       anchors.centerIn: parent
-      width: root.barVertical ? root.barPillHeight : root.barPillWidth
-      height: root.barVertical ? root.barPillWidth : root.barPillHeight
+      width: root.barVertical ? root.barTakeHeight : root.barTakeWidth
+      height: root.barVertical ? root.barTakeWidth : root.barTakeHeight
+      scale: button.pressScale
 
-      // The pill is drawn along its long axis and then turned with the bar, so
-      // the dot leads from the top edge and the clock runs down the capsule.
+      // Laid along the bar's long axis and rotated on vertical bars so the dot
+      // leads from the top edge and the clock runs cleanly along the strip.
       Item {
-        id: pillBody
+        id: takeClockBody
         anchors.centerIn: parent
-        width: root.barPillWidth
-        height: root.barPillHeight
+        width: root.barTakeWidth
+        height: root.barTakeHeight
         rotation: root.barVertical ? 90 : 0
-
-        Rectangle {
-          anchors.fill: parent
-          radius: height / 2
-          color: Util.alpha(root.barInk, root.barPillFillAlpha)
-          border.width: 1
-          border.color: Util.alpha(root.barInk, root.barPillLineAlpha)
-        }
 
         Row {
           anchors.centerIn: parent
-          spacing: root.barPillGap
+          spacing: root.barTakeGap
 
           // The dot is bar ink at rest, exactly like the hour label; accent
           // belongs to frames running.
           Rectangle {
             id: takeDot
-            width: root.barPillDot
+            width: root.barTakeDot
             height: width
             radius: width / 2
             anchors.verticalCenter: parent.verticalCenter

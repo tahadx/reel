@@ -309,14 +309,13 @@ Rules:
 
 ### 6.1 Bar widget
 
-The bar answers “what is happening?” with two drawings: the resting mark when
-nothing runs, and the take's pill while a take is live. Only the pill carries
-a clock.
+The bar answers “what is happening?” cleanly with no outer pills: the resting
+mark when nothing runs, and a bare dot + clock while a take is live.
 
 | State            | Bar                                                    |
 | :--------------- | :----------------------------------------------------- |
 | Idle             | Drawn screen with a record dot, in the bar's ink       |
-| Take             | The pill, counting                                     |
+| Take             | Bare pulsing dot + elapsed clock, in bar ink           |
 | Disabled / error | Never render logs or error text in the bar             |
 
 Rules:
@@ -335,43 +334,40 @@ Rules:
 - The mark is bar ink: outline at `0.9`, dot at full, so it reads like the
   bar's own label on a transparent strip. A press shrinks it with the widget,
   so the click is felt.
-- The pill is `Style.space(20)` tall, radius `height / 2`, drawn from the bar's
-  ink at 5% with a 14% hairline on a dark strip. Its width comes from the
-  clock's advance, so the timer never clips. The bar widens from
-  `Style.bar.iconSlot` to the pill when a take starts and keeps that width for
-  the whole take, so the clock never moves the bar.
+- The live timer is `Style.space(20)` tall with no capsule fill or border —
+  just the `6` px dot, `4` px gap, and clock text with `6` px horizontal
+  padding. Its width comes from the clock's advance, so the timer never clips.
+  The bar widens from `Style.bar.iconSlot` to the timer when a take starts and
+  keeps that width for the whole take, so the clock never moves the bar.
 - The panel centres its card on the widget, but never hangs it from the live
   slot: the widget's slot is as wide as its drawing, so a take landing narrows
   it and slides the whole section sideways, and a card anchored to the slot
   would be dragged along in one frame. The card instead hangs from a point
   pinned to the widget's centre when the panel opens, parked in the bar's own
   surface. The bar may reflow under it; the card stays where it was raised,
-  under the mark if opened at rest and under the pill if opened mid-take.
-- A left or right bar is vertical, and the pill turns with it: the same
-  capsule now `Style.space(20)` wide and running down the bar for the clock's
-  advance, dot at the top, clock reading down the capsule. The bar's own
+  under the mark if opened at rest and under the timer if opened mid-take.
+- A left or right bar is vertical, and the live timer turns with it: the same
+  readout now `Style.space(20)` wide and running down the bar for the clock's
+  advance, dot at the top, clock reading down the strip. The bar's own
   thickness sets the slot, so the mark never hangs past the strip and clips.
 - The bar can be transparent, so it has no surface colour of its own. Both
   drawings use `bar.barForeground` — the ink Omarchy picks against the wallpaper
   strip behind the bar (`omarchy-bar-text-color`) — never the theme's raw
   foreground, which knows nothing about the wallpaper.
-- Dark ink means a light strip: the capsule goes to 10% fill and a 30%
-  hairline. Light ink means a dark strip and keeps 5% / 14%. The split is 0.5
-  raw luminance; theme inks sit well clear of it on either side.
 - The clock carries the take: `0:00` while the take is armed (the countdown is
   already on screen, so the bar does not echo it), the live time while frames
   run, the frozen time while paused, and the take's last time while the encoder
   is shutting down. Save jobs run outside the bar's state, so the resting mark
   returns as soon as the next take is not recording; a save landing beside a
-  live take never borrows the pill.
+  live take never borrows the timer.
 - The clock and the dot read exactly like the hour label: full
   `bar.barForeground`, never `muted` or an alpha of the ink. Accent belongs to
   frames running: the dot turns accent and pulses between `0.55` and full while
   recording or capturing.
-- Closing keeps the same pill at full ink while the encoder stops and its save
+- Closing keeps the same timer at full ink while the encoder stops and its save
   job is published. There is no dim or disabled state: a new record press is
   accepted immediately and the engine waits out the short shutdown.
-- The mark and the pill swap in place with no entrance animation: the bar's
+- The mark and the timer swap in place with no entrance animation: the bar's
   width change is the state change, and the dot pulse is the only bar loop.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
@@ -798,7 +794,7 @@ Rules:
 
 Spend polish only here:
 
-1. **Start.** The resting mark gives way to the take's pill as frames run.
+1. **Start.** The resting mark gives way to the live bar timer as frames run.
 2. **Open.** The panel fades and lifts once; nothing inside jumps.
 3. **Save.** The toast confirms the save and the new take appears at the top of
    history.
@@ -835,8 +831,8 @@ signature moments above.
 ## 9. Iconography
 
 - Nerd Font glyphs only in the panel. No emoji, no mixed icon sets.
-- The bar has two drawings, never glyphs: the resting screen mark, and the
-  take's pill. The hero leads with the same pill.
+- The bar has two states, never icon-font glyphs: the resting screen mark, and
+  the bare dot + elapsed clock. The hero leads with the `Ready`/take status pill.
 - One glyph per row, optical size `12`–`14`, `muted` or `secondary` at rest.
 - Every row and action gets its own glyph. Never reuse one glyph for two
   different meanings, even across tabs: a camera is not a camera device, a
