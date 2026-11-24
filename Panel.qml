@@ -2505,12 +2505,13 @@ Panel {
             Row {
               spacing: Style.space(4)
 
-              // Quiet manual update trigger ("Update" dimmed when up to date)
-              // that elevates to vX.Y.Z ↑ or Update ↑ when an update waits.
+              // Quiet manual update trigger at rest ("󰑐 Update") that
+              // elevates to an accent-framed badge ("↑ Update  ⇧U" or
+              // "↑ vX.Y.Z  ⇧U") when an update is waiting.
               Item {
                 id: updateCue
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(Style.space(48), updateCueRow.width)
+                width: Math.max(Style.space(64), updateCueRow.implicitWidth + Style.space(16))
                 height: Style.space(22)
 
                 readonly property bool hot: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 0)
@@ -2519,89 +2520,114 @@ Panel {
                 readonly property bool failed: !root.updateChecking && !root.updateAvailable
                   && String(root.updateInfo.error || "") !== ""
 
-                Row {
-                  id: updateCueRow
-                  anchors.centerIn: parent
-                  spacing: Style.space(4)
+                Rectangle {
+                  id: updateBadge
+                  anchors.fill: parent
+                  radius: root.badgeRadius(height)
+                  clip: true
+                  color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.24) : root.urgentSoft)
+                    : root.updateAvailable && !root.updateChecking
+                      ? (updateCue.hot ? Util.alpha(root.accent, 0.22) : Util.alpha(root.accent, 0.12))
+                    : (updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent) : root.cardFill)
+                  border.width: 1
+                  border.color: updateCue.failed
+                    ? (updateCue.hot ? root.urgent : Util.alpha(root.urgent, 0.45))
+                    : root.updateAvailable && !root.updateChecking
+                      ? (updateCue.hot ? root.accent : Util.alpha(root.accent, 0.36))
+                    : (updateCue.hot ? root.accent : root.cardBorder)
 
-                  Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    textFormat: Text.PlainText
-                    text: root.updateCueLabel()
-                    color: updateCue.failed ? root.urgent
-                      : updateCue.hot ? root.foreground
-                      : root.updateChecking ? root.dim
-                      : root.updateAvailable ? Util.alpha(root.foreground, 0.82)
-                      : Util.alpha(root.foreground, 0.35)
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: root.updateAvailable && updateCue.hot
-                    Behavior on color {
-                      ColorAnimation { duration: 120 }
+                  Behavior on color {
+                    ColorAnimation { duration: Style.duration(120) }
+                  }
+                  Behavior on border.color {
+                    ColorAnimation { duration: Style.duration(120) }
+                  }
+
+                  Row {
+                    id: updateCueRow
+                    anchors.centerIn: parent
+                    spacing: Style.space(5)
+
+                    Text {
+                      visible: !root.updateChecking
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: updateCue.failed ? "󰑐"
+                        : root.updateAvailable ? "↑"
+                        : "󰑐"
+                      color: updateCue.failed ? root.urgent
+                        : root.updateAvailable ? root.accent
+                        : (updateCue.hot ? root.foreground : Util.alpha(root.foreground, 0.42))
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: root.updateAvailable || updateCue.failed
+                      Behavior on color {
+                        ColorAnimation { duration: Style.duration(120) }
+                      }
+                    }
+
+                    Text {
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: root.updateCueLabel()
+                      color: updateCue.failed ? root.urgent
+                        : updateCue.hot ? root.foreground
+                        : root.updateChecking ? root.secondary
+                        : root.updateAvailable ? root.foreground
+                        : Util.alpha(root.foreground, 0.48)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: root.updateAvailable || updateCue.failed
+                      Behavior on color {
+                        ColorAnimation { duration: Style.duration(120) }
+                      }
+                    }
+
+                    Text {
+                      visible: root.updateAvailable && !root.updateChecking
+                      anchors.verticalCenter: parent.verticalCenter
+                      textFormat: Text.PlainText
+                      text: "⇧U"
+                      color: Util.alpha(root.foreground, 0.48)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
                     }
                   }
 
-                  Text {
-                    visible: root.updateAvailable && !root.updateChecking
-                    anchors.verticalCenter: parent.verticalCenter
-                    textFormat: Text.PlainText
-                    text: "↑"
-                    color: root.accent
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    font.bold: true
-                  }
-                }
+                  Item {
+                    visible: root.updateChecking
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: Math.max(1, Style.space(2))
+                    clip: true
 
-                Rectangle {
-                  visible: !root.updateChecking
-                  anchors.horizontalCenter: updateCueRow.horizontalCenter
-                  anchors.bottom: parent.bottom
-                  anchors.bottomMargin: 1
-                  width: updateCueRow.width
-                  height: 1
-                  color: updateCue.hot ? root.accent
-                    : updateCue.failed ? Util.alpha(root.urgent, 0.55)
-                    : "transparent"
-                  Behavior on color {
-                    ColorAnimation { duration: 120 }
-                  }
-                }
+                    Rectangle {
+                      anchors.fill: parent
+                      color: root.hairline
+                    }
 
-                Item {
-                  visible: root.updateChecking
-                  anchors.horizontalCenter: updateCueRow.horizontalCenter
-                  anchors.bottom: parent.bottom
-                  anchors.bottomMargin: 1
-                  width: updateCueRow.width
-                  height: 1
-                  clip: true
+                    Rectangle {
+                      id: updateSweep
+                      width: Math.max(4, Math.round(parent.width * 0.34))
+                      height: parent.height
+                      color: root.accent
 
-                  Rectangle {
-                    anchors.fill: parent
-                    color: root.hairline
-                  }
-
-                  Rectangle {
-                    id: updateSweep
-                    width: Math.max(2, Math.round(parent.width * 0.32))
-                    height: parent.height
-                    color: root.accent
-
-                    SequentialAnimation on x {
-                      running: root.updateChecking && !Style.reduceMotion
-                      loops: Animation.Infinite
-                      NumberAnimation {
-                        from: 0
-                        to: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                        duration: 850
-                        easing.type: Easing.InOutQuad
-                      }
-                      NumberAnimation {
-                        from: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                        to: 0
-                        duration: 850
-                        easing.type: Easing.InOutQuad
+                      SequentialAnimation on x {
+                        running: root.updateChecking && !Style.reduceMotion
+                        loops: Animation.Infinite
+                        NumberAnimation {
+                          from: 0
+                          to: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                          duration: 850
+                          easing.type: Easing.InOutQuad
+                        }
+                        NumberAnimation {
+                          from: Math.max(0, updateSweep.parent.width - updateSweep.width)
+                          to: 0
+                          duration: 850
+                          easing.type: Easing.InOutQuad
+                        }
                       }
                     }
                   }

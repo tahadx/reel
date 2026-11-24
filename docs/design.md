@@ -399,19 +399,19 @@ for identity text or quality metadata.
   - Paused: secondary dot + frozen clock, no pulse, `restFill` + `hairline`.
   - Saving: secondary dot + `Saving` / `Saving N` on `restFill` + `hairline`.
 - Trailing control:
-  1. **Update cue** — `bodySmall` in a `22`-high slot at the trailing edge. It
-     is a text link, not a pill: no fill and no border in any state.
-     - Up to date: `Update` dimmed (`0.35` foreground) as a quiet manual
-       check trigger; hover or keyboard cursor raises it to foreground and draws
-       a `1` px accent underline, and clicking checks and reports the current
-       version.
-     - Update waiting: `vX.Y.Z` (when bumped) or `Update` (when commits are
-       ahead without a version bump) in readable foreground (`0.82`, full
-       foreground + bold on hover) with an accent bold `↑` after it. Clicking
-       updates.
-     - Checking: `Checking…` in dim with a `1` px accent sweep travelling
-       across the underline.
-     - Failed check: `Retry` in urgent with an urgent underline.
+  1. **Update cue** — `22`-high badge matching the status pill radius
+     (`Model.pillRadius(Style.cornerRadius, height)`) at the trailing edge.
+     - Up to date: `󰑐 Update` dimmed (`0.48` label, `0.42` icon) on subtle
+       `cardFill` + `cardBorder`; hover or keyboard cursor raises it to
+       `foreground` with `accent` border and `hoverFill`, and clicking checks
+       and reports the running version.
+     - Update waiting: `↑ vX.Y.Z ⇧U` (when bumped) or `↑ Update ⇧U` (when
+       commits are ahead without a version bump) in bold `foreground` with an
+       `accent` arrow, soft `accent` fill (`0.12`), and `accent` border
+       (`0.36`). Clicking updates.
+     - Checking: `Checking…` in `secondary` with an `accent` sweep along the
+       bottom edge.
+     - Failed check: `󰑐 Retry` in `urgent` on `urgentSoft`.
 
 ### 6.3 Primary actions (fixed)
 
