@@ -218,7 +218,7 @@ here.`
   `Style.space(436)`).
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `4` above, `0` below) + `1` px hairline. The strip is
-  navigation: three settings tabs and History.
+  navigation: three equal pages (`Recording`, `Visuals`, `History`).
 - Fixed footer: `1` px hairline + keyhint strip (`24` high) below the scroll
   region.
 - The scroll region receives the remaining height and never changes size.
@@ -451,18 +451,17 @@ Rules:
 The strip sits above the scroll area and stays fixed on **every** destination,
 History included, while the body scrolls underneath it.
 
-- Height `30`; the two settings tabs (`Recording`, `Visuals`) occupy the
-  leading `62%`, followed by a `1` px vertical hairline and `History [⇧H]` on
-  the trailing `38%`.
+- Height `30`; three equal tabs across the strip (`Recording`, `Visuals`,
+  `History`).
 - Label `bodySmall`; active `foreground` + bold; inactive foreground at `0.58`;
   hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- `Tab` / `Shift+Tab` cycles across the three strip pages (`Recording`,
-  `Visuals`, `History`); `History` carries a `KeyHintChip` (`⇧H`), and
-  Shortcuts opens via `?` or the `[?]` button on the right edge of the footer.
-- Each panel open returns to Recording with the first settings row (`Desktop
-  audio`) focused so keyboard focus is unmistakable on open.
+- `Tab` / `Shift+Tab` cycles left to right across the three strip pages
+  (`Recording`, `Visuals`, `History`); Shortcuts opens via `?` or the `[?]`
+  button on the right edge of the footer.
+- Each panel open returns to `Recording` with the first settings row
+  (`Desktop audio`) focused so keyboard focus is unmistakable on open.
 
 ### 6.5.1 Settings taxonomy
 
@@ -547,20 +546,12 @@ lists when it opens.
 
 ### 6.8 History page
 
-**Section header**
-
-- `PanelSectionHeader` at `caption` bold, `dim`.
-- Left: `1 take` / `N takes`.
-- Right: hint `enter opens · t cuts · a actions · x trashes`, `caption`
-  secondary.
-- The header scrolls with the list; it is not part of the fixed frame.
-
 **Open folder row**
 
-- Height `30`, radius `Style.cornerRadius`.
-- Folder glyph tile `24 × 24`, square.
-- Label `body`: `Open the recordings folder`.
-- Same cursor and accent edge as settings rows.
+- Height `34`, radius `Style.cornerRadius`, `cardFill` + `cardBorder`.
+- Bare folder glyph (`Style.font.icon`), label `body`: `Open the recordings
+  folder`.
+- Same cursor, `[Enter]` hint, and `3` px left accent edge as settings rows.
 
 **Saving row**
 

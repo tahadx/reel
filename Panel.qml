@@ -509,15 +509,15 @@ Panel {
       { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" }
     ] }
   ]
-  // The strip groups configuration tabs (Recording, Visuals) on the left and
-  // History on the right of a vertical hairline; Shortcuts lives on the footer ? key.
+  // The strip puts Recording and Visuals first, followed by History as three
+  // equal pages cycled left to right with Tab.
   readonly property var navDestinations: {
     var list = []
     for (var i = 0; i < root.settingsTabs.length; i++) {
       var tab = root.settingsTabs[i]
       list.push({ id: tab.id, label: tab.label })
     }
-    list.push({ id: "history", label: "History", key: "H", modifier: "⇧", separated: true })
+    list.push({ id: "history", label: "History" })
     return list
   }
 
@@ -548,6 +548,7 @@ Panel {
 
   property string page: "home"
   property string shortcutsReturnPage: "home"
+  property int lastRecentsCount: 0
   // Relative take times only move as the clock does, so the history list needs
   // a dependency that advances. takeMeta() reads this counter and re-runs its
   // binding; the value itself is never used.
@@ -1749,10 +1750,6 @@ Panel {
       root.closeDevices()
       return
     }
-    if (root.page === "history") {
-      root.closeHistory()
-      return
-    }
     // Escape cancels a selection or countdown, but never an active take. The
     // panel itself may close while recording without stopping it.
     if (root.starting) {
@@ -1800,7 +1797,7 @@ Panel {
     if (flick && flick.contentY !== undefined) flick.contentY = 0
     root.page = "history"
     root.focusSection = "recents"
-    root.selectedIndex = 0
+    root.selectedIndex = root.visibleRecents.length > 0 ? 1 : 0
     root.cursorActive = true
     root.historyAnchorPath = ""
     root.suppressHistoryHover = false
@@ -1991,12 +1988,19 @@ Panel {
       ]
     }
     if (root.page === "history") {
+      if (root.visibleRecents.length === 0 && !root.savingTake) {
+        return [
+          { key: "r", label: root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record") },
+          { key: "Tab", label: "Pages" },
+          { key: "Esc", label: "Hide" }
+        ]
+      }
       return [
         { key: "↑/↓", label: "Move" },
         { key: "Enter", label: "Open" },
         { key: "a", label: "Actions" },
         { key: "x", label: "Trash" },
-        { key: "Esc", label: "Back" }
+        { key: "Esc", label: "Hide" }
       ]
     }
     var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
@@ -2080,9 +2084,16 @@ Panel {
   }
 
   onRecentsChanged: {
+    var prevCount = root.lastRecentsCount
+    root.lastRecentsCount = root.visibleRecents.length
     root.prunePendingTrash()
     root.prunePendingRenames()
     root.settleHistorySelection()
+    if (prevCount === 0 && root.visibleRecents.length > 0
+        && root.opened && root.page === "history"
+        && root.focusSection === "recents" && root.selectedIndex === 0) {
+      root.selectedIndex = 1
+    }
   }
 
   onFinalizingChanged: {
@@ -2734,9 +2745,8 @@ Panel {
           }
         }
 
-        // The strip is the panel's navigation: settings tabs (Recording,
-        // Visuals) on the left, separated by a vertical hairline from History on
-        // the right; Shortcuts opens via ? in the footer.
+        // The strip is the panel's navigation: three equal pages (Recording,
+        // Visuals, History); Shortcuts opens via ? in the footer.
         Item {
           Layout.fillWidth: true
           Layout.preferredHeight: Style.space(30)
@@ -2747,30 +2757,19 @@ Panel {
             id: settingsTabRow
             anchors.fill: parent
             spacing: 0
-            readonly property real settingsClusterWidth: Math.round(width * 0.62)
+            readonly property real tabWidth: Math.floor(width / root.navDestinations.length)
 
             Repeater {
               model: root.navDestinations
 
-              delegate: Row {
+              delegate: Item {
+                id: settingsTabItem
                 required property var modelData
-                spacing: 0
+                required property int index
+                width: index === root.navDestinations.length - 1
+                  ? Math.max(0, settingsTabRow.width - settingsTabRow.tabWidth * (root.navDestinations.length - 1))
+                  : settingsTabRow.tabWidth
                 height: settingsTabRow.height
-
-                Rectangle {
-                  visible: modelData.separated === true
-                  width: 1
-                  height: Style.space(14)
-                  anchors.verticalCenter: parent.verticalCenter
-                  color: root.hairline
-                }
-
-                Item {
-                  id: settingsTabItem
-                  width: modelData.separated === true
-                    ? Math.max(0, settingsTabRow.width - settingsTabRow.settingsClusterWidth - 1)
-                    : Math.round(settingsTabRow.settingsClusterWidth / (root.navDestinations.length - 1))
-                  height: settingsTabRow.height
 
                   readonly property bool active: root.isNavActive(modelData.id)
                   readonly property bool hot: root.pointerActive && settingsTabMouse.containsMouse
@@ -2844,7 +2843,6 @@ Panel {
                     onPositionChanged: function(mouse) { root.notePointerMotion(settingsTabMouse, mouse) }
                     onClicked: root.selectNav(modelData.id)
                   }
-                }
               }
             }
           }
@@ -3193,41 +3191,6 @@ Panel {
               visible: root.page === "history"
                 && (root.visibleRecents.length > 0 || root.savingTake)
               spacing: Style.space(8)
-
-              Item {
-                width: parent.width
-                implicitHeight: Math.max(takesHeader.implicitHeight, takesHint.implicitHeight)
-
-                SectionMicroHeader {
-                  id: takesHeader
-                  text: root.savingTake && root.visibleRecents.length === 0
-                    ? root.savingCount === 1
-                      ? "Saving the take"
-                      : "Saving " + root.savingCount + " takes"
-                    : root.visibleRecents.length === 0
-                      ? "No takes yet"
-                      : root.visibleRecents.length === 1
-                        ? "1 take"
-                        : root.visibleRecents.length + " takes"
-                  anchors.left: parent.left
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Text {
-                  id: takesHint
-                  textFormat: Text.PlainText
-                  text: root.savingTake && root.visibleRecents.length === 0
-                    ? "they appear here when the saves end"
-                    : root.visibleRecents.length > 0
-                      ? "enter opens · t cuts · a actions · x trashes"
-                      : "takes appear here after the first recording"
-                  color: Util.alpha(root.foreground, 0.50)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-              }
 
               OpenFolderRow {
                 width: parent.width
