@@ -9,6 +9,8 @@ fallback when the GPU recorder is missing or cannot capture the machine, and
 keeps its state separate from Omarchy's stock recorder, so both can be used
 without stepping on each other.
 
+![Reel panel](preview.png)
+
 ## Features
 
 - Pick a window, monitor, or region with Omarchy's picker; recording starts
