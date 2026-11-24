@@ -484,7 +484,6 @@ Panel {
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
     { keys: "tab", what: "switch pages" },
-    { keys: "?", what: "open or close shortcuts" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -543,8 +542,6 @@ Panel {
   // ---------- panel state -------------------------------------------------
 
   property string page: "home"
-  property string shortcutsReturnPage: "home"
-  property string shortcutsReturnTab: "recording"
   property int lastRecentsCount: 0
   // Relative take times only move as the clock does, so the history list needs
   // a dependency that advances. takeMeta() reads this counter and re-runs its
@@ -1702,10 +1699,6 @@ Panel {
       return
     }
     if (root.typingPrefix) return
-    if (raw === "?") {
-      root.toggleShortcuts()
-      return
-    }
     // Shift+U is the updater. Check the unlowered text so it does not fall
     // through to u, which shares the selected take.
     if (raw === "U") {
@@ -1835,32 +1828,8 @@ Panel {
     if (keyCatcher) keyCatcher.forceActiveFocus()
   }
 
-  function openShortcuts() {
-    if (root.page === "home" && root.settingsTab === "shortcuts") return
-    root.shortcutsReturnPage = root.page === "history" ? "history" : "home"
-    root.shortcutsReturnTab = root.settingsTab
-    root.selectNav("shortcuts")
-  }
-
-  function closeShortcuts() {
-    if (!(root.page === "home" && root.settingsTab === "shortcuts")) return
-    if (root.shortcutsReturnPage === "history") {
-      root.openHistory()
-      return
-    }
-    var target = root.shortcutsReturnTab === "shortcuts" || root.shortcutsReturnTab === ""
-      ? "recording" : root.shortcutsReturnTab
-    root.selectNav(target)
-  }
-
-  function toggleShortcuts() {
-    if (root.page === "home" && root.settingsTab === "shortcuts") root.closeShortcuts()
-    else root.openShortcuts()
-  }
-
   function toggleSettings() {
     if (root.page === "devices") root.closeDevices()
-    else if (root.page === "home" && root.settingsTab === "shortcuts") root.closeShortcuts()
     else if (root.focusSection === "settings") root.closeSettings()
     else root.openSettings()
   }

@@ -502,8 +502,7 @@ History included, while the body scrolls underneath it.
 - Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
 - `Tab` / `Shift+Tab` cycles left to right across the four strip pages
-  (`Recording`, `Visuals`, `History`, `Shortcuts`), and `?` jumps to/from
-  `Shortcuts`.
+  (`Recording`, `Visuals`, `History`, `Shortcuts`).
 - Each panel open returns to `Recording` and starts without a visible
   keyboard cursor on any destination until the user presses an arrow key or
   `j` / `k` / `h` / `l`.
@@ -518,13 +517,13 @@ the read-only `Shortcuts` reference on the trailing end.
 | Recording   | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
 | Visuals     | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
 | History     | Takes, the recordings folder, take actions                            | Settings of any kind             |
-| Shortcuts   | Read-only shortcut reference (tab + `?` keyboard toggle)              | Editable key bindings            |
+| Shortcuts   | Read-only shortcut reference (top-level tab in the strip)             | Editable key bindings            |
 
 Rules:
 
-- Four top-level strip pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
-  `Tab` / `Shift+Tab` and `?` are the visible navigation shortcuts (`s` remains a
-  keyboard-only shortcut).
+- Four top-level strip pages (`Recording`, `Visuals`, `History`, `Shortcuts`),
+  switched uniformly via `Tab` / `Shift+Tab` (`s` remains a keyboard-only
+  shortcut to focus settings rows).
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab. In Recording,
   Audio and Video lead; Capture and Saving follow.
@@ -772,7 +771,6 @@ Rules:
 | `h` `l`           | Move horizontally or cycle an option |
 | `enter` / `space` | Start, stop, save, open, or activate (when cursor active) |
 | `tab`             | Cycle `Recording` / `Visuals` / `History` / `Shortcuts` |
-| `?`               | Open or close shortcuts              |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
