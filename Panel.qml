@@ -2505,13 +2505,13 @@ Panel {
             Row {
               spacing: Style.space(4)
 
-              // Quiet manual update trigger at rest ("󰑐 Update") that
-              // elevates to an accent-framed badge ("↑ Update  ⇧U" or
-              // "↑ vX.Y.Z  ⇧U") when an update is waiting.
+              // Quiet manual update trigger at rest ("󰑐 Update") and calm
+              // neutral badge ("↑ Update") when an update is waiting so it
+              // never competes with the status pill or primary CTA.
               Item {
                 id: updateCue
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(Style.space(64), updateCueRow.implicitWidth + Style.space(16))
+                width: Math.max(Style.space(64), updateCueRow.implicitWidth + Style.space(14))
                 height: Style.space(22)
 
                 readonly property bool hot: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 0)
@@ -2525,16 +2525,16 @@ Panel {
                   anchors.fill: parent
                   radius: root.badgeRadius(height)
                   clip: true
-                  color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.24) : root.urgentSoft)
-                    : root.updateAvailable && !root.updateChecking
-                      ? (updateCue.hot ? Util.alpha(root.accent, 0.22) : Util.alpha(root.accent, 0.12))
-                    : (updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent) : root.cardFill)
+                  color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.22) : root.urgentSoft)
+                    : updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent)
+                    : root.updateAvailable && !root.updateChecking ? root.cardFill
+                    : "transparent"
                   border.width: 1
                   border.color: updateCue.failed
                     ? (updateCue.hot ? root.urgent : Util.alpha(root.urgent, 0.45))
-                    : root.updateAvailable && !root.updateChecking
-                      ? (updateCue.hot ? root.accent : Util.alpha(root.accent, 0.36))
-                    : (updateCue.hot ? root.accent : root.cardBorder)
+                    : updateCue.hot ? root.accent
+                    : root.updateAvailable && !root.updateChecking ? root.cardBorder
+                    : Util.alpha(root.foreground, 0.06)
 
                   Behavior on color {
                     ColorAnimation { duration: Style.duration(120) }
@@ -2557,7 +2557,7 @@ Panel {
                         : "󰑐"
                       color: updateCue.failed ? root.urgent
                         : root.updateAvailable ? root.accent
-                        : (updateCue.hot ? root.foreground : Util.alpha(root.foreground, 0.42))
+                        : (updateCue.hot ? root.foreground : Util.alpha(root.foreground, 0.34))
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
                       font.bold: root.updateAvailable || updateCue.failed
@@ -2573,24 +2573,14 @@ Panel {
                       color: updateCue.failed ? root.urgent
                         : updateCue.hot ? root.foreground
                         : root.updateChecking ? root.secondary
-                        : root.updateAvailable ? root.foreground
-                        : Util.alpha(root.foreground, 0.48)
+                        : root.updateAvailable ? root.secondary
+                        : Util.alpha(root.foreground, 0.36)
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
-                      font.bold: root.updateAvailable || updateCue.failed
+                      font.bold: updateCue.failed || (root.updateAvailable && updateCue.hot)
                       Behavior on color {
                         ColorAnimation { duration: Style.duration(120) }
                       }
-                    }
-
-                    Text {
-                      visible: root.updateAvailable && !root.updateChecking
-                      anchors.verticalCenter: parent.verticalCenter
-                      textFormat: Text.PlainText
-                      text: "⇧U"
-                      color: Util.alpha(root.foreground, 0.48)
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
                     }
                   }
 

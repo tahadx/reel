@@ -401,14 +401,13 @@ for identity text or quality metadata.
 - Trailing control:
   1. **Update cue** — `22`-high badge matching the status pill radius
      (`Model.pillRadius(Style.cornerRadius, height)`) at the trailing edge.
-     - Up to date: `󰑐 Update` dimmed (`0.48` label, `0.42` icon) on subtle
-       `cardFill` + `cardBorder`; hover or keyboard cursor raises it to
-       `foreground` with `accent` border and `hoverFill`, and clicking checks
-       and reports the running version.
-     - Update waiting: `↑ vX.Y.Z ⇧U` (when bumped) or `↑ Update ⇧U` (when
-       commits are ahead without a version bump) in bold `foreground` with an
-       `accent` arrow, soft `accent` fill (`0.12`), and `accent` border
-       (`0.36`). Clicking updates.
+     - Up to date: `󰑐 Update` quiet (`0.36` label, `0.34` icon) on a
+       transparent fill with a faint `0.06` border; hover or keyboard cursor
+       raises it to `foreground` with `accent` border and `hoverFill`.
+     - Update waiting: `↑ vX.Y.Z` (when bumped) or `↑ Update` (when commits
+       are ahead without a version bump) on neutral `cardFill` + `cardBorder`,
+       with only the `↑` accented so it stays calm beside the status pill.
+       Hover/cursor raises it to `foreground` with `accent` border.
      - Checking: `Checking…` in `secondary` with an `accent` sweep along the
        bottom edge.
      - Failed check: `󰑐 Retry` in `urgent` on `urgentSoft`.
