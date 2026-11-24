@@ -231,7 +231,7 @@ Rules:
   `Shift+U` in shortcut tables/tooltips and `Space` / `Enter` / `Esc` / `Tab`
   in inline and footer keycaps.
 - Uppercase copy is reserved for tracked section micro-headers (`AUDIO`, `VIDEO`,
-  `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `SHORTCUTS`).
+  `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `INPUT DEVICES`).
 - Errors state cause + fix, one line. “No microphone found. Pick one in Audio.”
 - No exclamation marks. No “Please”. No marketing voice inside the tool.
 - Toasts are one sentence and never modal.
@@ -441,7 +441,8 @@ for identity text or quality metadata.
   - Recording: urgent dot (pulsing `0.35 ↔ 1.0`, `900` ms) + live clock,
     foreground, on soft urgent fill (`0.16`) and urgent border (`0.40`).
   - Paused: secondary dot + frozen clock, no pulse, `restFill` + `hairline`.
-  - Saving: secondary dot + `Saving` / `Saving N` on `restFill` + `hairline`.
+  - Background save jobs show in History (`SavingRow`), never as `"Saving"` in
+    the top hero badge (which returns straight to `Ready`).
 - Trailing control:
   1. **Update cue** — `22`-high badge matching the status pill radius
      (`Model.pillRadius(Style.cornerRadius, height)`) at the trailing edge.
@@ -767,10 +768,10 @@ Rules:
 | :---------------- | :----------------------------------- |
 | `Shift+U`         | Update Reel in a terminal            |
 | `↑` `↓` / `j` `k` | Move between rows (wakes cursor first) |
-| `←` `→`           | Move across actions or step options  |
+| `←` `→`           | Move horizontally or step options    |
 | `h` `l`           | Move horizontally or cycle an option |
-| `enter` / `space` | Start, stop, save, open, or activate (when cursor active) |
-| `tab`             | Cycle `Recording` / `Visuals` / `History` / `Shortcuts` |
+| `enter` / `space` | Activate, toggle, or open (when cursor active) |
+| `tab`             | Cycle `Recording` / `Visuals` / `History` / `Shortcuts` (`Shift+Tab` reverses) |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
@@ -782,9 +783,9 @@ Rules:
 | `u`               | Share the selected take              |
 | `n`               | Rename the selected take             |
 | `c`               | Copy the selected take's path        |
-| `o`               | Open the recordings folder           |
+| `o`               | Open the recordings folder and close |
 | `q`               | Close the panel                      |
-| `esc`             | Go back from subpages, then close    |
+| `esc`             | Go back, cancel countdown, or close  |
 
 Rules:
 

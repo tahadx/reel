@@ -480,15 +480,16 @@ Panel {
   readonly property var shortcutRows: [
     { keys: "Shift+U", what: "update Reel" },
     { keys: "↑ ↓ / j k", what: "move between rows" },
-    { keys: "← →", what: "move across an action row" },
+    { keys: "← →", what: "move horizontally or step an option" },
     { keys: "h / l", what: "move horizontally or cycle an option" },
-    { keys: "enter / space", what: "start, stop, save, or open" },
-    { keys: "tab", what: "switch pages" },
+    { keys: "enter / space", what: "activate, toggle, or open" },
+    { keys: "tab", what: "cycle pages (Shift+Tab reverses)" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
     { keys: "Ctrl+Scroll", what: "zoom during a take" },
-    { keys: "s", what: "focus the settings tabs" },
+    { keys: "s", what: "focus the settings rows" },
+    { keys: "t", what: "cut the selected take in Omacut" },
     { keys: "a", what: "open the take actions menu" },
     { keys: "x / delete", what: "trash the selected take" },
     { keys: "u", what: "share the selected take" },
@@ -496,7 +497,7 @@ Panel {
     { keys: "c", what: "copy the selected take's path" },
     { keys: "o", what: "open the recordings folder and close" },
     { keys: "q", what: "close the panel" },
-    { keys: "esc", what: "go back, then close" }
+    { keys: "esc", what: "go back, cancel countdown, or close" }
   ]
   readonly property var settingsTabs: [
     { id: "recording", label: "Recording", rows: root.recordingSettingRows },
@@ -2450,7 +2451,7 @@ Panel {
               height: Style.space(22)
 
               readonly property bool recordingLive: (root.status === "recording" || root.capturing) && !root.paused
-              readonly property bool idleReady: !root.active && !root.capturing && !root.finalizing && root.savingJobs.length === 0
+              readonly property bool idleReady: !root.active && !root.capturing
 
               Rectangle {
                 anchors.fill: parent
@@ -2473,7 +2474,7 @@ Panel {
                     height: width
                     radius: width / 2
                     color: statusPillRoot.recordingLive ? root.urgent
-                      : root.paused || root.finalizing || root.savingJobs.length > 0 ? root.secondary
+                      : root.paused ? root.secondary
                       : root.accent
                     anchors.verticalCenter: parent.verticalCenter
 
@@ -2488,13 +2489,8 @@ Panel {
 
                   Text {
                     textFormat: Text.PlainText
-                    text: root.active || root.capturing ? Model.clock(root.elapsed)
-                      : root.finalizing ? "Saving"
-                      : root.savingJobs.length > 0
-                        ? "Saving " + root.savingJobs.length
-                        : "Ready"
-                    color: root.paused || root.finalizing || root.savingJobs.length > 0
-                      ? root.secondary : root.foreground
+                    text: root.active || root.capturing ? Model.clock(root.elapsed) : "Ready"
+                    color: root.paused ? root.secondary : root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: true
@@ -2971,50 +2967,41 @@ Panel {
 
             // ---------- shortcuts page ----------
 
-            Column {
+            Rectangle {
               visible: root.page === "home" && root.settingsTab === "shortcuts"
               width: parent.width
-              spacing: Style.space(5)
+              implicitHeight: shortcutsCol.implicitHeight
+              radius: root.panelRadius
+              color: root.cardFill
+              border.width: 1
+              border.color: root.cardBorder
+              clip: true
 
-              SectionMicroHeader {
-                text: "Shortcuts"
-              }
-
-              Rectangle {
+              Column {
+                id: shortcutsCol
                 width: parent.width
-                implicitHeight: shortcutsCol.implicitHeight
-                radius: root.panelRadius
-                color: root.cardFill
-                border.width: 1
-                border.color: root.cardBorder
-                clip: true
+                spacing: 0
 
-                Column {
-                  id: shortcutsCol
-                  width: parent.width
-                  spacing: 0
+                Repeater {
+                  model: root.page === "home" && root.settingsTab === "shortcuts" ? root.shortcutRows : []
 
-                  Repeater {
-                    model: root.page === "home" && root.settingsTab === "shortcuts" ? root.shortcutRows : []
+                  Column {
+                    required property var modelData
+                    required property int index
+                    width: parent.width
+                    spacing: 0
 
-                    Column {
-                      required property var modelData
-                      required property int index
+                    Rectangle {
+                      visible: index > 0
                       width: parent.width
-                      spacing: 0
+                      height: 1
+                      color: root.rowDivider
+                    }
 
-                      Rectangle {
-                        visible: index > 0
-                        width: parent.width
-                        height: 1
-                        color: root.rowDivider
-                      }
-
-                      ShortcutRow {
-                        width: parent.width
-                        row: modelData
-                        rowIndex: index
-                      }
+                    ShortcutRow {
+                      width: parent.width
+                      row: modelData
+                      rowIndex: index
                     }
                   }
                 }
