@@ -219,8 +219,8 @@ here.`
 - Fixed header: hero (22 high) + `10` gap + actions (38 high) + `10` gap +
   settings tabs (30 high, `4` above, `0` below) + `1` px hairline. The strip is
   navigation: three equal pages (`Recording`, `Visuals`, `History`).
-- Fixed footer: `1` px hairline + keyhint strip (`24` high) below the scroll
-  region.
+- Fixed footer: `1` px hairline + `8` px top/bottom margin around the `16` px
+  keyhint row below the scroll region, centered between hairline and card edge.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
@@ -265,7 +265,7 @@ are the fixed frame.
   indent cleanly under their parent). Values and inline
   steppers are right-aligned and never push a label into wrapping.
 - Settings row height: `34` (`42` with a device subtitle). Action height: `38`.
-  Tab height: `30`. Footer height: `24`.
+  Tab height: `30`. Footer keyhint row: `16` with `8` px top/bottom margin below `1` px hairline.
 - Take row height: `56`. Thumbnail: `84 × 48`.
 - Toggle: `32 × 16`, thumb `12`.
 - Icon buttons: at least `22 × 22`, whole and odd where possible.
@@ -551,7 +551,8 @@ lists when it opens.
 - Height `34`, radius `Style.cornerRadius`, `cardFill` + `cardBorder`.
 - Bare folder glyph (`Style.font.icon`), label `body`: `Open the recordings
   folder`.
-- Same cursor, `[Enter]` hint, and `3` px left accent edge as settings rows.
+- Always shows `[o]` `KeyHintChip` on the right (`active` on cursor), and uses the
+  same cursor border and `3` px left accent edge as settings rows.
 
 **Saving row**
 

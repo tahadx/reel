@@ -3227,111 +3227,123 @@ Panel {
 
         Item {
           id: footerStrip
+          readonly property int outerPad: Math.min(keyboardPanel.padding, Style.space(8))
+          readonly property int bottomOverlap: keyboardPanel.padding - outerPad
           Layout.fillWidth: true
-          Layout.preferredHeight: Style.space(24)
+          Layout.preferredHeight: 1 + outerPad + Style.space(16) - bottomOverlap
 
           Rectangle {
+            id: footerHairline
             anchors.top: parent.top
             width: parent.width
             height: 1
             color: root.hairline
           }
 
-          Row {
+          // Match outerPad below the hairline and down to the card border so
+          // the keyhints sit compact and vertically centered in the footer band.
+          Item {
+            anchors.top: footerHairline.bottom
+            anchors.topMargin: footerStrip.outerPad
             anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: Style.space(2)
-            spacing: Style.space(8)
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: -footerStrip.bottomOverlap
 
-            Repeater {
-              model: root.footerHints()
+            Row {
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(8)
 
-              Row {
-                required property var modelData
-                spacing: Style.space(4)
+              Repeater {
+                model: root.footerHints()
 
-                Rectangle {
-                  width: footerKeyText.implicitWidth + Style.space(8)
-                  height: Style.space(16)
-                  radius: root.chipRadius(Style.space(3))
-                  color: Util.alpha(root.foreground, 0.06)
-                  border.width: 1
-                  border.color: Util.alpha(root.foreground, 0.14)
-                  anchors.verticalCenter: parent.verticalCenter
+                Row {
+                  required property var modelData
+                  spacing: Style.space(4)
+
+                  Rectangle {
+                    width: footerKeyText.implicitWidth + Style.space(8)
+                    height: Style.space(16)
+                    radius: root.chipRadius(Style.space(3))
+                    color: Util.alpha(root.foreground, 0.06)
+                    border.width: 1
+                    border.color: Util.alpha(root.foreground, 0.14)
+                    anchors.verticalCenter: parent.verticalCenter
+
+                    Text {
+                      id: footerKeyText
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      text: modelData.key
+                      color: Util.alpha(root.foreground, 0.78)
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                    }
+                  }
 
                   Text {
-                    id: footerKeyText
-                    anchors.centerIn: parent
                     textFormat: Text.PlainText
-                    text: modelData.key
-                    color: Util.alpha(root.foreground, 0.78)
+                    text: modelData.label
+                    color: Util.alpha(root.foreground, 0.50)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
-                    font.bold: true
+                    anchors.verticalCenter: parent.verticalCenter
                   }
-                }
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: modelData.label
-                  color: Util.alpha(root.foreground, 0.50)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  anchors.verticalCenter: parent.verticalCenter
                 }
               }
             }
-          }
 
-          Rectangle {
-            id: shortcutsToggleBtn
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: Style.space(2)
-            width: Style.space(20)
-            height: Style.space(16)
-            radius: root.chipRadius(Style.space(3))
-            color: root.page === "shortcuts" ? Util.alpha(root.accent, 0.16)
-              : shortcutsToggleMouse.containsMouse && root.pointerActive
-                ? Style.hoverFillFor(root.foreground, root.accent)
-              : Util.alpha(root.foreground, 0.06)
-            border.width: 1
-            border.color: root.page === "shortcuts" ? root.accent
-              : shortcutsToggleMouse.containsMouse && root.pointerActive
-                ? root.accent
-              : Util.alpha(root.foreground, 0.14)
+            Rectangle {
+              id: shortcutsToggleBtn
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              width: Style.space(20)
+              height: Style.space(16)
+              radius: root.chipRadius(Style.space(3))
+              color: root.page === "shortcuts" ? Util.alpha(root.accent, 0.16)
+                : shortcutsToggleMouse.containsMouse && root.pointerActive
+                  ? Style.hoverFillFor(root.foreground, root.accent)
+                : Util.alpha(root.foreground, 0.06)
+              border.width: 1
+              border.color: root.page === "shortcuts" ? root.accent
+                : shortcutsToggleMouse.containsMouse && root.pointerActive
+                  ? root.accent
+                : Util.alpha(root.foreground, 0.14)
 
-            Behavior on color {
-              ColorAnimation { duration: Style.duration(120) }
-            }
-            Behavior on border.color {
-              ColorAnimation { duration: Style.duration(120) }
-            }
+              Behavior on color {
+                ColorAnimation { duration: Style.duration(120) }
+              }
+              Behavior on border.color {
+                ColorAnimation { duration: Style.duration(120) }
+              }
 
-            Text {
-              anchors.centerIn: parent
-              textFormat: Text.PlainText
-              text: "?"
-              color: root.page === "shortcuts" || (shortcutsToggleMouse.containsMouse && root.pointerActive)
-                ? root.foreground : Util.alpha(root.foreground, 0.78)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
+              Text {
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: "?"
+                color: root.page === "shortcuts" || (shortcutsToggleMouse.containsMouse && root.pointerActive)
+                  ? root.foreground : Util.alpha(root.foreground, 0.78)
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.bold: true
+              }
 
-            MouseArea {
-              id: shortcutsToggleMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onPositionChanged: function(mouse) { root.notePointerMotion(shortcutsToggleMouse, mouse) }
-              onClicked: root.toggleShortcuts()
-            }
+              MouseArea {
+                id: shortcutsToggleMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onPositionChanged: function(mouse) { root.notePointerMotion(shortcutsToggleMouse, mouse) }
+                onClicked: root.toggleShortcuts()
+              }
 
-            PanelToolTip {
-              visible: shortcutsToggleMouse.containsMouse && root.pointerActive
-              text: root.page === "shortcuts" ? "Close shortcuts (?)" : "Shortcuts (?)"
-              fontFamily: root.fontFamily
+              PanelToolTip {
+                visible: shortcutsToggleMouse.containsMouse && root.pointerActive
+                text: root.page === "shortcuts" ? "Close shortcuts (?)" : "Shortcuts (?)"
+                fontFamily: root.fontFamily
+              }
             }
           }
         }
@@ -4522,13 +4534,13 @@ Panel {
 
     KeyHintChip {
       id: folderHint
-      visible: folder.hasCursor
+      visible: true
       anchors.right: parent.right
       anchors.rightMargin: Style.space(10)
       anchors.verticalCenter: parent.verticalCenter
       horizontalPadding: Style.space(8)
-      label: "Enter"
-      active: true
+      label: "o"
+      active: folder.hasCursor
     }
 
     Rectangle {
