@@ -1052,7 +1052,8 @@ Panel {
         ? "Update available: " + version + " (Shift+U)"
         : "Update available (Shift+U)"
     }
-    return "Check for updates"
+    var current = root.currentVersion()
+    return current !== "" ? "Check for updates · v" + current : "Check for updates"
   }
 
   function handleUpdate() {
@@ -2504,12 +2505,12 @@ Panel {
             Row {
               spacing: Style.space(4)
 
-              // The version is the update control: muted at rest so the status
-              // badge leads the header, with only the update arrow accented.
+              // Quiet manual update trigger ("Update" dimmed when up to date)
+              // that elevates to vX.Y.Z ↑ or Update ↑ when an update waits.
               Item {
                 id: updateCue
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(Style.space(64), updateCueRow.width)
+                width: Math.max(Style.space(48), updateCueRow.width)
                 height: Style.space(22)
 
                 readonly property bool hot: (root.pointerActive && root.hoverSection === "header" && root.hoverIndex === 0)
@@ -2530,8 +2531,8 @@ Panel {
                     color: updateCue.failed ? root.urgent
                       : updateCue.hot ? root.foreground
                       : root.updateChecking ? root.dim
-                      : root.updateAvailable ? Util.alpha(root.foreground, 0.58)
-                      : Util.alpha(root.foreground, 0.45)
+                      : root.updateAvailable ? Util.alpha(root.foreground, 0.82)
+                      : Util.alpha(root.foreground, 0.35)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.bodySmall
                     font.bold: root.updateAvailable && updateCue.hot
@@ -5304,7 +5305,10 @@ Panel {
           ? "Update available: v" + latest + ". Press Shift+U to update."
           : "Update available. Press Shift+U to update.")
       } else {
-        root.setNotice("Reel is up to date.")
+        var currentVer = root.currentVersion()
+        root.setNotice(currentVer !== ""
+          ? "Reel v" + currentVer + " is up to date."
+          : "Reel is up to date.")
       }
     }
   }

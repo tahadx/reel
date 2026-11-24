@@ -399,13 +399,14 @@ for identity text or quality metadata.
   - Paused: secondary dot + frozen clock, no pulse, `restFill` + `hairline`.
   - Saving: secondary dot + `Saving` / `Saving N` on `restFill` + `hairline`.
 - Trailing control:
-  1. **Version cue** — `bodySmall` in a reserved `64`-wide, `22`-high slot at
-     the trailing edge. It is a text link, not a pill: no fill and no border in
-     any state.
-     - Rest: `vX.Y.Z` muted (`0.45` foreground), regular weight. Hover or
-       keyboard cursor raises it to foreground and draws a `1` px accent
-       underline.
-     - Update waiting: version remains muted at rest (`0.58` foreground, full
+  1. **Update cue** — `bodySmall` in a `22`-high slot at the trailing edge. It
+     is a text link, not a pill: no fill and no border in any state.
+     - Up to date: `Update` dimmed (`0.35` foreground) as a quiet manual
+       check trigger; hover or keyboard cursor raises it to foreground and draws
+       a `1` px accent underline, and clicking checks and reports the current
+       version.
+     - Update waiting: `vX.Y.Z` (when bumped) or `Update` (when commits are
+       ahead without a version bump) in readable foreground (`0.82`, full
        foreground + bold on hover) with an accent bold `↑` after it. Clicking
        updates.
      - Checking: `Checking…` in dim with a `1` px accent sweep travelling

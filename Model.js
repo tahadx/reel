@@ -36,35 +36,36 @@ function parseVersion(text) {
   return match ? match[1] : ""
 }
 
-// The hero version slot is also the update action, so the label stays on a
-// version number and the arrow is drawn as a separate accent mark. A remote
-// that is ahead without a version bump keeps showing the running version, so
-// the slot never falls back to the word "Update". A failed check surfaces as
-// "Retry" instead of quietly falling back to the version.
 // A clipboard can carry arbitrary text. The name fields only accept one
 // printable line that fits in the field; anything else is refused before it is
 // inserted.
 function pasteText(raw, maxChars) {
-    var text = String(raw === undefined || raw === null ? "" : raw)
-    var limit = Math.max(1, Math.floor(Number(maxChars) || 1))
-    if (text === "") return { ok: true, text: "", error: "" }
-    if (/[\u0000-\u001f\u007f]/.test(text)) {
-        return { ok: false, text: "", error: "Paste has a line break or control character." }
-    }
-    if (text.length > limit) {
-        return { ok: false, text: "", error: "Paste is longer than " + limit + " characters." }
-    }
-    return { ok: true, text: text, error: "" }
+  var text = String(raw === undefined || raw === null ? "" : raw)
+  var limit = Math.max(1, Math.floor(Number(maxChars) || 1))
+  if (text === "") return { ok: true, text: "", error: "" }
+  if (/[\u0000-\u001f\u007f]/.test(text)) {
+    return { ok: false, text: "", error: "Paste has a line break or control character." }
+  }
+  if (text.length > limit) {
+    return { ok: false, text: "", error: "Paste is longer than " + limit + " characters." }
+  }
+  return { ok: true, text: text, error: "" }
 }
 
-function updateCueLabel(info, version, checking) {  if (checking) return "Checking…"
+// The hero update slot doubles as a quiet manual check ("Update" dimmed at
+// rest) and an actionable cue: Checking…, Retry on error, or an available
+// update (vX.Y.Z when version bumped, or Update when commits are ahead).
+function updateCueLabel(info, version, checking) {
+  if (checking) return "Checking…"
   var update = object(info)
   var current = String(version || update.current || "")
   var latest = String(update.latest || "")
-  if (update.available === true && latest !== "" && latest !== current)
-    return "v" + latest
-  if (String(update.error || "") !== "" && update.available !== true) return "Retry"
-  return current !== "" ? "v" + current : "v…"
+  if (update.available === true) {
+    if (latest !== "" && latest !== current) return "v" + latest
+    return "Update"
+  }
+  if (String(update.error || "") !== "") return "Retry"
+  return "Update"
 }
 
 function object(value) {
