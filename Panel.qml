@@ -1991,6 +1991,7 @@ Panel {
       if (root.visibleRecents.length === 0 && !root.savingTake) {
         return [
           { key: "r", label: root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record") },
+          { key: "o", label: "Folder" },
           { key: "Tab", label: "Pages" },
           { key: "Esc", label: "Hide" }
         ]
@@ -2000,6 +2001,7 @@ Panel {
         { key: "Enter", label: "Open" },
         { key: "a", label: "Actions" },
         { key: "x", label: "Trash" },
+        { key: "o", label: "Folder" },
         { key: "Esc", label: "Hide" }
       ]
     }
@@ -4534,13 +4536,13 @@ Panel {
 
     KeyHintChip {
       id: folderHint
-      visible: true
+      visible: folder.hasCursor
       anchors.right: parent.right
       anchors.rightMargin: Style.space(10)
       anchors.verticalCenter: parent.verticalCenter
       horizontalPadding: Style.space(8)
       label: "o"
-      active: folder.hasCursor
+      active: true
     }
 
     Rectangle {

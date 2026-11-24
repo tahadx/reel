@@ -551,8 +551,8 @@ lists when it opens.
 - Height `34`, radius `Style.cornerRadius`, `cardFill` + `cardBorder`.
 - Bare folder glyph (`Style.font.icon`), label `body`: `Open the recordings
   folder`.
-- Always shows `[o]` `KeyHintChip` on the right (`active` on cursor), and uses the
-  same cursor border and `3` px left accent edge as settings rows.
+- Shows its `[o]` `KeyHintChip` on hover or keyboard cursor, plus the `3` px left
+  accent edge on cursor.
 
 **Saving row**
 
