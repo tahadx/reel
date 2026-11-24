@@ -451,14 +451,16 @@ Rules:
 The strip sits above the scroll area and stays fixed on **every** destination,
 History included, while the body scrolls underneath it.
 
-- Height `30`; the three numbered settings tabs (`Recording [1]`, `Visuals [2]`,
-  `Shortcuts [3]`) occupy the leading `72%`, followed by a `1` px vertical
-  hairline and `History [⇧H]` at the trailing edge.
+- Height `30`; the three settings tabs (`Recording`, `Visuals`, `Shortcuts`)
+  occupy the leading `72%`, followed by a `1` px vertical hairline and
+  `History [⇧H]` at the trailing edge.
 - Label `bodySmall`; active `foreground` + bold; inactive foreground at `0.58`;
   hover `foreground`.
 - Active underline: `2` px accent, inset `Style.space(14)` from each side.
 - Hover underline: `1` px at `0.35` foreground, no fill.
-- Every destination carries a `KeyHintChip` (`active: true` when selected).
+- `Tab` / `Shift+Tab` cycles across all four pages (`Recording`, `Visuals`,
+  `Shortcuts`, `History`); `History` carries a `KeyHintChip` (`⇧H`) and `1`–`3`
+  remain direct shortcuts to the settings tabs.
 - Each panel open returns to Recording with the first settings row (`Desktop
   audio`) focused so keyboard focus is unmistakable on open.
 

@@ -483,8 +483,8 @@ Panel {
     { keys: "← →", what: "move across an action row" },
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "start, stop, save, or open" },
-    { keys: "tab", what: "switch sections or settings tabs" },
-    { keys: "1–3", what: "switch settings tabs" },
+    { keys: "tab", what: "switch pages" },
+    { keys: "1–3", what: "jump to settings tabs" },
     { keys: "r", what: "start or stop a take" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
@@ -517,7 +517,7 @@ Panel {
     var list = []
     for (var i = 0; i < root.settingsTabs.length; i++) {
       var tab = root.settingsTabs[i]
-      list.push({ id: tab.id, label: tab.label, key: String(i + 1) })
+      list.push({ id: tab.id, label: tab.label })
     }
     list.push({ id: "history", label: "History", key: "H", modifier: "⇧", separated: true })
     return list
@@ -1900,6 +1900,17 @@ Panel {
     root.cursorActive = true
   }
 
+  function cycleNav(delta) {
+    var ids = []
+    for (var i = 0; i < root.navDestinations.length; i++)
+      ids.push(root.navDestinations[i].id)
+    if (ids.length === 0) return
+    var currentId = root.page === "history" ? "history" : root.settingsTab
+    var index = ids.indexOf(currentId)
+    if (index < 0) index = 0
+    root.selectNav(ids[(index + delta + ids.length) % ids.length])
+  }
+
   function settingsCount() {
     return root.activeRows().length
   }
@@ -1953,7 +1964,7 @@ Panel {
       return [
         { key: "↑/↓", label: "Navigate" },
         { key: "r", label: recordLabel },
-        { key: "1-3", label: "Tabs" },
+        { key: "Tab", label: "Pages" },
         { key: "Esc", label: "Hide" }
       ]
     }
@@ -1978,7 +1989,7 @@ Panel {
       { key: "↑/↓", label: "Navigate" },
       { key: actionKey, label: actionLabel },
       { key: "r", label: recordLabel },
-      { key: "1-3", label: "Tabs" },
+      { key: "Tab", label: "Pages" },
       { key: "Esc", label: "Hide" }
     ]
   }
@@ -2421,7 +2432,7 @@ Panel {
         if (root.page === "history") root.trashSelected()
       }
       onTabRequested: function(direction) {
-        if (!root.takeMenuOpen) root.moveSection(direction)
+        if (!root.takeMenuOpen) root.cycleNav(direction)
       }
       onTextKey: function(text) { root.onTextKey(text) }
       onHistoryRequested: {
@@ -2753,7 +2764,8 @@ Panel {
                     }
 
                     KeyHintChip {
-                      label: modelData.key
+                      visible: modelData.key !== undefined && modelData.key !== ""
+                      label: modelData.key || ""
                       modifier: modelData.modifier || ""
                       horizontalPadding: modelData.separated === true
                         ? Style.space(12) : Style.space(9)
