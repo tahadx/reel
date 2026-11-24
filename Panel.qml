@@ -530,7 +530,7 @@ Panel {
 
   function selectNav(id) {
     root.typingPrefix = false
-    root.cursorActive = true
+    root.cursorActive = false
     if (id === "history") {
       root.openHistory()
       return
@@ -1383,7 +1383,7 @@ Panel {
   }
 
   function selectedTake() {
-    if (root.page !== "history" || root.focusSection !== "recents") return null
+    if (!root.cursorActive || root.page !== "history" || root.focusSection !== "recents") return null
     var index = root.selectedIndex - 1
     if (index < 0 || index >= root.visibleRecents.length) return null
     return root.visibleRecents[index]
@@ -1675,6 +1675,7 @@ Panel {
 
   function activateCursor() {
     root.clearHover()
+    if (!root.cursorActive) return
     switch (root.focusSection) {
     case "header":
       root.handleUpdate()
@@ -1767,7 +1768,7 @@ Panel {
     root.page = "devices"
     root.focusSection = "settings"
     root.settingsIndex = 0
-    root.cursorActive = true
+    root.cursorActive = false
     root.typingPrefix = false
     root.refreshAudioDevices()
     root.refreshCameras()
@@ -1781,7 +1782,7 @@ Panel {
     root.settingsTab = "recording"
     root.focusSection = "settings"
     root.settingsIndex = root.inputDevicesRowIndex()
-    root.cursorActive = true
+    root.cursorActive = false
     root.beginKeyboardScroll()
     root.resetScroll()
     Qt.callLater(root.focusPanelKeys)
@@ -1798,7 +1799,7 @@ Panel {
     root.page = "history"
     root.focusSection = "recents"
     root.selectedIndex = root.visibleRecents.length > 0 ? 1 : 0
-    root.cursorActive = true
+    root.cursorActive = false
     root.historyAnchorPath = ""
     root.suppressHistoryHover = false
     Qt.callLater(root.focusPanelKeys)
@@ -1810,7 +1811,7 @@ Panel {
     root.focusSection = "settings"
     root.selectedIndex = 0
     root.settingsIndex = 0
-    root.cursorActive = true
+    root.cursorActive = false
     root.historyAnchorPath = ""
     root.suppressHistoryHover = false
     Qt.callLater(root.focusPanelKeys)
@@ -1865,7 +1866,7 @@ Panel {
     root.page = "shortcuts"
     root.focusSection = "settings"
     root.settingsIndex = 0
-    root.cursorActive = true
+    root.cursorActive = false
     root.typingPrefix = false
     root.resetScroll()
     Qt.callLater(root.focusPanelKeys)
@@ -1881,7 +1882,7 @@ Panel {
     root.page = "home"
     root.focusSection = "settings"
     root.settingsIndex = 0
-    root.cursorActive = true
+    root.cursorActive = false
     root.beginKeyboardScroll()
     root.resetScroll()
     Qt.callLater(root.focusPanelKeys)
@@ -1972,15 +1973,22 @@ Panel {
   }
 
   function footerHints() {
+    var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
     if (root.page === "shortcuts") {
       return [
         { key: "↑/↓", label: "Move" },
-        { key: "r", label: root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record") },
+        { key: "r", label: recordLabel },
         { key: "Tab", label: "Pages" },
         { key: "Esc", label: "Back" }
       ]
     }
     if (root.page === "devices") {
+      if (!root.cursorActive) {
+        return [
+          { key: "↑/↓", label: "Move" },
+          { key: "Esc", label: "Back" }
+        ]
+      }
       return [
         { key: "↑/↓", label: "Move" },
         { key: "Enter", label: "Select" },
@@ -1990,7 +1998,25 @@ Panel {
     if (root.page === "history") {
       if (root.visibleRecents.length === 0 && !root.savingTake) {
         return [
-          { key: "r", label: root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record") },
+          { key: "r", label: recordLabel },
+          { key: "o", label: "Folder" },
+          { key: "Tab", label: "Pages" },
+          { key: "Esc", label: "Hide" }
+        ]
+      }
+      if (!root.cursorActive) {
+        return [
+          { key: "↑/↓", label: "Move" },
+          { key: "r", label: recordLabel },
+          { key: "o", label: "Folder" },
+          { key: "Tab", label: "Pages" },
+          { key: "Esc", label: "Hide" }
+        ]
+      }
+      if (root.focusSection === "recents" && root.selectedIndex === 0) {
+        return [
+          { key: "↑/↓", label: "Move" },
+          { key: "Enter", label: "Open" },
           { key: "o", label: "Folder" },
           { key: "Tab", label: "Pages" },
           { key: "Esc", label: "Hide" }
@@ -2005,7 +2031,14 @@ Panel {
         { key: "Esc", label: "Hide" }
       ]
     }
-    var recordLabel = root.starting ? "Cancel" : (root.liveTake ? "Stop" : "Record")
+    if (!root.cursorActive) {
+      return [
+        { key: "↑/↓", label: "Move" },
+        { key: "r", label: recordLabel },
+        { key: "Tab", label: "Pages" },
+        { key: "Esc", label: "Hide" }
+      ]
+    }
     var actionKey = "Space"
     var actionLabel = "Toggle"
     if (root.focusSection === "settings") {
@@ -2152,7 +2185,7 @@ Panel {
       root.page = "home"
       root.focusSection = "settings"
       root.selectedIndex = 0
-      root.cursorActive = true
+      root.cursorActive = false
       root.settingsIndex = 0
       root.settingsTab = "recording"
       root.carryingFile = false

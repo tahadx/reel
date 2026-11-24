@@ -460,8 +460,9 @@ History included, while the body scrolls underneath it.
 - `Tab` / `Shift+Tab` cycles left to right across the three strip pages
   (`Recording`, `Visuals`, `History`); Shortcuts opens via `?` or the `[?]`
   button on the right edge of the footer.
-- Each panel open returns to `Recording` with the first settings row
-  (`Desktop audio`) focused so keyboard focus is unmistakable on open.
+- Each panel open returns to `Recording` and starts without a visible
+  keyboard cursor on any destination until the user presses an arrow key or
+  `j` / `k` / `h` / `l`.
 
 ### 6.5.1 Settings taxonomy
 
