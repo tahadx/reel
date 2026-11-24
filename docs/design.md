@@ -10,9 +10,11 @@ system that Reel ships today, and `Panel.qml` and `Countdown.qml` are the
 reference implementation. When the code and this guide drift, update both in
 the same change.
 
-The system is built on Omarchy's tokens in `qs.Commons.Style` and
-`qs.Commons.Color`. Reel owns no private palette, so one `omarchy theme set`
-should restyle the entire plugin.
+The system is built on Omarchy's shared shell layer (`qs.Commons.Style`,
+`qs.Commons.Color`, `qs.Commons.Border`, and `qs.Ui.*`). Reel owns no private
+palette or chrome tokens, so changing a theme, transparency/glass preset,
+Hyprland border/rounding setting, or font scale updates the entire plugin
+without restarts or special-case overrides.
 
 ---
 
@@ -37,8 +39,9 @@ should restyle the entire plugin.
 2. **Accent is a signal.** Accent marks live state, the primary action, the
    active tab, or focus. It may appear in several roles at once, but never
    twice for the same role, and never as decoration.
-3. **Fixed frame, moving content.** The identity, status, history control,
-   primary actions, and navigation strip never scroll. Only the page body scrolls.
+3. **Fixed frame, moving content.** The hero (status badge + update cue),
+   primary actions, navigation strip, and footer never scroll. Only the page body
+   scrolls.
 4. **Density is respect.** A recorder is a tool. Show more, scroll less, and
    use `Style.space()` for every gap.
 5. **Motion explains.** Transitions are short, one-shot, and quiet. Motion
@@ -57,25 +60,68 @@ should restyle the entire plugin.
 
 ---
 
-## 3. Tokens & Color
+## 3. Omarchy integration & tokens
+
+Reel inherits Omarchy's live appearance stack from `theme/colors.toml`,
+`theme/shell.toml`, and Hyprland options (`decoration:rounding`,
+`general:gaps_out`). Every surface adapts automatically to light/dark themes,
+translucent or glassy backgrounds, gradient/asymmetric borders, sharp (`0` px)
+vs rounded corners, and font/DPI scaling.
+
+### Transparency, glass & popup backdrop
+
+- **Popup surface (`KeyboardPanel` → `BorderSurface`):** Background binds to
+  `Commons.Color.popups.background` (`[popups] background` +
+  `popups.background-alpha` in `shell.toml`). Under transparent or glassy
+  Omarchy presets with compositor blur, the entire panel inherits the translucent
+  glass surface automatically.
+- **No opaque inner walls:** Section cards (`0.03` foreground), rest controls
+  (`0.04`), hover/cursor washes (`0.08`/`0.09`), dividers (`0.06`), and
+  hairlines (`0.12`) use pure translucent `foreground` alphas instead of opaque
+  tinted fills, preserving glass depth across the whole panel.
+- **Floating layers inside the panel:** Transient overlays (`toastCard`,
+  `takeMenuCard`) and `KeyHintChip` bases use `Commons.Color.background` so
+  stacked text and keycap shadows stay legible on both opaque and translucent
+  glass backdrops. The desktop `Countdown` ring uses `Commons.Color.background`
+  at `0.94` opacity.
+- **Transparent & light/dark bars:** The bar widget binds to `bar.barForeground`
+  (`omarchy-bar-text-color`, sampled from the strip behind transparent bars) and
+  renders bare drawings (`idleMark` + bare `● 0:12` timer) with no pill box so
+  transparent, blurred, light, and dark bars stay cohesive.
+
+### Theme borders & corners
+
+- **Popup frame (`BorderSurface`):** `KeyboardPanel` resolves
+  `Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))`,
+  honoring per-theme border colors, `popups.border-alpha`, asymmetric per-side
+  widths (`border-width-*`), and `border-gradient` specs from `shell.toml`.
+- **Corner geometry (`Style.cornerRadius`):** Mirrors Hyprland's
+  `decoration:rounding`. When `0` px (sharp mode), cards, buttons, inputs,
+  thumbnails, keycaps, switches, and hero pills render machined right angles;
+  when `> 0`, components scale cleanly (`Style.cornerRadius`,
+  `Model.scaledRadius`, and `Model.pillRadius`).
+- **Clearance & padding:** Outer desktop clearance reads `Style.gapsOut` (half
+  of Hyprland `general:gaps_out`) and inner popup inset reads
+  `Style.spacing.popupPadding` (`14` px default).
+
+### Core tokens
 
 Use these. Do not introduce numeric literals for color, radius, spacing, or type
 in layout code.
 
-### Core tokens
-
-| Purpose                       | Token                                                                                |
-| :---------------------------- | :----------------------------------------------------------------------------------- |
-| Spacing, padding, gaps, sizes | `Style.space(n)`                                                                     |
-| Fractional spacing            | `Style.spaceReal(n)`                                                                 |
-| Corner radius                 | `Style.cornerRadius`                                                                 |
-| Type scale                    | `Style.font.caption` … `Style.font.display`                                          |
-| Icon size                     | `Style.font.icon`, `Style.font.iconLarge`                                            |
-| Bar geometry                  | `Style.bar.iconSlot`, `Style.bar.iconCanvas`, `Style.bar.iconFont`                   |
-| Interactive fills             | `Style.hoverFillFor(...)`, `Style.selectedFillFor(...)`, `Style.pressedFillFor(...)` |
-| Borders                       | `Style.normalBorderFor(...)`, `Style.hoverBorderFor(...)`                            |
-| Alpha helper                  | `Util.alpha(color, alpha)`                                                           |
-| Motion duration               | `Style.duration(ms)`                                                                 |
+| Purpose                       | Token                                                                                   |
+| :---------------------------- | :-------------------------------------------------------------------------------------- |
+| Spacing, padding, gaps, sizes | `Style.space(n)`, `Style.spacing.popupPadding`, `Style.gapsOut`                         |
+| Fractional spacing            | `Style.spaceReal(n)`                                                                    |
+| Corner radius                 | `Style.cornerRadius`, `Model.scaledRadius(...)`, `Model.pillRadius(...)`                |
+| Type scale & family           | `Style.font.caption` … `Style.font.display`, `bar.fontFamily` / `Style.font.family`     |
+| Icon size                     | `Style.font.icon`, `Style.font.iconLarge`                                               |
+| Bar geometry                  | `Style.bar.iconSlot`, `Style.bar.iconCanvas`, `Style.bar.iconFont`                      |
+| Surface colors                | `Commons.Color.popups.*`, `Commons.Color.{foreground,background,accent,urgent,muted}`   |
+| Interactive fills             | `Style.hoverFillFor(...)`, `Style.selectedFillFor(...)`, `Style.pressedFillFor(...)`    |
+| Borders                       | `Border.surfaceSpec(...)`, `Border.controlSpec(...)`, `Border.flat(...)`, `Border.none()` |
+| Alpha helper                  | `Util.alpha(color, alpha)`                                                              |
+| Motion duration & opt-out     | `Style.duration(ms)`, `Style.reduceMotion`                                              |
 
 Panel surfaces read text color from the bar when hosted there:
 
@@ -94,8 +140,8 @@ layout.
 | Foreground | `foreground` | bar foreground or `Commons.Color.foreground` | Text, icons, active controls                          |
 | Muted      | `dim`        | `Commons.Color.muted`                        | Meta, hints, inactive labels                          |
 | Secondary  | `secondary`  | foreground at `0.72`                         | Readable body text at rest                            |
-| Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary record action, active tab, cursor |
-| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, live bar clock      |
+| Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary record action, active tab, cursor, bar dot |
+| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, live stop/panel status |
 
 ### State aliases
 
@@ -136,8 +182,11 @@ Rules:
   or borders on content.
 - Never use accent for static headings, ordinary dividers, or decorative icons.
 - Never use urgent unless the surface destroys, stops, fails, or warns.
-- Do not tint the panel background. It is the theme's popup surface.
-- Floating layers use `Commons.Color.background` with accent/urgent borders.
+- Do not hardcode the popup backdrop; `KeyboardPanel` supplies
+  `Commons.Color.popups.background` and `[popups]` border specs from Omarchy.
+- Floating inner cards (`toastCard`, `takeMenuCard`) use
+  `Commons.Color.background` with accent/urgent/hairline borders so they remain
+  readable over translucent popup glass.
 - Light and dark themes must both pass. Test by switching theme, not by
   inverting values.
 
@@ -179,8 +228,8 @@ Rules:
   “Open the recordings folder”.
 - Labels are nouns or short verbs. Values are nouns: `30 fps`, `2.0x`, `Off`.
 - Shortcut hints are lowercase key names: `r`, `shift+h`, `enter`. Exception:
-  the display form `Shift+H` in tooltips and `Space` / `Enter` / `Esc` in
-  inline and footer keycaps.
+  `Shift+U` / `Shift+H` in shortcut tables/tooltips and `Space` / `Enter` /
+  `Esc` / `Tab` in inline and footer keycaps.
 - Uppercase copy is reserved for tracked section micro-headers (`AUDIO`, `VIDEO`,
   `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `SHORTCUTS`).
 - Errors state cause + fix, one line. “No microphone found. Pick one in Audio.”
@@ -473,8 +522,8 @@ Shortcuts are destinations beside them.
 
 Rules:
 
-- No third settings tab. `Tab`, `Shift+H`, and `?` are part of the interface
-  contract.
+- No third settings tab. `Tab` / `Shift+Tab` and `?` are the visible navigation
+  controls (`Shift+H` and `s` remain keyboard-only shortcuts).
 - If a setting fits nowhere, challenge the setting before adding a surface.
 - Put the most frequently changed setting first inside a tab. In Recording,
   Audio and Video lead; Capture and Saving follow.
@@ -619,7 +668,8 @@ The toast is the only notification surface. It floats over the body.
   the product.
 - Hide: opacity `120` ms, y/scale `150` ms, `InCubic`.
 - Only one toast at a time. A new notice replaces the old one.
-- Saving is a toast, never an optimistic history row.
+- Live saves show placeholder `SavingRow` entries inside History (§6.8); other
+  feedback (errors, renames, copies, updates) reports through the toast.
 - Toast is above content (`z: 900`) and below the take menu (`z: 1000`).
 
 ### 6.11 Take actions menu
@@ -657,12 +707,15 @@ It must never become a separate overlay plugin kind.
 - Countdown default is **Off**. Options are `0`, `3`, `5`, `10` seconds.
 - The UI must not imply that capture starts after the ring.
 
-### 6.13 Tooltips
+### 6.13 Footer & tooltips
 
-- Use `PanelToolTip` from `qs.Ui`. Never build a custom tooltip.
-- Text includes the shortcut: `History (Shift+H)`.
-- Hover only. No tooltip on keyboard focus.
-- One line, `caption`, sentence case.
+- **Footer:** Height `16` keyhint row below the `1` px hairline (`8` px top gap
+  from hairline, `8` px bottom margin to card edge). Context-aware hints hide
+  row-action caps while `cursorActive` is `false`, add `o Folder` on History,
+  and show a `20 × 16` `[?]` button on the right edge that toggles Shortcuts.
+- **Tooltips:** Use `PanelToolTip` from `qs.Ui` (never build a custom tooltip).
+  Include the shortcut when one exists (e.g. `Shortcuts (?)`, `Close shortcuts
+  (?)`, `Shift+U`). Hover only, one line, `caption`, sentence case.
 
 ---
 
@@ -713,25 +766,27 @@ Rules:
 | Key               | Action                               |
 | :---------------- | :----------------------------------- |
 | `Shift+U`         | Update Reel in a terminal            |
-| `↑` `↓` / `j` `k` | Move between rows                    |
-| `←` `→`           | Move across the action row           |
+| `↑` `↓` / `j` `k` | Move between rows (wakes cursor first) |
+| `←` `→`           | Move across actions or step options  |
 | `h` `l`           | Move horizontally or cycle an option |
-| `enter` / `space` | Start, stop, save, open, or activate |
-| `tab`             | Switch pages                         |
+| `enter` / `space` | Start, stop, save, open, or activate (when cursor active) |
+| `tab`             | Cycle `Recording` / `Visuals` / `History` |
 | `?`               | Open or close shortcuts              |
 | `r`               | Start or stop a take                 |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
+| `Ctrl+Scroll`     | Zoom during a take                   |
 | `shift+h`         | Open or close history                |
-| `s`               | Focus the settings tabs              |
+| `s`               | Focus the settings rows              |
 | `t`               | Cut the selected take in Omacut      |
 | `a`               | Open the take actions menu           |
 | `x` / `delete`    | Trash the selected take              |
 | `u`               | Share the selected take              |
+| `n`               | Rename the selected take             |
 | `c`               | Copy the selected take's path        |
 | `o`               | Open the recordings folder           |
 | `q`               | Close the panel                      |
-| `esc`             | Go back, then close                  |
+| `esc`             | Go back from subpages, then close    |
 
 Rules:
 
