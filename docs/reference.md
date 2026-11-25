@@ -31,7 +31,7 @@ its own:
 | `reel doctor` | Check tools and print diagnostics |
 | `reel update [--binds]` | Update the plugin from its git origin, rerun its installer, and restart the shell |
 | `reel update --check [--json] [--force]` | Report whether newer commits are waiting |
-| `reel use-main [--yes] [--binds]` | Switch the installed plugin to `origin/main` and reinstall it |
+| `reel swap-main [--yes] [--binds]` | Move a development install back to `origin/main` and reinstall it |
 
 A finished take does not own the engine while it is saved. `reel stop` hands
 the take to its own save job and returns, so `reel start` and `reel toggle` can
@@ -89,13 +89,13 @@ git checkout. A copy made with `./install.sh` is not a git checkout, or is a
 clone left dirty by the copy; update and check reject it the same way Omarchy
 does. Use a git-managed install to receive updates.
 
-`reel use-main` (alias `swap-main`) recovers an installed checkout that is on a
-local branch, or a local `main` with development changes. It fetches
-`origin/main`, stashes uncommitted changes, saves local `main` or detached
-commits on a `reel-backup-<timestamp>` branch, checks out `main` tracking
-`origin/main`, and re-runs the installer. It refuses while a take is active or
-saving. Without `--yes` it prompts before changing the checkout; `--binds` also
-refreshes the optional shortcuts.
+`reel swap-main` is the recovery path for development installs. When the
+installed plugin is on a local branch, or a local `main` has development
+changes, it fetches `origin/main`, stashes uncommitted changes, saves local
+`main` or detached commits on a `reel-backup-<timestamp>` branch, checks out
+`main` tracking `origin/main`, and re-runs the installer. It refuses while a take
+is active or saving. Without `--yes` it prompts before changing the checkout;
+`--binds` also refreshes the optional shortcuts.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take

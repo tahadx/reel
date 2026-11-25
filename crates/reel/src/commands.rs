@@ -197,7 +197,7 @@ fn switch_checkout_to_main(dir: &Path, branch: &str, origin_main: &str) -> Resul
     let dir_text = dir.display().to_string();
     let head = short_rev(dir, "HEAD");
     if checkout_is_dirty(dir) {
-        let label = format!("reel use-main: {branch} at {head}");
+        let label = format!("reel swap-main: {branch} at {head}");
         let status = Command::new("git")
             .args([
                 "-C",
@@ -446,11 +446,11 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     Ok(())
 }
 
-/// Switch the installed plugin from a local branch to `main` tracking
+/// Switch a development install from a local branch to `main` tracking
 /// `origin/main`, then reinstall it. This is the recovery path for a checkout
 /// left on a development branch: Omarchy's updater only works on a clean git
 /// checkout, so the branch has to be put back on the mainstream first.
-pub fn use_main(paths: &Paths, yes: bool, binds: bool) -> Result<()> {
+pub fn swap_main(paths: &Paths, yes: bool, binds: bool) -> Result<()> {
     state::reconcile(paths);
     match state::status(paths).as_str() {
         "idle" => {}
@@ -1607,7 +1607,7 @@ mod tests {
 
     #[test]
     fn switching_to_main_stashes_local_work_and_tracks_the_remote() {
-        let root = temp_root("use-main");
+        let root = temp_root("swap-main");
         let remote = root.join("remote.git");
         fs::create_dir_all(&remote).unwrap();
         git_in(&remote, &["init", "--bare", "--initial-branch=main"]);
@@ -1660,7 +1660,7 @@ mod tests {
             origin_main
         );
         assert_eq!(git_in(&installed, &["status", "--porcelain"]), "");
-        assert!(git_in(&installed, &["stash", "list"]).contains("reel use-main"));
+        assert!(git_in(&installed, &["stash", "list"]).contains("reel swap-main"));
         assert_eq!(
             git_in(&installed, &["rev-parse", "--abbrev-ref", "local-work"]),
             "local-work"

@@ -67,7 +67,7 @@ fn run() -> anyhow::Result<u8> {
                 commands::update(&paths, binds)?;
             }
         }
-        Command::UseMain { yes, binds } => commands::use_main(&paths, yes, binds)?,
+        Command::SwapMain { yes, binds } => commands::swap_main(&paths, yes, binds)?,
         Command::ZoomIn { step, pos_step } => {
             let s = step.or(pos_step).unwrap_or(0.25);
             commands::zoom_in(&paths, s)?;

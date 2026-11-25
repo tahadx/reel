@@ -98,9 +98,14 @@ pub enum Command {
         #[arg(long, requires = "check")]
         force: bool,
     },
-    /// Switch the installed plugin from a local branch to origin/main.
-    #[command(name = "use-main", visible_alias = "swap-main")]
-    UseMain {
+    /// Switch a development install back to origin/main.
+    ///
+    /// Fetches origin/main, stashes local changes, saves local main or detached
+    /// commits on a backup branch, checks out main tracking origin/main, and
+    /// re-runs the installer. Use it when the installed plugin is on a local
+    /// development branch and Omarchy's updater rejects it.
+    #[command(name = "swap-main")]
+    SwapMain {
         /// Switch without prompting.
         #[arg(long)]
         yes: bool,

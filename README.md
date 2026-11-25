@@ -105,17 +105,17 @@ checkout. A development copy made with `./install.sh` is not a git checkout, or
 is a clone left dirty by the copy, and `reel update` rejects it the same way
 Omarchy does. Use a git-managed install to receive updates.
 
-If the installed plugin is on a local branch, put it back on the mainstream:
+If a development install is stuck on a local branch, put it back on the
+mainstream:
 
 ```sh
-reel use-main
+reel swap-main
 ```
 
-`swap-main` is an alias. It fetches `origin/main`, stashes local changes, saves
-local `main` commits on a backup branch, checks out `main` tracking
-`origin/main`, and reinstalls. It prompts first; `--yes` skips the prompt. It is
-a terminal command rather than a keybinding because it rewrites the installed
-checkout.
+It fetches `origin/main`, stashes local changes, saves local `main` commits on a
+backup branch, checks out `main` tracking `origin/main`, and reinstalls. It
+prompts first; `--yes` skips the prompt. It is a terminal command for development
+work rather than a keybinding, because it rewrites the installed checkout.
 
 Pass `--binds` to add or refresh the optional Hyprland shortcuts without
 prompting:
