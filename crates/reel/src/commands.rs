@@ -5,6 +5,7 @@ use crate::state;
 use crate::util;
 use crate::webcam;
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
 use std::fs;
@@ -19,6 +20,21 @@ const PLUGIN_ID: &str = "io.github.tahadx.reel";
 /// shell process.
 pub const MAX_RECENT_TAKES: usize = 100;
 
+/// How long a checked result is trusted. The shell asks once an hour; a restart
+/// inside that window reads the cache instead of fetching again.
+const UPDATE_CHECK_TTL: i64 = 3600;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateReport {
+    current: String,
+    latest: String,
+    available: bool,
+    behind: u64,
+    checked_at: i64,
+    error: String,
+}
+
 fn installed_plugin_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -27,6 +43,164 @@ fn installed_plugin_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".config"));
     config_home.join("omarchy/plugins").join(PLUGIN_ID)
+}
+
+fn update_cache_is_fresh(report: &UpdateReport, current: &str, now: i64) -> bool {
+    report.current == current && now.saturating_sub(report.checked_at) < UPDATE_CHECK_TTL
+}
+
+fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
+    let text = fs::read_to_string(&paths.update).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Git's remote-helper form (`https::https://…`, `ext::…`) passes the inner
+/// address to a helper. The background check does not need that form, and
+/// parsing the inner URL differently from git is how credentials slip through;
+/// treat every helper-prefixed URL as unsafe.
+fn helper_transport(url: &str) -> bool {
+    let Some((prefix, _)) = url.split_once("::") else {
+        return false;
+    };
+    !prefix.contains("://") && !prefix.contains('/') && !prefix.contains('@')
+}
+
+/// Credentials embedded in a remote URL are passed to `git-remote-https` in
+/// its argv, where another local account can read them from the process list.
+/// The background check refuses such a remote; secrets belong in a credential
+/// helper. `git remote get-url` applies `url.*.insteadOf` rewrites, so this sees
+/// the URL git would actually use.
+fn credential_bearing_url(url: &str) -> bool {
+    let url = url.trim();
+    if helper_transport(url) {
+        return true;
+    }
+    let Some((scheme, rest)) = url.split_once("://") else {
+        // `git@host:path` is an SSH user name, not a secret.
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let userinfo = authority.rsplit_once('@').map(|(user, _)| user);
+    let scheme = scheme.to_ascii_lowercase();
+    if matches!(scheme.as_str(), "http" | "https") {
+        // A token can be the user name even without a colon.
+        if userinfo.is_some_and(|user| !user.is_empty()) {
+            return true;
+        }
+        // Query strings often carry access tokens; never hand one to git.
+        if rest.contains('?') || rest.contains('#') {
+            return true;
+        }
+    }
+    // A password in an `ssh://` URL is exposed the same way.
+    if userinfo.is_some_and(|user| user.contains(':')) {
+        return true;
+    }
+    false
+}
+
+/// The effective fetch URLs after git's `insteadOf` rewrites. `None` means the
+/// URL could not be inspected, which is treated as unsafe for a background
+/// network operation.
+fn fetch_urls(dir: &Path, timeout: Duration) -> Option<Vec<String>> {
+    let dir_text = dir.display().to_string();
+    let out = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "remote", "get-url", "--all", "origin"],
+        timeout,
+    )?;
+    let urls: Vec<String> = out
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    (!urls.is_empty()).then_some(urls)
+}
+
+/// The short commit a revision points at. `HEAD` is the installed (or
+/// development) checkout; `FETCH_HEAD` is the remote revision just fetched.
+fn short_rev(dir: &Path, rev: &str) -> String {
+    let dir_text = dir.display().to_string();
+    util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-parse", "--short", rev],
+        Duration::from_secs(10),
+    )
+    .map(|out| out.trim().to_string())
+    .unwrap_or_default()
+}
+
+/// Fetch the remote revision and compare it with the checkout. The comparison
+/// is the one `omarchy plugin update` uses: how many commits HEAD is behind the
+/// fetched remote head. Failures become a report, not an error, so a background
+/// check never interrupts the panel or the log.
+fn fetch_update_report(dir: &Path, checked_at: i64) -> UpdateReport {
+    let mut report = UpdateReport {
+        current: short_rev(dir, "HEAD"),
+        latest: String::new(),
+        available: false,
+        behind: 0,
+        checked_at,
+        error: String::new(),
+    };
+
+    if !dir.is_dir() {
+        report.error = "Reel is not installed as an Omarchy plugin.".into();
+        return report;
+    }
+    if !dir.join(".git").exists() {
+        report.error = "This install is not a git checkout.".into();
+        return report;
+    }
+
+    let Some(urls) = fetch_urls(dir, Duration::from_secs(10)) else {
+        report.error = "The update check could not read this install's remote URL.".into();
+        return report;
+    };
+    if urls.iter().any(|url| credential_bearing_url(url)) {
+        report.error = "The update check is paused because this install's remote URL carries credentials. Move them to a git credential helper and remove them from the URL.".into();
+        return report;
+    }
+
+    let dir_text = dir.display().to_string();
+    let fetched = util::run_stdout_within_env(
+        "git",
+        &["-C", &dir_text, "fetch", "--quiet", "origin", "HEAD"],
+        &[
+            ("GIT_TERMINAL_PROMPT", "0"),
+            ("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"),
+        ],
+        Duration::from_secs(20),
+    );
+    if fetched.is_none() {
+        report.error = "The remote could not be reached.".into();
+        return report;
+    }
+
+    let behind = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-list", "--count", "HEAD..FETCH_HEAD"],
+        Duration::from_secs(10),
+    )
+    .and_then(|out| out.trim().parse::<u64>().ok());
+    let Some(behind) = behind else {
+        report.error = "The remote revision could not be read.".into();
+        return report;
+    };
+
+    report.behind = behind;
+    report.available = behind > 0;
+    if report.available {
+        report.latest = short_rev(dir, "FETCH_HEAD");
+    }
+    report
+}
+
+/// The checkout the update check and update command operate on. A development
+/// install points at its source checkout; a normal install is the plugin clone.
+fn update_dir(plugin_dir: &Path) -> Result<PathBuf> {
+    Ok(read_dev_source(plugin_dir)?.unwrap_or_else(|| plugin_dir.to_path_buf()))
 }
 
 /// `install.sh` records the checkout it copied when it installs a development
@@ -87,6 +261,12 @@ fn read_dev_source(plugin_dir: &Path) -> Result<Option<PathBuf>> {
             root.display()
         );
     }
+    if !root.join(".git").exists() {
+        anyhow::bail!(
+            "The development checkout at {} is not a git checkout, so there are no commits to update.",
+            root.display()
+        );
+    }
 
     let root = fs::canonicalize(&root)
         .with_context(|| format!("cannot resolve the development checkout {}", root.display()))?;
@@ -102,12 +282,153 @@ fn read_dev_source(plugin_dir: &Path) -> Result<Option<PathBuf>> {
     Ok(Some(root))
 }
 
+/// Check whether newer commits are available. The hourly service call uses the
+/// cached result inside the hour; `force` (the panel's manual check) always
+/// contacts the remote. Prints JSON for the panel or one line for a terminal.
+pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
+    let now = paths::now_secs();
+    let plugin_dir = installed_plugin_dir();
+    let dir = match update_dir(&plugin_dir) {
+        Ok(dir) => dir,
+        Err(error) => {
+            let report = UpdateReport {
+                current: String::new(),
+                latest: String::new(),
+                available: false,
+                behind: 0,
+                checked_at: now,
+                error: format!("{error:#}"),
+            };
+            if as_json {
+                println!("{}", serde_json::to_string(&report)?);
+            } else {
+                println!("Could not check for updates: {}", report.error);
+            }
+            return Ok(());
+        }
+    };
+
+    let current = short_rev(&dir, "HEAD");
+    let cached = read_update_cache(paths);
+    let fresh = if force {
+        None
+    } else {
+        cached.filter(|report| update_cache_is_fresh(report, &current, now))
+    };
+
+    let report = match fresh {
+        Some(report) => report,
+        None => {
+            let report = fetch_update_report(&dir, now);
+            if let Ok(body) = serde_json::to_string(&report) {
+                let _ = paths::write_atomic(&paths.update, &body);
+            }
+            report
+        }
+    };
+
+    if as_json {
+        println!("{}", serde_json::to_string(&report)?);
+        return Ok(());
+    }
+
+    if !report.error.is_empty() {
+        println!("Could not check for updates: {}", report.error);
+    } else if report.available {
+        println!(
+            "{} new commit{} available. Run `reel update`.",
+            report.behind,
+            if report.behind == 1 { "" } else { "s" }
+        );
+    } else {
+        println!("Reel is up to date.");
+    }
+    Ok(())
+}
+
+/// Bring a development checkout up to its remote before reinstalling it.
+/// Local changes are never overwritten: a dirty checkout with newer commits is
+/// refused, while a dirty checkout that is already current still installs.
+fn update_dev_checkout(dir: &Path) -> Result<()> {
+    let dir_text = dir.display().to_string();
+    let Some(urls) = fetch_urls(dir, Duration::from_secs(10)) else {
+        anyhow::bail!("The development checkout's remote URL could not be read.");
+    };
+    if urls.iter().any(|url| credential_bearing_url(url)) {
+        anyhow::bail!(
+            "The development checkout's remote URL carries credentials. Move them to a git credential helper and remove them from the URL."
+        );
+    }
+
+    let fetched = util::run_stdout_within_env(
+        "git",
+        &["-C", &dir_text, "fetch", "--quiet", "origin", "HEAD"],
+        &[
+            ("GIT_TERMINAL_PROMPT", "0"),
+            ("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"),
+        ],
+        Duration::from_secs(30),
+    );
+    if fetched.is_none() {
+        anyhow::bail!("The development checkout's remote could not be reached.");
+    }
+
+    let behind = util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-list", "--count", "HEAD..FETCH_HEAD"],
+        Duration::from_secs(10),
+    )
+    .and_then(|out| out.trim().parse::<u64>().ok())
+    .ok_or_else(|| {
+        anyhow::anyhow!("The development checkout's remote revision could not be read.")
+    })?;
+    if behind == 0 {
+        println!("  checkout is up to date.");
+        return Ok(());
+    }
+
+    let dirty = util::run_stdout_within(
+        "git",
+        &[
+            "-C",
+            &dir_text,
+            "status",
+            "--porcelain",
+            "--untracked-files=no",
+        ],
+        Duration::from_secs(10),
+    )
+    .map(|out| !out.trim().is_empty())
+    .unwrap_or(true);
+    if dirty {
+        anyhow::bail!(
+            "The development checkout has local changes. Commit or stash them, then run update again."
+        );
+    }
+
+    let merged = Command::new("git")
+        .args(["-C", &dir_text, "merge", "--ff-only", "FETCH_HEAD"])
+        .status()
+        .context("could not fast-forward the development checkout")?;
+    if !merged.success() {
+        anyhow::bail!("The development checkout could not be fast-forwarded to the remote.");
+    }
+    let head = short_rev(dir, "HEAD");
+    if head.is_empty() {
+        println!("  updated the checkout.");
+    } else {
+        println!("  updated the checkout to {head}.");
+    }
+    Ok(())
+}
+
 /// Update the installed Omarchy plugin from its git origin, then run the
 /// installer from the updated checkout. There are no release assets to
 /// download: `omarchy plugin update` fetches the repository's latest commit.
 /// The installer is matched to the engine it just fetched, and it restarts the
 /// shell so the new QML is loaded. A development install has no git checkout in
-/// the plugin directory, so it re-runs the installer from its recorded checkout.
+/// the plugin directory, so it fast-forwards its recorded checkout and re-runs
+/// that checkout's installer.
 pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     state::reconcile(paths);
     match state::status(paths).as_str() {
@@ -135,11 +456,12 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     println!("== Reel: update ==");
     let installer = match read_dev_source(&plugin_dir)? {
         Some(root) => {
-            // A development install is a copy of a checkout. Re-running its
-            // installer replaces the installed files and restarts the shell,
-            // which is what `omarchy plugin update` cannot do when the copy has
-            // no `.git` or left an existing clone dirty.
+            // A development install is a copy of a checkout. Fast-forward that
+            // checkout, then re-run its installer to replace the installed
+            // files and restart the shell. `omarchy plugin update` cannot do
+            // this when the copy has no `.git` or left an existing clone dirty.
             println!("  development install from {}", root.display());
+            update_dev_checkout(&root)?;
             root.join("install.sh")
         }
         None => {
@@ -174,6 +496,9 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     if !status.success() {
         anyhow::bail!("the updated Reel installer failed");
     }
+    // The cached check described the pre-update HEAD. Drop it so the next panel
+    // look confirms the new commit without waiting for the hour.
+    paths::remove_quiet(&paths.update);
     println!("Reel updated.");
     Ok(())
 }
@@ -1163,11 +1488,72 @@ mod tests {
         assert_eq!(1_000_000usize.min(MAX_RECENT_TAKES), MAX_RECENT_TAKES);
     }
 
+    #[test]
+    fn credential_urls_are_refused() {
+        assert!(!credential_bearing_url(
+            "https://github.com/tahadx/reel.git"
+        ));
+        assert!(!credential_bearing_url("git@github.com:tahadx/reel.git"));
+        assert!(!credential_bearing_url(
+            "ssh://git@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://token@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://user:secret@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https://github.com/tahadx/reel.git?access_token=abc"
+        ));
+        assert!(credential_bearing_url(
+            "ssh://user:secret@example.com/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https::https://token@github.com/tahadx/reel.git"
+        ));
+        assert!(credential_bearing_url(
+            "https::https://github.com/tahadx/reel.git?access_token=abc"
+        ));
+        assert!(!credential_bearing_url("https://[::1]/reel.git"));
+    }
+
+    fn update_report(current: &str, latest: &str, checked_at: i64) -> UpdateReport {
+        UpdateReport {
+            current: current.into(),
+            latest: latest.into(),
+            available: true,
+            behind: 2,
+            checked_at,
+            error: String::new(),
+        }
+    }
+
+    #[test]
+    fn an_update_cache_only_lasts_an_hour_for_the_same_commit() {
+        let report = update_report("abc1234", "def5678", 1000);
+        assert!(update_cache_is_fresh(&report, "abc1234", 1000 + 3599));
+        assert!(!update_cache_is_fresh(&report, "abc1234", 1000 + 3600));
+        // A new HEAD means the cached answer describes the old checkout.
+        assert!(!update_cache_is_fresh(&report, "fedcba9", 1000 + 10));
+    }
+
+    #[test]
+    fn update_reports_round_trip_through_the_cache_format() {
+        let report = update_report("abc1234", "def5678", 1000);
+        let body = serde_json::to_string(&report).unwrap();
+        assert!(body.contains("\"checkedAt\":1000"), "{body}");
+        assert!(body.contains("\"behind\":2"), "{body}");
+        let parsed: UpdateReport = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed, report);
+    }
+
     fn dev_install(label: &str) -> (PathBuf, PathBuf, PathBuf) {
         let root = temp_root(label);
         let source = root.join("checkout");
         let installed = root.join("installed");
         fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(source.join(".git")).unwrap();
         fs::create_dir_all(&installed).unwrap();
         fs::write(
             source.join("manifest.json"),
@@ -1231,6 +1617,7 @@ mod tests {
     #[test]
     fn a_development_marker_cannot_point_at_the_installed_plugin() {
         let (root, _source, installed) = dev_install("dev-self");
+        fs::create_dir_all(installed.join(".git")).unwrap();
         fs::write(
             installed.join("manifest.json"),
             format!(r#"{{"schemaVersion":1,"id":"{PLUGIN_ID}","version":"0.5.1"}}"#),

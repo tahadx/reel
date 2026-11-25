@@ -37,6 +37,11 @@ Item {
   // it so the fast path does not lose the transition to the next slow poll.
   property bool statusPending: false
   property string stateSignature: ""
+  // The update check is background work: a cached or remote answer the panel
+  // and bar read without ever waiting on it.
+  property var updateInfo: Model.emptyUpdate()
+  property bool updateChecking: false
+  property bool updatePending: false
   // True once the first-run configure step (the ~/.local/bin link) has
   // finished. Commands must not run before that, or a fresh install flashes a
   // "not on PATH" error while bin/configure is still linking the wrapper.
@@ -99,6 +104,27 @@ Item {
     outputProc.running = true
   }
 
+  // The engine caches a successful check for an hour, so an ordinary poll is
+  // cheap. `force` is the user asking again; it always contacts the remote.
+  function checkForUpdates(force) {
+    if (!root.configured) return
+    if (updateProc.running) {
+      root.updatePending = root.updatePending || !!force
+      return
+    }
+    var command = ["reel", "update", "--check", "--json"]
+    if (force) command.push("--force")
+    root.updateChecking = true
+    updateProc.hasStarted = false
+    updateProc.command = command
+    updateDeadline.restart()
+    updateProc.running = true
+  }
+
+  function applyUpdate(text) {
+    root.updateInfo = Model.parseUpdate(String(text || ""))
+  }
+
   function applyState(text) {
     var previous = Model.status(root.state)
     var previousSaves = Model.saves(root.state)
@@ -154,6 +180,8 @@ Item {
       elapsed: root.elapsed,
       recentVersion: root.recentVersion,
       outputDir: root.outputDir,
+      updateInfo: root.updateInfo,
+      updateChecking: root.updateChecking,
       lastError: root.lastError,
       configureFailed: root.configureFailed
     }
@@ -164,6 +192,7 @@ Item {
   function bridgeActions() {
     return {
       refresh: function() { root.refresh() },
+      checkForUpdates: function(force) { root.checkForUpdates(force === true) },
       retryConfigure: function() { root.retryConfigure() }
     }
   }
@@ -238,6 +267,18 @@ Item {
       return
     }
     if (!root.configured) return
+    if (label === "update") {
+      root.updateChecking = false
+      root.updateInfo = {
+        available: false,
+        current: String(root.updateInfo.current || ""),
+        latest: "",
+        behind: 0,
+        checkedAt: 0,
+        error: "The update check took too long."
+      }
+      return
+    }
     if (label === "recent") root.recentPending = false
     if (label === "status" && root.fileStateText !== "")
       root.applyFileState(root.fileStateText)
@@ -463,6 +504,71 @@ Item {
     watched: outputProc
     label: "output folder"
     milliseconds: 5000
+  }
+
+  Process {
+    id: updateProc
+    property bool hasStarted: false
+    running: false
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.applyUpdate(String(text || ""))
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var message = String(text || "").trim()
+        if (message !== "" && !root.configureFailed) root.lastError = message
+      }
+    }
+    onStarted: {
+      updateProc.hasStarted = true
+      updateDeadline.restart()
+    }
+    onRunningChanged: {
+      if (updateProc.running) return
+      updateDeadline.stop()
+      if (!updateProc.hasStarted) {
+        root.updateChecking = false
+        root.updateInfo = {
+          available: false,
+          current: String(root.updateInfo.current || ""),
+          latest: "",
+          behind: 0,
+          checkedAt: 0,
+          error: "The update check could not start."
+        }
+      }
+      updateProc.hasStarted = false
+    }
+    onExited: function(code) {
+      updateDeadline.stop()
+      root.updateChecking = false
+      // A check that was asked for while this one ran runs once more, so a
+      // manual refresh always ends with a fresh answer.
+      if (root.updatePending) {
+        root.updatePending = false
+        root.checkForUpdates(true)
+      }
+    }
+  }
+
+  ProcessDeadline {
+    id: updateDeadline
+    watched: updateProc
+    label: "update"
+    milliseconds: 35000
+  }
+
+  // Check once when the service is ready and then once an hour. The engine
+  // turns repeated calls inside the hour into a cached read.
+  Timer {
+    id: updateTimer
+    interval: 3600000
+    repeat: true
+    triggeredOnStart: true
+    running: root.configured
+    onTriggered: root.checkForUpdates(false)
   }
 
   // One tick a second is enough for the bar clock and costs almost nothing.

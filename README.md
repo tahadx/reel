@@ -93,9 +93,17 @@ there are no release downloads. The installer relinks the `reel` command,
 rechecks dependencies, and restarts the Omarchy shell so the new widget is
 loaded.
 
+Reel also checks for newer commits by itself: once when the shell starts and
+then once an hour. The check fetches the plugin's git origin and compares
+commits, and a result is cached for the hour. A waiting update shows in the panel
+footer; click the cue or press `Shift+U` to open the updater. `reel update
+--check` prints the answer, `--json` prints it for the panel, and `--force`
+ignores the cache.
+
 If Reel was installed from a development checkout with `./install.sh`, update
-re-runs that checkout's installer instead of a git update. The installer records
-the checkout in `.reel-dev-source`; pull or edit the checkout first, and the
+fast-forwards that checkout from its remote, then re-runs its installer instead
+of a git update. The installer records the checkout in `.reel-dev-source`. Commit
+or stash local changes before updating when the checkout is behind; the
 installer replaces the installed files with it. An older development install
 needs one `./install.sh` run from its checkout to write the record.
 

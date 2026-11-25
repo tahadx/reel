@@ -94,11 +94,13 @@ copies files; `omarchy plugin add` and updates already place them in the plugin
 directory. Re-running it is safe.
 
 The installer records the checkout in `.reel-dev-source` inside the plugin
-directory. `reel update` reads that record and re-runs this checkout's
-installer. That works even though the copied tree has no `.git` and copying over
-an existing plugin clone leaves it dirty, which is why `omarchy plugin update`
-cannot fast-forward a development install. Pull or edit the checkout before
-updating; the installer replaces the installed files with it.
+directory. `reel update` fast-forwards that checkout from its remote and re-runs
+its installer. That works even though the copied tree has no `.git` and copying
+over an existing plugin clone leaves it dirty, which is why `omarchy plugin
+update` cannot fast-forward a development install. Commit or stash local changes
+before updating when the checkout is behind; the installer replaces the
+installed files with it. `reel update --check` reports waiting commits without
+installing.
 
 An older development install needs one `./install.sh` run from its checkout to
 write the record. After that, updates use the checkout instead of git.

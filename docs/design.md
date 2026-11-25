@@ -40,7 +40,7 @@ without restarts or special-case overrides.
    active tab, or focus. It may appear in several roles at once, but never
    twice for the same role, and never as decoration.
 3. **Fixed frame, moving content.** The primary actions, navigation strip, and
-   footer (hints) never scroll. Only the page body
+   footer (hints + compact update cue) never scroll. Only the page body
    scrolls.
 4. **Density is respect.** A recorder is a tool. Show more, scroll less, and
    use `Style.space()` for every gap.
@@ -141,7 +141,7 @@ layout.
 | Muted      | `dim`        | `Commons.Color.muted`                        | Meta, hints, inactive labels                          |
 | Secondary  | `secondary`  | foreground at `0.72`                         | Readable body text at rest                            |
 | Accent     | `accent`     | `Commons.Color.accent`                       | Live state, primary action (Record/Stop/Cancel), active tab, cursor, bar dot |
-| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors                       |
+| Urgent     | `urgent`     | `Commons.Color.urgent`                       | Destructive confirmation, errors, update failure      |
 
 ### State aliases
 
@@ -155,7 +155,7 @@ These live on the panel root and are used instead of local expressions.
 | `hairline`     | foreground at `0.12` | Normal border and separator |
 | `strongBorder` | foreground at `0.24` | Emphasized border           |
 | `accentSoft`   | accent at `0.16`     | Accent-tinted confirmation  |
-| `urgentSoft`   | urgent at `0.16`     | Destructive actions |
+| `urgentSoft`   | urgent at `0.16`     | Destructive, update failure |
 | `onAccent`     | `inkOn(accent)`      | Ink over accent fills       |
 | `onUrgent`     | `inkOn(urgent)`      | Ink over urgent fills       |
 
@@ -228,7 +228,8 @@ Rules:
   “Open the recordings folder”.
 - Labels are nouns or short verbs. Values are nouns: `30 fps`, `2.0x`, `Off`.
 - Shortcut hints are lowercase key names: `r`, `o`, `enter`. Exception:
-  `Space` / `Enter` / `Esc` / `Tab` in inline and footer keycaps.
+  `Shift+U` in shortcut tables/tooltips and `Space` / `Enter` / `Esc` / `Tab`
+  in inline and footer keycaps.
 - Uppercase copy is reserved for tracked section micro-headers (`AUDIO`, `VIDEO`,
   `CAPTURE`, `DEVICES`, `SAVING`, `ZOOM`, `POINTER`, `INPUT DEVICES`).
 - Errors state cause + fix, one line. “No microphone found. Pick one in Audio.”
@@ -268,7 +269,8 @@ here.`
   navigation strip (30 high, `4` above, `0` below) + `1` px hairline. The strip
   holds four equal pages (`Recording`, `Visuals`, `History`, `Shortcuts`).
 - Fixed footer: `1` px hairline + `8` px top/bottom margin around the `16` px
-  keyhint row below the scroll region, centered between hairline and card edge.
+  keyhint row and trailing `20 × 16` Update chip below the scroll region,
+  centered between hairline and card edge.
 - The scroll region receives the remaining height and never changes size.
 - The scrollbar is always hidden. Wheel, trackpad, and keyboard cursor are the
   only scroll inputs; moving the pointer never scrolls the page.
@@ -296,7 +298,7 @@ ColumnLayout {
     // settings, devices, history
   }
 
-  Item { Layout.fillWidth: true /* fixed keyhint footer */ }
+  Item { Layout.fillWidth: true /* fixed keyhint footer + compact update cue */ }
 }
 ```
 
@@ -330,7 +332,7 @@ and rounded mode scales proportionally across every component:
 | :--------------------------------------------- | :------------------------------------------------ |
 | Section cards, buttons, inputs, takes, menu, toast | `Style.cornerRadius`                          |
 | Key hint chips, thumbnails                     | `Model.scaledRadius(Style.cornerRadius, 4)` (`0` when sharp) |
-| Footer keycaps                                 | `Model.scaledRadius(Style.cornerRadius, 3)` (`0` when sharp) |
+| Footer keycaps, compact update chip            | `Model.scaledRadius(Style.cornerRadius, 3)` (`0` when sharp) |
 | Toggle, toggle thumb                           | `Model.pillRadius(Style.cornerRadius, height)` (`0` when sharp, pill when ≥ 6) |
 | Countdown                                      | circle (`width / 2`)                              |
 | Cursor accent edge                             | `0` (flush inside clipped card)                   |
@@ -417,6 +419,8 @@ Rules:
   width change is the state change, and the dot pulse is the only bar loop.
 - Bar text centres on the figure height, not the line box, which keeps room
   for descenders and lifts the clock above the line the dot sits on.
+- Updates belong to the panel, not the bar: the compact footer cue carries
+  the signal. The bar stays two drawings with one meaning.
 - `Style.reduceMotion` disables the dot loop rather than shortening it: the dot
   holds full.
 - Hover uses one shared bar hover fill. No per-state hover color.
@@ -642,7 +646,7 @@ The toast is the only notification surface. It floats over the body.
 - Hide: opacity `120` ms, y/scale `150` ms, `InCubic`.
 - Only one toast at a time. A new notice replaces the old one.
 - Live saves show placeholder `SavingRow` entries inside History (§6.8); other
-  feedback (errors, renames, copies) reports through the toast.
+  feedback (errors, renames, copies, updates) reports through the toast.
 - Toast is above content (`z: 900`) and below the take menu (`z: 1000`).
 
 ### 6.11 Take actions menu
@@ -680,14 +684,25 @@ It must never become a separate overlay plugin kind.
 - Countdown default is **Off**. Options are `0`, `3`, `5`, `10` seconds.
 - The UI must not imply that capture starts after the ring.
 
-### 6.13 Footer & tooltips
+### 6.13 Footer, compact update cue & tooltips
 
 - **Footer:** Height `16` keyhint row below the `1` px hairline (`8` px top gap
   from hairline, `8` px bottom margin to card edge). Context-aware hints hide
   row-action caps while `cursorActive` is `false` and add `o Folder` on
   History.
+- **Update cue:** Compact `20 × 16` chip (`Model.scaledRadius(Style.cornerRadius,
+  3)`) pinned to the right edge of the footer.
+  - Up to date / idle: dimmed `󰑐` (`0.34` foreground ink, `0.08` border,
+    transparent fill) — click or press `Shift+U` to check manually.
+  - Update waiting: `↑` in `accent` on `0.14` accent fill and `0.45` accent
+    border.
+  - Checking: `󰑐` in `secondary` with an animated `2` px `accent` bottom sweep.
+  - Failed check: `󰑐` in `urgent` on `urgentSoft` with `0.45` urgent border.
+  - Hover/cursor raises fill to `hoverFill` and border to `accent` (or `urgent`
+    on error).
 - **Tooltips:** Use `PanelToolTip` from `qs.Ui` (never build a custom tooltip).
-  Include the shortcut when one exists. Hover only, one line, `caption`,
+  Include the shortcut when one exists (e.g. `3 new commits available
+  (Shift+U)`, `Check for updates`). Hover only, one line, `caption`,
   sentence case.
 
 ---
@@ -738,6 +753,7 @@ Rules:
 
 | Key               | Action                               |
 | :---------------- | :----------------------------------- |
+| `Shift+U`         | Update Reel in a terminal            |
 | `↑` `↓` / `j` `k` | Move between rows (wakes cursor first) |
 | `←` `→`           | Move horizontally or step options    |
 | `h` `l`           | Move horizontally or cycle an option |

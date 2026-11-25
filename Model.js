@@ -7,6 +7,26 @@ function emptyState() {
   return { status: "idle", elapsed: 0, active: false }
 }
 
+function emptyUpdate() {
+  return { current: "", latest: "", available: false, behind: 0, checkedAt: 0, error: "" }
+}
+
+function parseUpdate(text) {
+  try {
+    var raw = object(JSON.parse(String(text || "{}") || "{}"))
+    return {
+      current: String(raw.current || ""),
+      latest: String(raw.latest || ""),
+      available: raw.available === true,
+      behind: number(raw.behind, 0),
+      checkedAt: number(raw.checkedAt, 0),
+      error: String(raw.error || "")
+    }
+  } catch (e) {
+    return emptyUpdate()
+  }
+}
+
 // A clipboard can carry arbitrary text. The name fields only accept one
 // printable line that fits in the field; anything else is refused before it is
 // inserted.
@@ -21,6 +41,26 @@ function pasteText(raw, maxChars) {
     return { ok: false, text: "", error: "Paste is longer than " + limit + " characters." }
   }
   return { ok: true, text: text, error: "" }
+}
+
+// State text for the compact update cue: Checking…, Retry on error, or Update
+// when newer commits are waiting. At rest it reads Update as the quiet manual
+// check.
+function updateCueLabel(info, checking) {
+  if (checking) return "Checking…"
+  var update = object(info)
+  if (String(update.error || "") !== "") return "Retry"
+  if (update.available === true) return "Update"
+  return "Update"
+}
+
+// How far the checkout is behind its remote, in commits. Used by the tooltip
+// and the notice so the cue stays compact while the count stays honest.
+function updateBehindLabel(info) {
+  var behind = number(object(info).behind, 0)
+  if (behind === 1) return "1 new commit"
+  if (behind > 1) return behind + " new commits"
+  return "an update"
 }
 
 function object(value) {

@@ -79,8 +79,30 @@ cat >"$TEST_ROOT/bin/omarchy-notification-send" <<'EOF'
 printf '%s\n' "$*" >>"${TEST_ROOT:?}/notification.log"
 exit 0
 EOF
+# Keep the updater tests offline and deterministic. The real checkout supplies
+# the files; this records what the git checks would answer. Touching
+# `$TEST_ROOT/git-behind` makes the remote two commits ahead.
+cat >"$TEST_ROOT/bin/git" <<'EOF'
+#!/bin/sh
+args=" $* "
+case "$args" in
+*" remote get-url "*) printf '%s\n' "https://example.com/reel.git" ;;
+*" rev-parse --short FETCH_HEAD "*)
+  if [ -f "${TEST_ROOT:?}/git-behind" ]; then echo def5678; else echo abc1234; fi
+  ;;
+*" rev-parse --short "*) echo abc1234 ;;
+*" rev-list --count "*)
+  if [ -f "${TEST_ROOT:?}/git-behind" ]; then echo 2; else echo 0; fi
+  ;;
+*" fetch "*) exit 0 ;;
+*" status --porcelain "*) exit 0 ;;
+*" merge --ff-only "*) exit 0 ;;
+esac
+exit 0
+EOF
 chmod 755 -- "$TEST_ROOT/bin/omarchy" "$TEST_ROOT/bin/omarchy-shell" \
-  "$TEST_ROOT/bin/hyprctl" "$TEST_ROOT/bin/omarchy-notification-send"
+  "$TEST_ROOT/bin/hyprctl" "$TEST_ROOT/bin/omarchy-notification-send" \
+  "$TEST_ROOT/bin/git"
 export PATH="$HOME/.local/bin:$TEST_ROOT/bin:$PATH"
 unset HYPRLAND_INSTANCE_SIGNATURE
 
@@ -124,14 +146,32 @@ DEV_SOURCE="$(sed -n '1p' "$PLUGIN_DIR/.reel-dev-source")"
 [[ "$DEV_SOURCE" == "$REPO" ]] || fail "dev install recorded '$DEV_SOURCE', not '$REPO'"
 [[ "$(wc -l <"$PLUGIN_DIR/.reel-dev-source")" -eq 1 ]] \
   || fail "dev install marker has more than the checkout path"
-# The update action must reinstall from the checkout instead of asking git to
-# fast-forward the copied tree.
+# The check reads commits from the recorded checkout. It is current now, and
+# two commits ahead once the git shim reports a newer remote.
+CHECK_JSON="$(reel update --check --json)"
+[[ "$CHECK_JSON" == *'"available":false'* ]] \
+  || fail "update check did not see a current checkout: $CHECK_JSON"
+[[ "$CHECK_JSON" == *'"current":"abc1234"'* ]] \
+  || fail "update check did not report the commit: $CHECK_JSON"
+: >"$TEST_ROOT/git-behind"
+CHECK_JSON="$(reel update --check --json --force)"
+[[ "$CHECK_JSON" == *'"available":true'* ]] \
+  || fail "update check missed newer commits: $CHECK_JSON"
+[[ "$CHECK_JSON" == *'"behind":2'* ]] \
+  || fail "update check did not count the commits behind: $CHECK_JSON"
+[[ "$CHECK_JSON" == *'"latest":"def5678"'* ]] \
+  || fail "update check did not report the remote commit: $CHECK_JSON"
+# The update action must fast-forward the checkout and reinstall from it instead
+# of asking git to fast-forward the copied plugin tree.
 printf '\n// stale\n' >>"$PLUGIN_DIR/Panel.qml"
 reel update --binds >"$TEST_ROOT/update-dev.log"
 grep -q 'development install from' "$TEST_ROOT/update-dev.log" \
   || fail "dev update did not report the development checkout"
+grep -q 'updated the checkout to abc1234' "$TEST_ROOT/update-dev.log" \
+  || fail "dev update did not fast-forward the checkout"
 cmp -s "$REPO/Panel.qml" "$PLUGIN_DIR/Panel.qml" \
   || fail "dev update did not replace the stale copied file"
+rm -f "$TEST_ROOT/git-behind"
 [[ -x "$PLUGIN_DIR/install.sh" ]] || fail "installed installer is not executable"
 cmp -s "$REPO/install.sh" "$PLUGIN_DIR/install.sh" \
   || fail "installed installer differs from the checkout"

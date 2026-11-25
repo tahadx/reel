@@ -30,6 +30,7 @@ its own:
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
 | `reel update [--binds]` | Update the plugin from its git origin, rerun its installer, and restart the shell |
+| `reel update --check [--json] [--force]` | Report whether newer commits are waiting |
 
 A finished take does not own the engine while it is saved. `reel stop` hands
 the take to its own save job and returns, so `reel start` and `reel toggle` can
@@ -76,13 +77,19 @@ there are no release assets to download. The installer restarts the shell so the
 new QML is loaded. If the Hyprland shortcut block is missing, the installer asks
 before adding it; `--binds` adds or refreshes it without prompting.
 
+`reel update --check` fetches the plugin's git origin and compares
+`HEAD..FETCH_HEAD`, so it reports how many commits are waiting. A result is
+cached for the hour; `--force` ignores the cache and `--json` prints the report
+for the panel. The shell service runs the check once when it starts and then once
+an hour.
+
 A development install records its checkout in `.reel-dev-source` inside the
 plugin directory when `./install.sh` copies the files. For that install,
-`reel update` re-runs the checkout's installer instead of `omarchy plugin
-update`, which cannot fast-forward a copied tree (no `.git`) or a clone left
-dirty by the copy. Pull or edit the checkout first; the installer replaces the
-installed files with it. An older development install gets its record on the
-next `./install.sh` run.
+`reel update` fast-forwards the recorded checkout and then re-runs its
+installer, because `omarchy plugin update` cannot fast-forward a copied tree (no
+`.git`) or a clone left dirty by the copy. Commit or stash local changes before
+updating when the checkout is behind. An older development install gets its
+record on the next `./install.sh` run.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take
@@ -617,6 +624,17 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   support (`wlr-screencopy` or `ext-image-copy-capture`). On Hyprland this
   should work; restart the shell if the panel was loaded before the compositor
   was ready.
+- **The update mark never appears** — checks run at most once an hour and need
+  network access to the plugin's git origin. Run `reel update --check` to see
+  the current answer or the connection error. A development install checks its
+  recorded checkout instead.
+- **A development update refuses to run** — the recorded checkout has local
+  changes and the remote has newer commits. Commit or stash them, then run
+  `reel update` again. A dirty checkout that is already current still installs.
+- **The development checkout is gone** — a development install records the
+  checkout that `install.sh` copied from. Move the checkout back or reinstall
+  from it. Removing `.reel-dev-source` only returns to git-managed updates when
+  the installed tree is also a clean git checkout.
 - **The save pass failed** — the original recording is kept and the error is
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error
