@@ -35,8 +35,6 @@ without stepping on each other.
   menu with rename, share, and trash, path copy, and drag-out to drop the video
   into another app. Missing thumbnails are rebuilt from the take.
 - Keyboard-first panel.
-- An update check: the panel header marks a waiting update and checks again on
-  demand.
 
 ## Requirements
 
@@ -86,42 +84,14 @@ rest of it. The installer refuses while Reel is recording or saving.
 ### Updating
 
 ```sh
-reel update
-```
-
-From an open panel, `Shift+U` runs the same command in a floating terminal, so
-the updater and its shortcut prompt stay visible while the plugin reloads. The
-update restarts the Omarchy shell at the end, so the new panel is loaded without
-a manual `omarchy-restart-shell`.
-
-Reel also checks for updates by itself: once when the shell starts and then once
-an hour. A waiting update shows as a newer version with an accent arrow in the
-panel header. That readout checks again when Reel is current, so a manual
-refresh never needs a terminal. The check contacts only the plugin's own git
-origin; a result is cached for the hour.
-
-`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
-the installer from the freshly updated plugin checkout. The installer relinks
-the `reel` command, rechecks dependencies, and restarts the Omarchy shell so the
-new widget is loaded. It never downloads a second copy of the installer.
-
-By default it leaves `~/.config/hypr/bindings.lua` alone when the Reel block is
-already there. If the block is missing, the installer asks before adding it.
-Pass `--binds` to add or refresh the optional shortcuts without prompting:
-
-```sh
-reel update --binds
-```
-
-Installs older than the update command need the two steps once:
-
-```sh
 omarchy plugin update io.github.tahadx.reel
 ~/.config/omarchy/plugins/io.github.tahadx.reel/install.sh
 ```
 
-Re-running the installer is safe. It only writes the shortcut block when you
-accept at the prompt or pass `--yes`; `--no-binds` skips it explicitly.
+Re-running the installer is safe. It relinks the `reel` command, rechecks
+dependencies, and restarts the Omarchy shell so the new widget is loaded. It
+only writes the shortcut block when you accept at the prompt or pass `--yes`;
+`--no-binds` skips it explicitly.
 
 ### Default shortcuts
 
@@ -180,7 +150,6 @@ take. Monitors and dragged areas record exactly those screen pixels.
 
 | Key | Action |
 | --- | --- |
-| `Shift+U` | Update Reel in a terminal |
 | `↑` / `↓` or `j` / `k` | Move between rows |
 | `←` / `→` or `h` / `l` | Move horizontally; cycle the focused option |
 | `Enter` / `Space` | Activate the selected action |
@@ -303,8 +272,8 @@ bin/test-qml
 ```
 
 The plugin ships `bin/dist/reel-native`, so users do not need a Rust toolchain.
-[Release builds and architecture notes](docs/development.md) cover
-`bin/refresh-dist` and the release process. Agent instructions live in
+[Development](docs/development.md) covers the prebuilt engine and
+`bin/refresh-dist`. Agent instructions live in
 [docs/contributing/agent-guide.md](docs/contributing/agent-guide.md); they are
 not a root `AGENTS.md`/`CLAUDE.md` because the plugin directory is copied
 verbatim at install time.
@@ -314,6 +283,4 @@ verbatim at install time.
 Reel is MIT. The static engine also links third-party crates, the Rust standard
 library, and musl; their notices are mapped in
 [THIRD-PARTY.md](THIRD-PARTY.md) and shipped under `licenses/`. The development
-install copies the notices into the installed plugin tree, and the release
-workflow publishes them as a `reel-<version>-licenses.tar.gz` asset beside the
-standalone engine.
+install copies the notices into the installed plugin tree.

@@ -15,7 +15,7 @@ This repo is the plugin root. `omarchy plugin add` clones it directly into `~/.c
 | ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `docs/design.md`    | **The design system.** Tokens, layout, panel anatomy, motion, copy, interaction rules. | Before any panel or visual change           |
 | `docs/reference.md` | CLI, config keys, capture behavior, save pass, troubleshooting.                        | Before changing engine behavior or settings |
-| `README.md`         | User-facing features, shortcuts, install/update, marketplace copy.                     | Before changing a user-visible feature      |
+| `README.md`         | User-facing features, shortcuts, install, marketplace copy.                            | Before changing a user-visible feature      |
 | `manifest.json`     | Plugin id, kinds, settings schema, defaults.                                           | Before adding or changing a setting         |
 
 ## Omarchy skills
@@ -121,7 +121,7 @@ Model.js                 pure state and history helpers
 Countdown.qml            countdown overlay
 install.sh               dependency check, engine install, bar widget, binds
 crates/reel/src/         Rust engine (cli.rs, config.rs, recorder.rs, finalize.rs, render.rs)
-bin/                     lint-qml, test-qml, refresh-dist, check-release, stamp-version, reel
+bin/                     lint-qml, test-qml, refresh-dist, reel
 docs/                    design.md (UI system) and reference.md (CLI/config)
 tests/                   shell and QML tests (install.test.sh)
 preview.png              marketplace preview (shows the panel only)
@@ -144,7 +144,7 @@ preview.png              marketplace preview (shows the panel only)
 - **No shell interpolation:** Never interpolate user text into a shell command or `sh -c`. Pass queries, filenames, paths, and prompts via `stdin` or discrete `argv` elements.
 - **Path validation:** Reject empty, `NUL`, and newline values whenever a path is expected.
 - **Safe QML text rendering:** Always use `Text.PlainText` for dynamic or user-controlled strings; never use `Text.RichText`.
-- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, or credential handling. The single network access is the update check (`reel update --check`): a `git fetch` against the plugin's own origin, at most once an hour or when the user asks. Nothing else may make a request.
+- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, credential handling, or network access. Nothing may make a request.
 - **Log & repo hygiene:** Log actions, never payloads, secrets, tokens, or environment dumps. Treat `~/.config/omarchy/reel.json`, recordings, and local notes as private—never commit them or paste them into issues/screenshots.
 
 ## Known pitfalls
@@ -168,11 +168,10 @@ cargo test --workspace --quiet
 # 2. Rebuild static binary (REQUIRED if crates/reel, Cargo.*, or rust-toolchain changed)
 bin/refresh-dist
 
-# 3. QML, installer, release, and marketplace validation
+# 3. QML, installer, and marketplace validation
 bin/lint-qml
 bin/test-qml
 bash tests/install.test.sh
-bin/check-release
 omarchy plugin validate .
 ```
 
@@ -211,17 +210,6 @@ Subject: `type(area): summary` (50 characters or less). `type` is one of `feat`,
 what the fix does, and how it was verified (build, tests,
 `omarchy plugin validate .`, live panel check).
 
-## Release & update flow
-
-- **User update:** `reel update` (or `Shift+U` in the panel) runs `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from the updated checkout. The installer ends with `omarchy restart shell` so the new QML is loaded.
-- **Versioning:** `bin/version` derives the version from the git tag; `bin/stamp-version <semver>` writes it into `manifest.json` and `crates/reel/Cargo.toml`.
-- **Cutting a release** (steps 1–4 always; step 5 only when the user asks to publish):
-  1. `bin/stamp-version <semver>`
-  2. `bin/refresh-dist`
-  3. `bin/check-release` — verifies semver, plugin id/schema, entry points, crate version, and ELF validity
-  4. Commit and tag `v<semver>`
-  5. Push the tag `v<semver>` only when explicitly asked; CI re-stamps from the tag and fails on any mismatch
-
 ## Marketplace
 
 - Required at the repo root: `LICENSE`, `README.md`, `manifest.json`, `preview.png`.
@@ -233,5 +221,5 @@ what the fix does, and how it was verified (build, tests,
 
 ## Status
 
-- **Shipped:** settings tabs (Recording, Visuals, Shortcuts), fixed tab strip, save-pass noise reduction, `Shift+U` update shortcut, countdown quarantine, history actions (open/cut/share/trash/copy path), live/manual zoom, pause/resume, cursor capture, webcam corner overlay, and bar states.
+- **Shipped:** settings tabs (Recording, Visuals, Shortcuts), fixed tab strip, save-pass noise reduction, countdown quarantine, history actions (open/cut/share/trash/copy path), live/manual zoom, pause/resume, cursor capture, webcam corner overlay, and bar states.
 - **Open:** marketplace verification, maintainer review pending.

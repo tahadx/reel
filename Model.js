@@ -7,35 +7,6 @@ function emptyState() {
   return { status: "idle", elapsed: 0, active: false }
 }
 
-function emptyUpdate() {
-  return { current: "", latest: "", available: false, behind: 0, checkedAt: 0, error: "" }
-}
-
-function parseUpdate(text) {
-  try {
-    var raw = object(JSON.parse(String(text || "{}") || "{}"))
-    return {
-      current: String(raw.current || ""),
-      latest: String(raw.latest || ""),
-      available: raw.available === true,
-      behind: number(raw.behind, 0),
-      checkedAt: number(raw.checkedAt, 0),
-      error: String(raw.error || "")
-    }
-  } catch (e) {
-    return emptyUpdate()
-  }
-}
-
-// `reel --version` prints "reel 0.3.0". Keep only the semver so the pill can
-// show the running engine version without depending on the update check.
-function parseVersion(text) {
-  var value = String(text || "").trim()
-  if (value === "") return ""
-  var match = /(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\s*$/.exec(value)
-  return match ? match[1] : ""
-}
-
 // A clipboard can carry arbitrary text. The name fields only accept one
 // printable line that fits in the field; anything else is refused before it is
 // inserted.
@@ -50,22 +21,6 @@ function pasteText(raw, maxChars) {
     return { ok: false, text: "", error: "Paste is longer than " + limit + " characters." }
   }
   return { ok: true, text: text, error: "" }
-}
-
-// State text for the compact update cue: Checking…, Retry on error, or an
-// available update (vX.Y.Z when version bumped, or Update when commits are
-// ahead). At rest it reads Update as the quiet manual check.
-function updateCueLabel(info, version, checking) {
-  if (checking) return "Checking…"
-  var update = object(info)
-  var current = String(version || update.current || "")
-  var latest = String(update.latest || "")
-  if (update.available === true) {
-    if (latest !== "" && latest !== current) return "v" + latest
-    return "Update"
-  }
-  if (String(update.error || "") !== "") return "Retry"
-  return "Update"
 }
 
 function object(value) {

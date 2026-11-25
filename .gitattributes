@@ -2,9 +2,9 @@
 # checkout so shell, Rust, QML, and JSON files cannot drift to CRLF.
 * text=auto eol=lf
 
-# The shipped x86_64 engine is the release artifact: keep it byte-exact, out of
-# diffs and merges, and marked generated in review. bin/check-release and the
-# pre-push gate hash this file.
+# The shipped x86_64 engine is a build artifact: keep it byte-exact, out of
+# diffs and merges, and marked generated in review. The pre-push gate hashes
+# this file.
 bin/dist/** binary linguist-generated
 
 # Images are binary payloads.
@@ -15,14 +15,11 @@ bin/dist/** binary linguist-generated
 Cargo.lock linguist-generated
 .github/** linguist-vendored
 
-# Third-party notices are vendored verbatim for redistribution. They still ship
-# in the tarball, but their bulk (the Rust COPYRIGHT-library.html alone is 1.5 MB)
-# must not make GitHub label the project HTML.
+# Third-party notices are vendored verbatim for redistribution. Their bulk (the
+# Rust COPYRIGHT-library.html alone is 1.5 MB) must not make GitHub label the
+# project HTML.
 licenses/** linguist-vendored
 
-# Tests are development-only: keep them out of the published release tarball
-# (git archive / GitHub release assets) and out of language statistics. They
-# remain in the working tree and in CI.
-tests/ export-ignore
-crates/reel/tests/ export-ignore
+# Tests are development-only: keep them out of language statistics. They remain
+# in the working tree and in CI.
 tests/** linguist-detectable=false

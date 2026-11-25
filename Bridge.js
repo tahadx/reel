@@ -50,9 +50,6 @@ function snapshotValue(next) {
         elapsed: Number(value.elapsed) || 0,
         recentVersion: Number(value.recentVersion) || 0,
         outputDir: String(value.outputDir || ""),
-        version: String(value.version || ""),
-        updateInfo: value.updateInfo || null,
-        updateChecking: value.updateChecking === true,
         lastError: String(value.lastError || ""),
         configureFailed: value.configureFailed === true
     }

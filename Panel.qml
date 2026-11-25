@@ -34,14 +34,10 @@ Panel {
     property int elapsed: 0
     property int recentVersion: 0
     property string outputDir: ""
-    property string version: ""
-    property var updateInfo: Model.emptyUpdate()
-    property bool updateChecking: false
     property string lastError: ""
     property bool configureFailed: false
 
     function refresh() { root.callBridge("refresh") }
-    function checkForUpdates(force) { root.callBridge("checkForUpdates", [force === true]) }
     function retryConfigure() { root.callBridge("retryConfigure") }
   }
   readonly property var service: root.directService || bridgeService
@@ -59,15 +55,11 @@ Panel {
     if (!next) {
       if (!root.bridgeHasPublisher) return
       root.bridgeHasPublisher = false
-      root.updateNoticePending = false
       bridgeService.state = Model.emptyState()
       bridgeService.recents = []
       bridgeService.elapsed = 0
       bridgeService.recentVersion = 0
       bridgeService.outputDir = ""
-      bridgeService.version = ""
-      bridgeService.updateInfo = Model.emptyUpdate()
-      bridgeService.updateChecking = false
       bridgeService.lastError = ""
       bridgeService.configureFailed = false
       return
@@ -80,11 +72,6 @@ Panel {
     if (bridgeService.recentVersion !== value.recentVersion)
       bridgeService.recentVersion = value.recentVersion
     if (bridgeService.outputDir !== value.outputDir) bridgeService.outputDir = value.outputDir
-    if (bridgeService.version !== value.version) bridgeService.version = value.version
-    if (value.updateInfo && bridgeService.updateInfo !== value.updateInfo)
-      bridgeService.updateInfo = value.updateInfo
-    if (bridgeService.updateChecking !== value.updateChecking)
-      bridgeService.updateChecking = value.updateChecking
     if (bridgeService.lastError !== value.lastError) bridgeService.lastError = value.lastError
     if (bridgeService.configureFailed !== value.configureFailed)
       bridgeService.configureFailed = value.configureFailed
@@ -246,11 +233,6 @@ Panel {
   readonly property string outputDir: root.service && root.service.outputDir !== ""
     ? root.service.outputDir
     : root.home + "/Videos/Reel"
-  readonly property var updateInfo: root.service && root.service.updateInfo
-    ? root.service.updateInfo : Model.emptyUpdate()
-  readonly property bool updateAvailable: root.updateInfo.available === true
-  readonly property bool updateChecking: root.service
-    ? root.service.updateChecking === true : false
 
   readonly property color foreground: root.bar ? root.bar.foreground : Commons.Color.foreground
   readonly property color accent: Commons.Color.accent
@@ -478,7 +460,6 @@ Panel {
     { key: "notifications", label: "Saved notification", glyph: "󰂚", section: "Saving" }
   ]
   readonly property var shortcutRows: [
-    { keys: "Shift+U", what: "update Reel" },
     { keys: "↑ ↓ / j k", what: "move between rows" },
     { keys: "← →", what: "move horizontally or step an option" },
     { keys: "h / l", what: "move horizontally or cycle an option" },
@@ -597,7 +578,6 @@ Panel {
   property var lastActionArgs: []
   property string controlAction: ""
   property string pendingNotice: ""
-  property bool updateNoticePending: false
   // Explicit paste for the two short name fields. Qt's native paste reads the
   // whole clipboard synchronously inside the shell process; this asks the
   // bounded helper instead, caps the result, and refuses control characters.
@@ -1015,48 +995,7 @@ Panel {
     else if (root.active) text = "Reel · recording " + Model.clock(root.elapsed) + " · right-click to pause"
     else if (root.savingJobs.length > 0) text = "Reel · saving " + root.savingJobs.length
       + (root.savingJobs.length === 1 ? " take" : " takes") + " · right-click to record"
-    if (root.updateAvailable) text += " · update available"
     return text
-  }
-
-  // The compact footer cue is both the manual refresh and the update signal:
-  // its tooltip carries the running version at rest, and the newer version
-  // once one is waiting.
-  function currentVersion() {
-    var value = root.service && root.service.version ? String(root.service.version) : ""
-    if (value === "") value = String(root.updateInfo.current || "")
-    return value
-  }
-
-  function updateVersionLabel() {
-    var latest = String(root.updateInfo.latest || "")
-    var current = root.currentVersion()
-    return latest !== "" && latest !== current ? "v" + latest : ""
-  }
-
-  function updateTooltip() {
-    if (root.updateChecking) return "Checking for updates"
-    if (String(root.updateInfo.error || "") !== "")
-      return "Could not check for updates. Click to retry."
-    if (root.updateAvailable) {
-      var version = root.updateVersionLabel()
-      return version !== ""
-        ? "Update available: " + version + " (Shift+U)"
-        : "Update available (Shift+U)"
-    }
-    var current = root.currentVersion()
-    return current !== "" ? "Check for updates · v" + current : "Check for updates"
-  }
-
-  function handleUpdate() {
-    if (root.updateChecking) return
-    if (root.updateAvailable) {
-      root.updateReel()
-      return
-    }
-    if (!root.service) return
-    root.updateNoticePending = true
-    root.service.checkForUpdates(true)
   }
 
   function primaryLabel() {
@@ -1212,19 +1151,6 @@ Panel {
     if (!path) return
     Quickshell.execDetached(["wl-copy", String(path)])
     root.setNotice("Path copied.")
-  }
-
-  // The updater runs in a floating terminal rather than the panel process: the
-  // plugin update reloads this widget, so an in-panel Process would be torn
-  // down before its installer finished. The terminal also keeps the installer
-  // prompt and its output visible.
-  function updateReel() {
-    root.closeTakeMenu()
-    root.close()
-    Quickshell.execDetached([
-      "omarchy-launch-floating-terminal-with-presentation",
-      "reel update"
-    ])
   }
 
   function share(row) {
@@ -1543,12 +1469,11 @@ Panel {
   // ---------- cursor ------------------------------------------------------
 
   readonly property var sections: root.page === "history"
-    ? ["primary", "recents", "footer"]
-    : ["primary", "settings", "footer"]
+    ? ["primary", "recents"]
+    : ["primary", "settings"]
 
   function sectionCount(section) {
     switch (section) {
-    case "footer": return 1
     case "primary": return 3
     case "settings": return root.settingsCount()
     case "recents": return Math.max(1, root.visibleRecents.length + 1)
@@ -1652,11 +1577,6 @@ Panel {
 
   function adjust(direction) {
     root.beginKeyboardScroll()
-    if (root.focusSection === "footer") {
-      var footers = root.sectionCount("footer")
-      root.selectedIndex = (root.selectedIndex + direction + footers) % footers
-      return
-    }
     if (root.focusSection === "primary") {
       var count = root.sectionCount(root.focusSection)
       root.selectedIndex = (root.selectedIndex + direction + count) % count
@@ -1668,9 +1588,6 @@ Panel {
     root.clearHover()
     if (!root.cursorActive) return
     switch (root.focusSection) {
-    case "footer":
-      root.handleUpdate()
-      break
     case "primary":
       root.primaryAction(root.selectedIndex)
       break
@@ -1696,12 +1613,6 @@ Panel {
       return
     }
     if (root.typingPrefix) return
-    // Shift+U is the updater. Check the unlowered text so it does not fall
-    // through to u, which shares the selected take.
-    if (raw === "U") {
-      root.updateReel()
-      return
-    }
     var key = raw.toLowerCase()
     if (key === "q") {
       root.close()
@@ -1890,9 +1801,6 @@ Panel {
         if (dy < 0 && root.page !== "devices" && !onShortcuts) {
           root.focusSection = "primary"
           root.selectedIndex = 0
-        } else if (dy > 0 && root.page !== "devices") {
-          root.focusSection = "footer"
-          root.selectedIndex = 0
         }
         return
       }
@@ -1990,9 +1898,6 @@ Panel {
     } else if (root.focusSection === "primary") {
       actionKey = "Enter"
       actionLabel = "Activate"
-    } else if (root.focusSection === "footer") {
-      actionKey = "Enter"
-      actionLabel = root.updateAvailable ? "Update" : "Check"
     }
     return [
       { key: "↑/↓", label: "Move" },
@@ -2956,7 +2861,7 @@ Panel {
 
             Row {
               anchors.left: parent.left
-              anchors.right: updateCue.left
+              anchors.right: parent.right
               anchors.rightMargin: Style.space(8)
               anchors.verticalCenter: parent.verticalCenter
               spacing: Style.space(8)
@@ -2999,127 +2904,6 @@ Panel {
                     anchors.verticalCenter: parent.verticalCenter
                   }
                 }
-              }
-            }
-
-            // Compact manual update trigger on the right edge of the footer:
-            // dimmed when current, accented arrow when waiting, urgent on failure.
-            Item {
-              id: updateCue
-              anchors.right: parent.right
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(20)
-              height: Style.space(16)
-
-              readonly property bool hot: (root.pointerActive && root.hoverSection === "footer" && root.hoverIndex === 0)
-                || (root.cursorActive && root.focusSection === "footer" && root.selectedIndex === 0
-                  && !root.hoverPainted)
-              readonly property bool failed: !root.updateChecking && !root.updateAvailable
-                && String(root.updateInfo.error || "") !== ""
-
-              Rectangle {
-                id: updateBadge
-                anchors.fill: parent
-                radius: root.chipRadius(Style.space(3))
-                clip: true
-                color: updateCue.failed ? (updateCue.hot ? Util.alpha(root.urgent, 0.22) : root.urgentSoft)
-                  : updateCue.hot ? Style.hoverFillFor(root.foreground, root.accent)
-                  : root.updateAvailable && !root.updateChecking ? Util.alpha(root.accent, 0.14)
-                  : root.updateChecking ? root.cardFill
-                  : "transparent"
-                border.width: 1
-                border.color: updateCue.failed
-                  ? (updateCue.hot ? root.urgent : Util.alpha(root.urgent, 0.45))
-                  : updateCue.hot ? root.accent
-                  : root.updateAvailable && !root.updateChecking ? Util.alpha(root.accent, 0.45)
-                  : root.updateChecking ? root.hairline
-                  : Util.alpha(root.foreground, 0.08)
-
-                Behavior on color {
-                  ColorAnimation { duration: Style.duration(120) }
-                }
-                Behavior on border.color {
-                  ColorAnimation { duration: Style.duration(120) }
-                }
-
-                Text {
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: updateCue.failed ? "󰑐"
-                    : root.updateAvailable && !root.updateChecking ? "↑"
-                    : "󰑐"
-                  color: updateCue.failed ? root.urgent
-                    : updateCue.hot ? root.foreground
-                    : root.updateAvailable && !root.updateChecking ? root.accent
-                    : root.updateChecking ? root.secondary
-                    : Util.alpha(root.foreground, 0.34)
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  font.bold: root.updateAvailable || updateCue.failed
-                  Behavior on color {
-                    ColorAnimation { duration: Style.duration(120) }
-                  }
-                }
-
-                Item {
-                  visible: root.updateChecking
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.bottom: parent.bottom
-                  height: Math.max(1, Style.space(2))
-                  clip: true
-
-                  Rectangle {
-                    anchors.fill: parent
-                    color: root.hairline
-                  }
-
-                  Rectangle {
-                    id: updateSweep
-                    width: Math.max(4, Math.round(parent.width * 0.42))
-                    height: parent.height
-                    color: root.accent
-
-                    SequentialAnimation on x {
-                      running: root.updateChecking && !Style.reduceMotion
-                      loops: Animation.Infinite
-                      NumberAnimation {
-                        from: 0
-                        to: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                        duration: 850
-                        easing.type: Easing.InOutQuad
-                      }
-                      NumberAnimation {
-                        from: Math.max(0, updateSweep.parent.width - updateSweep.width)
-                        to: 0
-                        duration: 850
-                        easing.type: Easing.InOutQuad
-                      }
-                    }
-                  }
-                }
-              }
-
-              MouseArea {
-                id: updateCueMouse
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: root.updateChecking ? Qt.ArrowCursor : Qt.PointingHandCursor
-                enabled: !root.updateChecking
-                onContainsMouseChanged: root.setRowHover("footer", 0, containsMouse)
-                onPositionChanged: function(mouse) { root.pointerMoved("footer", 0, updateCue, mouse) }
-                onClicked: {
-                  root.cursorActive = true
-                  root.focusSection = "footer"
-                  root.selectedIndex = 0
-                  root.handleUpdate()
-                }
-              }
-
-              PanelToolTip {
-                visible: updateCueMouse.containsMouse && root.pointerActive
-                text: root.updateTooltip()
-                fontFamily: root.fontFamily
               }
             }
           }
@@ -5153,10 +4937,7 @@ Panel {
       root.openSettings()
     }
     function refresh(): void {
-      if (root.service) {
-        root.service.refresh()
-        root.service.checkForUpdates(true)
-      }
+      if (root.service) root.service.refresh()
     }
   }
 
@@ -5165,26 +4946,6 @@ Panel {
     function onLastErrorChanged() {
       if (root.service && root.service.lastError !== "")
         root.setNotice(root.service.lastError, true)
-    }
-    function onUpdateInfoChanged() {
-      if (!root.updateNoticePending) return
-      root.updateNoticePending = false
-      var report = root.service && root.service.updateInfo
-        ? root.service.updateInfo : Model.emptyUpdate()
-      if (String(report.error || "") !== "") {
-        root.setNotice("Could not check for updates.", true)
-      } else if (report.available === true) {
-        var latest = String(report.latest || "")
-        var current = String(report.current || "")
-        root.setNotice(latest !== "" && latest !== current
-          ? "Update available: v" + latest + ". Press Shift+U to update."
-          : "Update available. Press Shift+U to update.")
-      } else {
-        var currentVer = root.currentVersion()
-        root.setNotice(currentVer !== ""
-          ? "Reel v" + currentVer + " is up to date."
-          : "Reel is up to date.")
-      }
     }
   }
 

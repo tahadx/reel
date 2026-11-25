@@ -28,9 +28,6 @@ pub struct Paths {
     /// One small record per save pass. Saves run beside the recording state so
     /// a new take can start while earlier takes are still being written.
     pub saves: PathBuf,
-    /// Cached result of the last update check, so restarts inside the hour do
-    /// not touch the network.
-    pub update: PathBuf,
     pub config_dir: PathBuf,
     pub config: PathBuf,
     pub previews: PathBuf,
@@ -60,7 +57,6 @@ impl Paths {
             session_telemetry: root.join("session.telemetry.jsonl"),
             zoom_factor: root.join("zoom-factor"),
             saves: root.join("saves"),
-            update: root.join("update.json"),
             config_dir: root.join("config"),
             config: root.join("config.json"),
             previews: root.join("previews"),
@@ -122,7 +118,6 @@ impl Paths {
             session_telemetry: runtime.join("session.telemetry.jsonl"),
             zoom_factor: runtime.join("zoom-factor"),
             saves: runtime.join("saves"),
-            update: runtime.join("update.json"),
             config: config_dir.join("reel.json"),
             config_dir,
             previews,
