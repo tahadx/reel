@@ -29,6 +29,7 @@ its own:
 | `reel webcams [--json]` | List the cameras available for the webcam corner |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
+| `reel update [--binds]` | Update the plugin from its git origin, rerun its installer, and restart the shell |
 
 A finished take does not own the engine while it is saved. `reel stop` hands
 the take to its own save job and returns, so `reel start` and `reel toggle` can
@@ -68,6 +69,12 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 | `--manual-zoom` | `on`, `off` | `on` |
 | `--auto-zoom` | `on`, `off` | `off` |
 | `--click-effects` | `off`, `ripple`, `halo` | `off` |
+
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then the
+installer from the updated checkout. It follows the repository's latest commit;
+there are no release assets to download. The installer restarts the shell so the
+new QML is loaded. If the Hyprland shortcut block is missing, the installer asks
+before adding it; `--binds` adds or refreshes it without prompting.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take

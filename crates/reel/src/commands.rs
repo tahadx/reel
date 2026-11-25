@@ -12,10 +12,85 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, UNIX_EPOCH};
 
+const PLUGIN_ID: &str = "io.github.tahadx.reel";
+
 /// The largest recent list the panel can request. The service asks for 20; the
 /// cap keeps a bad `--limit` from producing an unbounded JSON document for the
 /// shell process.
 pub const MAX_RECENT_TAKES: usize = 100;
+
+fn installed_plugin_dir() -> PathBuf {
+    let home = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+    config_home.join("omarchy/plugins").join(PLUGIN_ID)
+}
+
+/// Update the installed Omarchy plugin from its git origin, then run the
+/// installer from the updated checkout. There are no release assets to
+/// download: `omarchy plugin update` fetches the repository's latest commit.
+/// The installer is matched to the engine it just fetched, and it restarts the
+/// shell so the new QML is loaded.
+pub fn update(paths: &Paths, binds: bool) -> Result<()> {
+    state::reconcile(paths);
+    match state::status(paths).as_str() {
+        "idle" => {}
+        "finalizing" => {
+            anyhow::bail!("Reel is still finishing the last take. Try again in a moment.")
+        }
+        _ => anyhow::bail!("Stop the current take before updating Reel."),
+    }
+    if crate::saves::count(paths) > 0 {
+        anyhow::bail!("Reel is still saving takes. Try again when they land.");
+    }
+
+    let plugin_dir = installed_plugin_dir();
+    if !plugin_dir.is_dir() {
+        anyhow::bail!(
+            "Reel is not installed as an Omarchy plugin at {}",
+            plugin_dir.display()
+        );
+    }
+    if !util::have("omarchy") {
+        anyhow::bail!("The omarchy command is not on PATH.");
+    }
+
+    println!("== Reel: update ==");
+    println!("  updating {PLUGIN_ID}");
+    let status = Command::new("omarchy")
+        .args(["plugin", "update", PLUGIN_ID, "--yes"])
+        .status()
+        .context("could not run omarchy plugin update")?;
+    if !status.success() {
+        anyhow::bail!("omarchy plugin update failed for {PLUGIN_ID}");
+    }
+
+    let installer = plugin_dir.join("install.sh");
+    if !installer.is_file() {
+        anyhow::bail!(
+            "the updated plugin has no installer at {}",
+            installer.display()
+        );
+    }
+    let mut command = Command::new("bash");
+    command.arg(&installer);
+    // Without --binds, leave the installer interactive. It only asks when the
+    // shortcut block is missing; an existing block is left alone.
+    if binds {
+        command.arg("--yes");
+    }
+    let status = command
+        .status()
+        .context("could not run the updated Reel installer")?;
+    if !status.success() {
+        anyhow::bail!("the updated Reel installer failed");
+    }
+    println!("Reel updated.");
+    Ok(())
+}
 
 pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
     if as_json {

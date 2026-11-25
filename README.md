@@ -84,14 +84,31 @@ rest of it. The installer refuses while Reel is recording or saving.
 ### Updating
 
 ```sh
+reel update
+```
+
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then the
+installer from the updated checkout. It follows the repository's latest commit;
+there are no release downloads. The installer relinks the `reel` command,
+rechecks dependencies, and restarts the Omarchy shell so the new widget is
+loaded.
+
+Pass `--binds` to add or refresh the optional Hyprland shortcuts without
+prompting:
+
+```sh
+reel update --binds
+```
+
+If the command is unavailable, run the two steps directly:
+
+```sh
 omarchy plugin update io.github.tahadx.reel
 ~/.config/omarchy/plugins/io.github.tahadx.reel/install.sh
 ```
 
-Re-running the installer is safe. It relinks the `reel` command, rechecks
-dependencies, and restarts the Omarchy shell so the new widget is loaded. It
-only writes the shortcut block when you accept at the prompt or pass `--yes`;
-`--no-binds` skips it explicitly.
+Re-running the installer is safe. It only writes the shortcut block when you
+accept at the prompt or pass `--yes`; `--no-binds` skips it explicitly.
 
 ### Default shortcuts
 

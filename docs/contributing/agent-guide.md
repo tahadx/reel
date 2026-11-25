@@ -144,7 +144,7 @@ preview.png              marketplace preview (shows the panel only)
 - **No shell interpolation:** Never interpolate user text into a shell command or `sh -c`. Pass queries, filenames, paths, and prompts via `stdin` or discrete `argv` elements.
 - **Path validation:** Reject empty, `NUL`, and newline values whenever a path is expected.
 - **Safe QML text rendering:** Always use `Text.PlainText` for dynamic or user-controlled strings; never use `Text.RichText`.
-- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, credential handling, or network access. Nothing may make a request.
+- **Permissions & network:** Preserve `0700` runtime/preview directory permissions and atomic file writes. No telemetry, analytics, credential handling, or background network access. The only network path is the explicit, user-run `reel update`, which delegates to `omarchy plugin update`.
 - **Log & repo hygiene:** Log actions, never payloads, secrets, tokens, or environment dumps. Treat `~/.config/omarchy/reel.json`, recordings, and local notes as private—never commit them or paste them into issues/screenshots.
 
 ## Known pitfalls
@@ -209,6 +209,10 @@ Subject: `type(area): summary` (50 characters or less). `type` is one of `feat`,
 `docs`, `ci`, `install`, `marketplace`. Then the summary. Body: what was wrong,
 what the fix does, and how it was verified (build, tests,
 `omarchy plugin validate .`, live panel check).
+
+## Updating
+
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from the updated checkout. The installer ends with `omarchy restart shell` so the new QML is loaded. Updates follow the repository's commits; there is no release pipeline.
 
 ## Marketplace
 
