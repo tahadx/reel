@@ -98,6 +98,16 @@ pub enum Command {
         #[arg(long, requires = "check")]
         force: bool,
     },
+    /// Switch the installed plugin from a local branch to origin/main.
+    #[command(name = "use-main", visible_alias = "swap-main")]
+    UseMain {
+        /// Switch without prompting.
+        #[arg(long)]
+        yes: bool,
+        /// Add or refresh the optional Hyprland bindings without prompting.
+        #[arg(long)]
+        binds: bool,
+    },
     /// Zoom in on the pointer during recording.
     #[command(name = "zoom-in")]
     ZoomIn {

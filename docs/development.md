@@ -98,6 +98,11 @@ The copied tree is a development install, not a git checkout. `reel update` and
 they reject any non-git or dirty plugin. To receive updates, install Reel as a
 normal Omarchy plugin, which is a clean git checkout.
 
+If the installed plugin is left on a local branch, `reel use-main` (alias
+`swap-main`) stashes local changes, saves any local `main` commits on a backup
+branch, checks out `main` tracking `origin/main`, and reinstalls. Run it from a
+terminal; it prompts before changing the checkout.
+
 After QML changes, restart the shell so the loaded panel is replaced:
 
 ```sh

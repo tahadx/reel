@@ -131,6 +131,143 @@ fn short_rev(dir: &Path, rev: &str) -> String {
     .unwrap_or_default()
 }
 
+/// The checked-out branch, or `HEAD` when the checkout is detached.
+fn current_branch(dir: &Path) -> String {
+    let dir_text = dir.display().to_string();
+    util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-parse", "--abbrev-ref", "HEAD"],
+        Duration::from_secs(10),
+    )
+    .map(|out| out.trim().to_string())
+    .unwrap_or_default()
+}
+
+/// Whether anything in the checkout differs from HEAD, including untracked
+/// files. A switch stashes exactly this set before it moves the branch.
+fn checkout_is_dirty(dir: &Path) -> bool {
+    let dir_text = dir.display().to_string();
+    util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "status", "--porcelain"],
+        Duration::from_secs(10),
+    )
+    .map(|out| !out.trim().is_empty())
+    .unwrap_or(true)
+}
+
+/// Commits that exist only in this checkout, not in origin/main. They are saved
+/// on a backup branch before a local main is reset.
+fn commits_ahead_of_origin_main(dir: &Path) -> u64 {
+    let dir_text = dir.display().to_string();
+    util::run_stdout_within(
+        "git",
+        &["-C", &dir_text, "rev-list", "--count", "origin/main..HEAD"],
+        Duration::from_secs(10),
+    )
+    .and_then(|out| out.trim().parse::<u64>().ok())
+    .unwrap_or(0)
+}
+
+/// Ask before rewriting the installed checkout. A non-interactive caller must
+/// pass `--yes`; guessing would discard work.
+fn confirm_switch(prompt: &str) -> Result<bool> {
+    use std::io::{self, IsTerminal, Write};
+    if !io::stdin().is_terminal() {
+        anyhow::bail!(
+            "Refusing to switch the plugin checkout without --yes when stdin is not a terminal."
+        );
+    }
+    print!("{prompt} [y/N] ");
+    io::stdout()
+        .flush()
+        .context("could not write the confirmation prompt")?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("could not read the confirmation")?;
+    Ok(matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES"))
+}
+
+/// Move the installed plugin checkout to a local `main` that tracks
+/// `origin/main`. Uncommitted changes are stashed, and commits that are not on
+/// origin/main are kept on a backup branch when the current branch itself would
+/// otherwise lose them.
+fn switch_checkout_to_main(dir: &Path, branch: &str, origin_main: &str) -> Result<()> {
+    let dir_text = dir.display().to_string();
+    let head = short_rev(dir, "HEAD");
+    if checkout_is_dirty(dir) {
+        let label = format!("reel use-main: {branch} at {head}");
+        let status = Command::new("git")
+            .args([
+                "-C",
+                &dir_text,
+                "stash",
+                "push",
+                "--include-untracked",
+                "-m",
+                &label,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("could not save the local plugin changes in a git stash")?;
+        if !status.success() {
+            anyhow::bail!("could not save the local plugin changes in a git stash");
+        }
+        println!("  local changes saved in a git stash.");
+    }
+
+    if commits_ahead_of_origin_main(dir) > 0 && (branch == "main" || branch == "HEAD") {
+        let backup = format!("reel-backup-{}", paths::now_millis());
+        let status = Command::new("git")
+            .args(["-C", &dir_text, "branch", &backup, "HEAD"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .context("could not save the current commits as a backup branch")?;
+        if !status.success() {
+            anyhow::bail!("could not save the current commits as {backup}");
+        }
+        println!("  previous commits saved as branch {backup}.");
+    }
+
+    let status = Command::new("git")
+        .args([
+            "-C",
+            &dir_text,
+            "checkout",
+            "-f",
+            "-B",
+            "main",
+            "origin/main",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context("could not switch the plugin checkout to main")?;
+    if !status.success() {
+        anyhow::bail!("could not switch the plugin checkout to main");
+    }
+    let status = Command::new("git")
+        .args([
+            "-C",
+            &dir_text,
+            "branch",
+            "--set-upstream-to=origin/main",
+            "main",
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .context("could not make main track origin/main")?;
+    if !status.success() {
+        anyhow::bail!("could not make main track origin/main");
+    }
+    println!("  now on main at {origin_main}.");
+    Ok(())
+}
+
 /// Fetch the remote revision and compare it with the checkout. The comparison
 /// is the one `omarchy plugin update` uses: how many commits HEAD is behind the
 /// fetched remote head. Failures become a report, not an error, so a background
@@ -307,6 +444,102 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     paths::remove_quiet(&paths.update);
     println!("Reel updated.");
     Ok(())
+}
+
+/// Switch the installed plugin from a local branch to `main` tracking
+/// `origin/main`, then reinstall it. This is the recovery path for a checkout
+/// left on a development branch: Omarchy's updater only works on a clean git
+/// checkout, so the branch has to be put back on the mainstream first.
+pub fn use_main(paths: &Paths, yes: bool, binds: bool) -> Result<()> {
+    state::reconcile(paths);
+    match state::status(paths).as_str() {
+        "idle" => {}
+        "finalizing" => {
+            anyhow::bail!("Reel is still finishing the last take. Try again in a moment.")
+        }
+        _ => anyhow::bail!("Stop the current take before switching Reel to main."),
+    }
+    if crate::saves::count(paths) > 0 {
+        anyhow::bail!("Reel is still saving takes. Try again when they land.");
+    }
+
+    let plugin_dir = installed_plugin_dir();
+    if !plugin_dir.is_dir() {
+        anyhow::bail!(
+            "Reel is not installed as an Omarchy plugin at {}",
+            plugin_dir.display()
+        );
+    }
+    if !plugin_dir.join(".git").exists() {
+        anyhow::bail!(
+            "This install is not a git checkout. Reinstall Reel with `omarchy plugin add https://github.com/tahadx/reel.git --enable`."
+        );
+    }
+    if !util::have("omarchy") {
+        anyhow::bail!("The omarchy command is not on PATH.");
+    }
+
+    let dir_text = plugin_dir.display().to_string();
+    let Some(urls) = fetch_urls(&plugin_dir, Duration::from_secs(10)) else {
+        anyhow::bail!("The plugin checkout's remote URL could not be read.");
+    };
+    if urls.iter().any(|url| credential_bearing_url(url)) {
+        anyhow::bail!(
+            "The plugin checkout's remote URL carries credentials. Move them to a git credential helper and remove them from the URL."
+        );
+    }
+
+    let fetched = util::run_stdout_within_env(
+        "git",
+        &["-C", &dir_text, "fetch", "--quiet", "origin", "main"],
+        &[
+            ("GIT_TERMINAL_PROMPT", "0"),
+            ("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"),
+        ],
+        Duration::from_secs(30),
+    );
+    if fetched.is_none() {
+        anyhow::bail!("The plugin checkout's origin/main could not be fetched.");
+    }
+    let origin_main = short_rev(&plugin_dir, "origin/main");
+    if origin_main.is_empty() {
+        anyhow::bail!("The plugin checkout has no origin/main branch.");
+    }
+
+    let branch = current_branch(&plugin_dir);
+    if branch.is_empty() {
+        anyhow::bail!("The plugin checkout's current branch could not be read.");
+    }
+    let head = short_rev(&plugin_dir, "HEAD");
+    if branch == "main" && !checkout_is_dirty(&plugin_dir) && head == origin_main {
+        // Keep the upstream honest even when the checkout is already current.
+        let _ = Command::new("git")
+            .args([
+                "-C",
+                &dir_text,
+                "branch",
+                "--set-upstream-to=origin/main",
+                "main",
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+        println!("Reel is already on main at {origin_main}.");
+        return Ok(());
+    }
+
+    if !yes {
+        let prompt = format!(
+            "Switch the installed Reel checkout from {branch} to origin/main ({origin_main})? Local changes will be saved in a git stash, and local main commits in a backup branch."
+        );
+        if !confirm_switch(&prompt)? {
+            anyhow::bail!("Cancelled; the plugin checkout was not changed.");
+        }
+    }
+
+    println!("== Reel: switch to main ==");
+    switch_checkout_to_main(&plugin_dir, &branch, &origin_main)?;
+    update(paths, binds)
 }
 
 pub fn status(paths: &Paths, as_json: bool) -> Result<()> {
@@ -1352,6 +1585,91 @@ mod tests {
         assert!(body.contains("\"behind\":2"), "{body}");
         let parsed: UpdateReport = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, report);
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) -> String {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .expect("git should run");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
+
+    #[test]
+    fn switching_to_main_stashes_local_work_and_tracks_the_remote() {
+        let root = temp_root("use-main");
+        let remote = root.join("remote.git");
+        fs::create_dir_all(&remote).unwrap();
+        git_in(&remote, &["init", "--bare", "--initial-branch=main"]);
+
+        let work = root.join("work");
+        git_in(
+            &root,
+            &["clone", remote.to_str().unwrap(), work.to_str().unwrap()],
+        );
+        git_in(&work, &["config", "user.name", "Reel Test"]);
+        git_in(&work, &["config", "user.email", "reel@example.invalid"]);
+        git_in(&work, &["config", "commit.gpgsign", "false"]);
+        fs::write(work.join("Panel.qml"), "Item {}\n").unwrap();
+        git_in(&work, &["add", "Panel.qml"]);
+        git_in(&work, &["commit", "-m", "main"]);
+        git_in(&work, &["push", "origin", "HEAD:main"]);
+        git_in(&remote, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+
+        let installed = root.join("installed");
+        git_in(
+            &root,
+            &[
+                "clone",
+                remote.to_str().unwrap(),
+                installed.to_str().unwrap(),
+            ],
+        );
+        git_in(&installed, &["config", "user.name", "Reel Test"]);
+        git_in(
+            &installed,
+            &["config", "user.email", "reel@example.invalid"],
+        );
+        git_in(&installed, &["config", "commit.gpgsign", "false"]);
+        git_in(&installed, &["checkout", "-b", "local-work"]);
+        fs::write(installed.join("Panel.qml"), "Item { width: 1 }\n").unwrap();
+        git_in(&installed, &["add", "Panel.qml"]);
+        git_in(&installed, &["commit", "-m", "local"]);
+        fs::write(installed.join("Panel.qml"), "Item { width: 2 }\n").unwrap();
+        git_in(&installed, &["fetch", "--quiet", "origin", "main"]);
+        let origin_main = git_in(&installed, &["rev-parse", "--short", "origin/main"]);
+
+        switch_checkout_to_main(&installed, "local-work", &origin_main).unwrap();
+
+        assert_eq!(
+            git_in(&installed, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            "main"
+        );
+        assert_eq!(
+            git_in(&installed, &["rev-parse", "--short", "HEAD"]),
+            origin_main
+        );
+        assert_eq!(git_in(&installed, &["status", "--porcelain"]), "");
+        assert!(git_in(&installed, &["stash", "list"]).contains("reel use-main"));
+        assert_eq!(
+            git_in(&installed, &["rev-parse", "--abbrev-ref", "local-work"]),
+            "local-work"
+        );
+        assert_eq!(
+            git_in(&installed, &["rev-parse", "--abbrev-ref", "@{upstream}"]),
+            "origin/main"
+        );
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

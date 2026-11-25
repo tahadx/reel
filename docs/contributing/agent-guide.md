@@ -212,7 +212,7 @@ what the fix does, and how it was verified (build, tests,
 
 ## Updating
 
-`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from the updated checkout. The installer ends with `omarchy restart shell` so the new QML is loaded. Updates follow the repository's commits; there is no release pipeline. `reel update --check [--json] [--force]` fetches the origin and reports how many commits are waiting; the shell service runs it hourly and the panel footer shows the cue. Reel uses Omarchy's plugin updater, so a copied development install (no `.git`, or a clone left dirty by the copy) is rejected just like any other non-git or dirty plugin.
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from the updated checkout. The installer ends with `omarchy restart shell` so the new QML is loaded. Updates follow the repository's commits; there is no release pipeline. `reel update --check [--json] [--force]` fetches the origin and reports how many commits are waiting; the shell service runs it hourly and the panel footer shows the cue. Reel uses Omarchy's plugin updater, so a copied development install (no `.git`, or a clone left dirty by the copy) is rejected just like any other non-git or dirty plugin. `reel use-main` (alias `swap-main`) recovers an installed checkout on a local branch: it stashes local changes, saves local main commits on a backup branch, checks out main tracking origin/main, and reinstalls. It is intentionally CLI-only; do not add it to the optional shortcut block.
 
 ## Marketplace
 
