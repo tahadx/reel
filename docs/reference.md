@@ -79,6 +79,13 @@ runs the same command in a floating terminal so the updater and its prompt stay
 visible while the plugin reloads. The update fails with a clear message rather
 than claiming success if the shell cannot be restarted.
 
+A development install records its checkout in `.reel-dev-source` inside the
+plugin directory when `./install.sh` copies the files. For that install,
+`reel update` re-runs the checkout's installer instead of `omarchy plugin
+update`, which cannot fast-forward a copied tree (no `.git`) or a clone left
+dirty by the copy. Pull or edit the checkout first; the installer replaces the
+installed files with it.
+
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take
 would keep recording without pointer data and auto zoom would stop for the rest
@@ -86,10 +93,15 @@ of it. The installer refuses while Reel is recording or saving.
 
 `reel update --check` compares the installed checkout with the remote head and
 reports whether an update is waiting. It contacts the plugin's git origin, so it
-is the only network access Reel makes. If the effective origin URL (after git's
-`insteadOf` rewrites) embeds a credential or a query token, the check refuses to
-fetch: git would put that URL in the remote helper's argv, where another local
-account could read it. Git's remote-helper URL forms (`https::…`, `ext::…`)
+is the only network access Reel makes. For a development install it instead
+compares the checkout's runtime files with the installed copies, reports an edit
+even without a version bump, and uses neither the network nor the hourly cache.
+An older development install gets its record on the next `./install.sh` run.
+
+For a normal install, if the effective origin URL (after git's `insteadOf`
+rewrites) embeds a credential or a query token, the check refuses to fetch: git
+would put that URL in the remote helper's argv, where another local account
+could read it. Git's remote-helper URL forms (`https::…`, `ext::…`)
 are refused too, since the background check has no reason to use them. Keep
 secrets in a git credential helper. The shell service runs the check once when
 it starts and then once an hour; a result is
@@ -629,9 +641,15 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   support (`wlr-screencopy` or `ext-image-copy-capture`). On Hyprland this
   should work; restart the shell if the panel was loaded before the compositor
   was ready.
-- **The update mark never appears** — checks run at most once an hour and need
-  network access to the plugin's git origin. Run `reel update --check` to see
-  the current answer or the connection error.
+- **The update mark never appears** — for a normal install, checks run at most
+  once an hour and need network access to the plugin's git origin. Run
+  `reel update --check` to see the current answer or the connection error. A
+  development install compares local files on every check, so an edit in the
+  checkout is reported without the network or the hourly cache.
+- **The development checkout is gone** — a development install records the
+  checkout that `install.sh` copied from. Move the checkout back or reinstall
+  from it. Removing `.reel-dev-source` only returns to git-managed updates when
+  the installed tree is also a clean git checkout.
 - **The save pass failed** — the original recording is kept and the error is
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error

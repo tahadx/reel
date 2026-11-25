@@ -2,6 +2,8 @@
 /target/
 *.part.*
 *.bak.*
+# Written into an installed plugin tree by install.sh
+.reel-dev-source
 
 # Editors
 .DS_Store

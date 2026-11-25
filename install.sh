@@ -9,6 +9,14 @@
 set -euo pipefail
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# The development record is line-oriented, so a newline here would split it
+# into a different path.
+case "$HERE" in
+*$'\n'*)
+  echo "install.sh: the checkout path contains a newline" >&2
+  exit 1
+  ;;
+esac
 PLUGIN_ID="io.github.tahadx.reel"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 PLUGIN_DIR="$CONFIG_HOME/omarchy/plugins/$PLUGIN_ID"
@@ -85,27 +93,44 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   # Development path: a clone installs into the plugin directory Omarchy loads.
   # The marketplace/clone flow already has the files where they belong.
   mkdir -p -- "$PLUGIN_DIR/bin/dist"
-  install -m 0644 "$HERE/manifest.json" "$PLUGIN_DIR/manifest.json"
-  install -m 0644 "$HERE/Panel.qml" "$PLUGIN_DIR/Panel.qml"
-  install -m 0644 "$HERE/Service.qml" "$PLUGIN_DIR/Service.qml"
-  install -m 0644 "$HERE/Countdown.qml" "$PLUGIN_DIR/Countdown.qml"
-  install -m 0644 "$HERE/Bridge.js" "$PLUGIN_DIR/Bridge.js"
-  install -m 0644 "$HERE/Model.js" "$PLUGIN_DIR/Model.js"
-  install -m 0644 "$HERE/GuardedInput.qml" "$PLUGIN_DIR/GuardedInput.qml"
-  install -m 0755 "$HERE/bin/reel" "$PLUGIN_DIR/bin/reel"
-  install -m 0755 "$HERE/bin/clipboard" "$PLUGIN_DIR/bin/clipboard"
-  install -m 0755 "$HERE/bin/configure" "$PLUGIN_DIR/bin/configure"
-  install -m 0755 "$HERE/bin/uninstall" "$PLUGIN_DIR/bin/uninstall"
-  install -m 0755 "$HERE/bin/dist/reel-native" "$PLUGIN_DIR/bin/dist/reel-native"
-  # Keep the installed build verifiable: the fingerprint is what a later
-  # re-install or a manual check compares against the checkout.
-  install -m 0644 "$HERE/bin/dist/reel-native.fingerprint" "$PLUGIN_DIR/bin/dist/reel-native.fingerprint"
-  # The installed copy runs on later updates and re-installs, so it must be the
-  # same installer as this checkout rather than the one that was cloned.
-  install -m 0755 "$HERE/install.sh" "$PLUGIN_DIR/install.sh"
+  # The runtime files a development install owns. The same list is written to
+  # the marker below, so `reel update` compares exactly what this installer
+  # copies. The fingerprint keeps the installed build verifiable against the
+  # checkout; the installed installer is the copy a normal re-install runs.
+  RUNTIME_FILES=(
+    manifest.json
+    Panel.qml
+    Service.qml
+    Countdown.qml
+    Bridge.js
+    Model.js
+    GuardedInput.qml
+    bin/reel
+    bin/clipboard
+    bin/configure
+    bin/uninstall
+    bin/dist/reel-native
+    bin/dist/reel-native.fingerprint
+    install.sh
+    LICENSE
+    THIRD-PARTY.md
+  )
+  # A copied tree has no `.git`, and copying over an existing plugin clone
+  # leaves its tracked files modified, so `omarchy plugin update` cannot
+  # fast-forward either shape. Record this checkout before the copy, so a
+  # service reload cannot read the new files without the record.
+  {
+    printf '%s\n' "$HERE"
+    printf '%s\n' "${RUNTIME_FILES[@]}"
+  } >"$PLUGIN_DIR/.reel-dev-source"
+  for file in "${RUNTIME_FILES[@]}"; do
+    mode=0644
+    case "$file" in
+    bin/* | install.sh) mode=0755 ;;
+    esac
+    install -m "$mode" "$HERE/$file" "$PLUGIN_DIR/$file"
+  done
   # The standalone engine is redistributed, so its notices travel with it.
-  install -m 0644 "$HERE/LICENSE" "$PLUGIN_DIR/LICENSE"
-  install -m 0644 "$HERE/THIRD-PARTY.md" "$PLUGIN_DIR/THIRD-PARTY.md"
   rm -rf -- "$PLUGIN_DIR/licenses"
   cp -a -- "$HERE/licenses" "$PLUGIN_DIR/licenses"
   # Older installs copied agent instruction files into the runtime tree. They

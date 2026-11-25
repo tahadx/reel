@@ -97,13 +97,23 @@ a manual `omarchy-restart-shell`.
 Reel also checks for updates by itself: once when the shell starts and then once
 an hour. A waiting update shows as a newer version with an accent arrow in the
 panel header. That readout checks again when Reel is current, so a manual
-refresh never needs a terminal. The check contacts only the plugin's own git
-origin; a result is cached for the hour.
+refresh never needs a terminal. For a normal install the check contacts only the
+plugin's own git origin; a result is cached for the hour.
 
 `reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then runs
 the installer from the freshly updated plugin checkout. The installer relinks
 the `reel` command, rechecks dependencies, and restarts the Omarchy shell so the
 new widget is loaded. It never downloads a second copy of the installer.
+
+If Reel was installed from a development checkout with `./install.sh`, the
+updater instead re-runs that checkout's installer. The installer records the
+checkout in the plugin directory, and the update check compares the checkout's
+runtime files with the installed copies without contacting a remote. Pull or
+edit the checkout first; updating replaces the installed files with it.
+
+A development install made before this record existed needs one `./install.sh`
+run from its checkout to write it. After that the panel's update button
+reinstalls from the checkout instead of trying a git update.
 
 By default it leaves `~/.config/hypr/bindings.lua` alone when the Reel block is
 already there. If the block is missing, the installer asks before adding it.
@@ -303,6 +313,9 @@ bin/test-qml
 ```
 
 The plugin ships `bin/dist/reel-native`, so users do not need a Rust toolchain.
+A checkout installs with `./install.sh`; the installer records the checkout in
+the plugin directory, so the panel's update action and `reel update` reinstall
+from that checkout instead of trying a git fast-forward.
 [Release builds and architecture notes](docs/development.md) cover
 `bin/refresh-dist` and the release process. Agent instructions live in
 [docs/contributing/agent-guide.md](docs/contributing/agent-guide.md); they are

@@ -28,10 +28,13 @@ assert_no_file() {
 export HOME="$TEST_ROOT/home"
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_STATE_HOME="$HOME/.state"
+# Keep the test off the live runtime directory. Otherwise `reel status` reads a
+# take that is recording on the desktop and the installer refuses to run.
+export XDG_RUNTIME_DIR="$TEST_ROOT/run"
 # The installer test runs on the developer's live desktop. A failed probe must
 # stay in the log, not become a notification.
 export REEL_NO_NOTIFY=1
-mkdir -p -- "$HOME/.config/hypr" "$HOME/.local/bin" "$TEST_ROOT/bin"
+mkdir -p -- "$XDG_RUNTIME_DIR" "$HOME/.config/hypr" "$HOME/.local/bin" "$TEST_ROOT/bin"
 
 # The installer checks for the recorder tools. Shim them so the test does not
 # depend on the machine's packages, and keep Omarchy/Hyprland out of the run.
@@ -114,6 +117,34 @@ assert_file "$PLUGIN_DIR/bin/clipboard"
 assert_file "$PLUGIN_DIR/GuardedInput.qml"
 assert_file "$PLUGIN_DIR/THIRD-PARTY.md"
 assert_file "$PLUGIN_DIR/install.sh"
+# A development install records the checkout so `reel update` can reinstall
+# from it instead of git-updating the copied tree.
+assert_file "$PLUGIN_DIR/.reel-dev-source"
+DEV_SOURCE="$(sed -n '1p' "$PLUGIN_DIR/.reel-dev-source")"
+[[ "$DEV_SOURCE" == "$REPO" ]] || fail "dev install recorded '$DEV_SOURCE', not '$REPO'"
+grep -qxF -- 'Panel.qml' "$PLUGIN_DIR/.reel-dev-source" \
+  || fail "dev install marker is missing Panel.qml"
+grep -qxF -- 'bin/dist/reel-native' "$PLUGIN_DIR/.reel-dev-source" \
+  || fail "dev install marker is missing the shipped engine"
+# The shipped engine reads that marker: a fresh copy is current, and a stale
+# copied file is offered as an update.
+CHECK_JSON="$(reel update --check --json)"
+[[ "$CHECK_JSON" == *'"available":false'* ]] \
+  || fail "dev update check did not see a current install: $CHECK_JSON"
+[[ "$CHECK_JSON" == *'"error":""'* ]] \
+  || fail "dev update check reported an error: $CHECK_JSON"
+printf '\n// stale\n' >>"$PLUGIN_DIR/Panel.qml"
+CHECK_JSON="$(reel update --check --json)"
+[[ "$CHECK_JSON" == *'"available":true'* ]] \
+  || fail "dev update check missed a stale copied file: $CHECK_JSON"
+# The update action must reinstall from the checkout instead of asking git to
+# fast-forward the copied tree, and it must make the check current again.
+reel update --binds >"$TEST_ROOT/update-dev.log"
+grep -q 'development install from' "$TEST_ROOT/update-dev.log" \
+  || fail "dev update did not report the development checkout"
+CHECK_JSON="$(reel update --check --json)"
+[[ "$CHECK_JSON" == *'"available":false'* ]] \
+  || fail "dev update did not replace the stale copied file: $CHECK_JSON"
 [[ -x "$PLUGIN_DIR/install.sh" ]] || fail "installed installer is not executable"
 cmp -s "$REPO/install.sh" "$PLUGIN_DIR/install.sh" \
   || fail "installed installer differs from the checkout"

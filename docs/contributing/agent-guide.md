@@ -213,7 +213,13 @@ what the fix does, and how it was verified (build, tests,
 
 ## Release & update flow
 
-- **User update:** `reel update` (or `Shift+U` in the panel) runs `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from the updated checkout. The installer ends with `omarchy restart shell` so the new QML is loaded.
+- **User update:** `reel update` (or `Shift+U` in the panel) runs
+  `omarchy plugin update io.github.tahadx.reel --yes`, then `./install.sh` from
+  the updated checkout. The installer ends with `omarchy restart shell` so the
+  new QML is loaded. For a development install, `install.sh` records the
+  checkout in `.reel-dev-source`; update re-runs that checkout's installer
+  instead, because `omarchy plugin update` cannot fast-forward the copied or
+  dirty tree.
 - **Versioning:** `bin/version` derives the version from the git tag; `bin/stamp-version <semver>` writes it into `manifest.json` and `crates/reel/Cargo.toml`.
 - **Cutting a release** (steps 1–4 always; step 5 only when the user asks to publish):
   1. `bin/stamp-version <semver>`

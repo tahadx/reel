@@ -54,6 +54,158 @@ fn read_update_cache(paths: &Paths) -> Option<UpdateReport> {
     serde_json::from_str(&text).ok()
 }
 
+/// `install.sh` records the checkout it copied when it installs a development
+/// tree into the plugin directory. The copy has no `.git`, and copying over an
+/// existing plugin clone leaves its tracked files modified, so
+/// `omarchy plugin update` cannot fast-forward either shape. `reel update`
+/// re-runs the checkout's installer instead.
+const DEV_SOURCE_FILE: &str = ".reel-dev-source";
+
+#[derive(Debug)]
+struct DevSource {
+    root: PathBuf,
+    files: Vec<PathBuf>,
+}
+
+/// Read the development checkout recorded by `install.sh`. `None` means this
+/// is a git-managed install; an error means the record exists but no longer
+/// describes a usable checkout, which the caller reports rather than falling
+/// back to a git update that would fail on the copied files.
+fn read_dev_source(plugin_dir: &Path) -> Result<Option<DevSource>> {
+    let marker = plugin_dir.join(DEV_SOURCE_FILE);
+    let text = match fs::read_to_string(&marker) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("cannot read {}", marker.display()))
+        }
+    };
+
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let Some(root) = lines.next().map(PathBuf::from) else {
+        anyhow::bail!("{} is empty.", marker.display());
+    };
+    if !root.is_absolute() {
+        anyhow::bail!(
+            "{} does not name an absolute development checkout.",
+            marker.display()
+        );
+    }
+    if !root.is_dir() {
+        anyhow::bail!(
+            "The development checkout at {} is gone. Reinstall from it or remove {}.",
+            root.display(),
+            marker.display()
+        );
+    }
+    let id = fs::read_to_string(root.join("manifest.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value.get("id")?.as_str().map(str::to_string))
+        .unwrap_or_default();
+    if id != PLUGIN_ID {
+        anyhow::bail!(
+            "The development checkout at {} is not a Reel install.",
+            root.display()
+        );
+    }
+    if !root.join("install.sh").is_file() {
+        anyhow::bail!(
+            "The development checkout at {} has no install.sh.",
+            root.display()
+        );
+    }
+
+    let root = fs::canonicalize(&root)
+        .with_context(|| format!("cannot resolve the development checkout {}", root.display()))?;
+    let plugin_dir = fs::canonicalize(plugin_dir)
+        .with_context(|| format!("cannot resolve {}", plugin_dir.display()))?;
+    if root == plugin_dir {
+        anyhow::bail!(
+            "{} points at the installed plugin, not a development checkout.",
+            marker.display()
+        );
+    }
+
+    let mut files = Vec::new();
+    for line in lines {
+        let file = PathBuf::from(line);
+        if file
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            anyhow::bail!(
+                "{} lists an unsafe path: {}.",
+                marker.display(),
+                file.display()
+            );
+        }
+        files.push(file);
+    }
+    if files.is_empty() {
+        anyhow::bail!("{} does not list the installed files.", marker.display());
+    }
+
+    Ok(Some(DevSource { root, files }))
+}
+
+fn manifest_version(root: &Path) -> String {
+    fs::read_to_string(root.join("manifest.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|value| value.get("version")?.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+fn same_contents(left: &Path, right: &Path) -> bool {
+    let (Ok(left_meta), Ok(right_meta)) = (fs::metadata(left), fs::metadata(right)) else {
+        return false;
+    };
+    if left_meta.len() != right_meta.len() {
+        return false;
+    }
+    match (fs::read(left), fs::read(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
+}
+
+/// How many files the checkout's installer would replace. A missing source
+/// file counts too: the next install will fail on it, and the panel should
+/// still offer the update rather than silently claiming everything is current.
+fn dev_differences(source: &DevSource, plugin_dir: &Path) -> u64 {
+    source
+        .files
+        .iter()
+        .filter(|file| {
+            let from = source.root.join(file);
+            let to = plugin_dir.join(file);
+            !from.is_file() || !same_contents(&from, &to)
+        })
+        .count() as u64
+}
+
+fn dev_update_report(
+    source: &DevSource,
+    plugin_dir: &Path,
+    current: &str,
+    checked_at: i64,
+) -> UpdateReport {
+    let latest = manifest_version(&source.root);
+    UpdateReport {
+        current: current.to_string(),
+        latest: if latest == current {
+            String::new()
+        } else {
+            latest
+        },
+        available: dev_differences(source, plugin_dir) > 0,
+        behind: 0,
+        checked_at,
+        error: String::new(),
+    }
+}
+
 /// Git's remote-helper form (`https::https://…`, `ext::…`) passes the inner
 /// address to a helper. The background check does not need that form, and
 /// parsing the inner URL differently from git is how credentials slip through;
@@ -208,22 +360,39 @@ fn fetch_update_report(current: &str, checked_at: i64) -> UpdateReport {
 pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
     let current = env!("CARGO_PKG_VERSION").to_string();
     let now = paths::now_secs();
+    let plugin_dir = installed_plugin_dir();
 
-    let cached = read_update_cache(paths);
-    let fresh = if force {
-        None
-    } else {
-        cached.filter(|report| update_cache_is_fresh(report, &current, now))
-    };
-
-    let report = match fresh {
-        Some(report) => report,
-        None => {
-            let report = fetch_update_report(&current, now);
-            if let Ok(body) = serde_json::to_string(&report) {
-                let _ = paths::write_atomic(&paths.update, &body);
+    // A development install compares local files, so the hourly cache would
+    // hide an edit. It never contacts a remote.
+    let dev = read_dev_source(&plugin_dir);
+    let is_dev = matches!(&dev, Ok(Some(_)));
+    let report = match dev {
+        Ok(Some(source)) => dev_update_report(&source, &plugin_dir, &current, now),
+        Err(error) => UpdateReport {
+            current: current.clone(),
+            latest: String::new(),
+            available: false,
+            behind: 0,
+            checked_at: now,
+            error: format!("{error:#}"),
+        },
+        Ok(None) => {
+            let cached = read_update_cache(paths);
+            let fresh = if force {
+                None
+            } else {
+                cached.filter(|report| update_cache_is_fresh(report, &current, now))
+            };
+            match fresh {
+                Some(report) => report,
+                None => {
+                    let report = fetch_update_report(&current, now);
+                    if let Ok(body) = serde_json::to_string(&report) {
+                        let _ = paths::write_atomic(&paths.update, &body);
+                    }
+                    report
+                }
             }
-            report
         }
     };
 
@@ -235,7 +404,18 @@ pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
     if !report.error.is_empty() {
         println!("Could not check for updates: {}", report.error);
     } else if report.available {
-        if report.latest.is_empty() || report.latest == report.current {
+        if is_dev {
+            if report.latest.is_empty() {
+                println!(
+                    "The development checkout has changes. Run `reel update` to reinstall from it."
+                );
+            } else {
+                println!(
+                    "Reel {} is available from the development checkout (current {}). Run `reel update`.",
+                    report.latest, report.current
+                );
+            }
+        } else if report.latest.is_empty() || report.latest == report.current {
             println!(
                 "An update is available (current {}). Run `reel update`.",
                 report.current
@@ -246,6 +426,11 @@ pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
                 report.latest, report.current
             );
         }
+    } else if is_dev {
+        println!(
+            "Reel {} is up to date with the development checkout.",
+            report.current
+        );
     } else {
         println!("Reel {} is up to date.", report.current);
     }
@@ -282,16 +467,28 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     }
 
     println!("== Reel: update ==");
-    println!("  updating {ID}");
-    let status = Command::new("omarchy")
-        .args(["plugin", "update", ID, "--yes"])
-        .status()
-        .context("could not run omarchy plugin update")?;
-    if !status.success() {
-        anyhow::bail!("omarchy plugin update failed for {ID}");
-    }
+    let installer = match read_dev_source(&plugin_dir)? {
+        Some(source) => {
+            // A development install is a copy of a checkout. Re-running its
+            // installer replaces the installed files and restarts the shell,
+            // which is what `omarchy plugin update` cannot do when the copy has
+            // no `.git` or left an existing clone dirty.
+            println!("  development install from {}", source.root.display());
+            source.root.join("install.sh")
+        }
+        None => {
+            println!("  updating {ID}");
+            let status = Command::new("omarchy")
+                .args(["plugin", "update", ID, "--yes"])
+                .status()
+                .context("could not run omarchy plugin update")?;
+            if !status.success() {
+                anyhow::bail!("omarchy plugin update failed for {ID}");
+            }
+            plugin_dir.join("install.sh")
+        }
+    };
 
-    let installer = plugin_dir.join("install.sh");
     if !installer.is_file() {
         anyhow::bail!(
             "the updated plugin has no installer at {}",
@@ -1364,6 +1561,111 @@ mod tests {
         assert!(body.contains("\"checkedAt\":1000"), "{body}");
         let parsed: UpdateReport = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, report);
+    }
+
+    fn dev_checkout(label: &str, version: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root = temp_root(label);
+        let source = root.join("checkout");
+        let installed = root.join("installed");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&installed).unwrap();
+        let manifest =
+            format!("{{\"schemaVersion\":1,\"id\":\"{PLUGIN_ID}\",\"version\":\"{version}\"}}");
+        fs::write(source.join("manifest.json"), &manifest).unwrap();
+        fs::write(source.join("install.sh"), b"#!/bin/sh\n").unwrap();
+        fs::write(source.join("Panel.qml"), b"Item {}\n").unwrap();
+        fs::write(installed.join("manifest.json"), &manifest).unwrap();
+        fs::write(installed.join("install.sh"), b"#!/bin/sh\n").unwrap();
+        fs::write(installed.join("Panel.qml"), b"Item {}\n").unwrap();
+        fs::write(
+            installed.join(DEV_SOURCE_FILE),
+            format!(
+                "{}\nmanifest.json\ninstall.sh\nPanel.qml\n",
+                source.display()
+            ),
+        )
+        .unwrap();
+        (root, source, installed)
+    }
+
+    #[test]
+    fn a_development_install_compares_the_checkout_with_the_copied_files() {
+        let (root, source, installed) = dev_checkout("dev-update", "0.5.1");
+
+        let recorded = read_dev_source(&installed).unwrap().expect("a dev install");
+        assert_eq!(recorded.root, fs::canonicalize(&source).unwrap());
+        assert_eq!(dev_differences(&recorded, &installed), 0);
+        let report = dev_update_report(&recorded, &installed, "0.5.1", 1000);
+        assert!(!report.available);
+        assert!(report.latest.is_empty());
+        assert!(report.error.is_empty());
+
+        fs::write(source.join("Panel.qml"), b"Item { width: 1 }\n").unwrap();
+        let report = dev_update_report(&recorded, &installed, "0.5.1", 1000);
+        assert!(report.available);
+        assert!(
+            report.latest.is_empty(),
+            "an edit at the same version still counts as a change"
+        );
+
+        fs::write(
+            source.join("manifest.json"),
+            format!("{{\"schemaVersion\":1,\"id\":\"{PLUGIN_ID}\",\"version\":\"0.5.2\"}}"),
+        )
+        .unwrap();
+        let report = dev_update_report(&recorded, &installed, "0.5.1", 1000);
+        assert!(report.available);
+        assert_eq!(report.latest, "0.5.2");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_missing_development_checkout_is_reported() {
+        let root = temp_root("dev-gone");
+        let installed = root.join("installed");
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(
+            installed.join(DEV_SOURCE_FILE),
+            format!("{}\nPanel.qml\n", root.join("gone").display()),
+        )
+        .unwrap();
+
+        let error = read_dev_source(&installed).unwrap_err().to_string();
+        assert!(error.contains("is gone"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_development_checkout_must_be_reel() {
+        let root = temp_root("dev-other");
+        let source = root.join("checkout");
+        let installed = root.join("installed");
+        fs::create_dir_all(&source).unwrap();
+        fs::create_dir_all(&installed).unwrap();
+        fs::write(source.join("manifest.json"), r#"{"id":"example.other"}"#).unwrap();
+        fs::write(source.join("install.sh"), b"#!/bin/sh\n").unwrap();
+        fs::write(
+            installed.join(DEV_SOURCE_FILE),
+            format!("{}\nPanel.qml\n", source.display()),
+        )
+        .unwrap();
+
+        let error = read_dev_source(&installed).unwrap_err().to_string();
+        assert!(error.contains("not a Reel install"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_development_marker_cannot_escape_the_plugin_tree() {
+        let (root, source, installed) = dev_checkout("dev-escape", "0.5.1");
+        fs::write(
+            installed.join(DEV_SOURCE_FILE),
+            format!("{}\n../outside.qml\n", source.display()),
+        )
+        .unwrap();
+
+        assert!(read_dev_source(&installed).is_err());
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]
