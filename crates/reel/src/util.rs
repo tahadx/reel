@@ -54,17 +54,6 @@ pub fn run_stdout_within(program: &str, args: &[&str], timeout: Duration) -> Opt
     run_stdout_within_impl(program, args, &[], timeout, true)
 }
 
-/// Like `run_stdout_within`, with extra environment variables. Used by the
-/// update check so git can never block waiting for a credential prompt.
-pub fn run_stdout_within_env(
-    program: &str,
-    args: &[&str],
-    envs: &[(&str, &str)],
-    timeout: Duration,
-) -> Option<String> {
-    run_stdout_within_impl(program, args, envs, timeout, true)
-}
-
 /// Run a short probe whose help output is useful even when the program exits
 /// nonzero. Some tools print usage and exit 1 for `--help`; the caller still
 /// wants the text.

@@ -28,7 +28,7 @@ TestCase {
 
   function test_caseIsKept() {
     compare(Model.shortcutText("Р", keyH), "H")   // Uppercase mapping is kept
-    compare(Model.shortcutText("Г", keyU), "U")   // Shift+U is the updater
+    compare(Model.shortcutText("Г", keyU), "U")   // Uppercase mapping is kept
   }
 
   function test_otherScriptsFollowThePosition() {

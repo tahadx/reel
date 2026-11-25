@@ -119,10 +119,7 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   # leaves its tracked files modified, so `omarchy plugin update` cannot
   # fast-forward either shape. Record this checkout before the copy, so a
   # service reload cannot read the new files without the record.
-  {
-    printf '%s\n' "$HERE"
-    printf '%s\n' "${RUNTIME_FILES[@]}"
-  } >"$PLUGIN_DIR/.reel-dev-source"
+  printf '%s\n' "$HERE" >"$PLUGIN_DIR/.reel-dev-source"
   for file in "${RUNTIME_FILES[@]}"; do
     mode=0644
     case "$file" in

@@ -29,8 +29,7 @@ its own:
 | `reel webcams [--json]` | List the cameras available for the webcam corner |
 | `reel output` | Print the recordings folder |
 | `reel doctor` | Check tools and print diagnostics |
-| `reel update [--binds]` | Update the plugin, rerun its installer, and restart the shell |
-| `reel update --check [--json] [--force]` | Check whether a newer commit is available |
+| `reel update [--binds]` | Update the plugin from its git origin, rerun its installer, and restart the shell |
 
 A finished take does not own the engine while it is saved. `reel stop` hands
 the take to its own save job and returns, so `reel start` and `reel toggle` can
@@ -71,46 +70,24 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 | `--auto-zoom` | `on`, `off` | `off` |
 | `--click-effects` | `off`, `ripple`, `halo` | `off` |
 
-`reel update` updates the installed Omarchy plugin, then runs the installer from
-the updated checkout. The installer restarts the shell so the new QML is loaded.
-If the Hyprland shortcut block is missing, the installer asks before adding it.
-`--binds` adds or refreshes it without prompting. From an open panel, `Shift+U`
-runs the same command in a floating terminal so the updater and its prompt stay
-visible while the plugin reloads. The update fails with a clear message rather
-than claiming success if the shell cannot be restarted.
+`reel update` runs `omarchy plugin update io.github.tahadx.reel --yes`, then the
+installer from the updated checkout. It follows the repository's latest commit;
+there are no release assets to download. The installer restarts the shell so the
+new QML is loaded. If the Hyprland shortcut block is missing, the installer asks
+before adding it; `--binds` adds or refreshes it without prompting.
 
 A development install records its checkout in `.reel-dev-source` inside the
 plugin directory when `./install.sh` copies the files. For that install,
 `reel update` re-runs the checkout's installer instead of `omarchy plugin
 update`, which cannot fast-forward a copied tree (no `.git`) or a clone left
 dirty by the copy. Pull or edit the checkout first; the installer replaces the
-installed files with it.
+installed files with it. An older development install gets its record on the
+next `./install.sh` run.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take
 would keep recording without pointer data and auto zoom would stop for the rest
 of it. The installer refuses while Reel is recording or saving.
-
-`reel update --check` compares the installed checkout with the remote head and
-reports whether an update is waiting. It contacts the plugin's git origin, so it
-is the only network access Reel makes. For a development install it instead
-compares the checkout's runtime files with the installed copies, reports an edit
-even without a version bump, and uses neither the network nor the hourly cache.
-An older development install gets its record on the next `./install.sh` run.
-
-For a normal install, if the effective origin URL (after git's `insteadOf`
-rewrites) embeds a credential or a query token, the check refuses to fetch: git
-would put that URL in the remote helper's argv, where another local account
-could read it. Git's remote-helper URL forms (`https::…`, `ext::…`)
-are refused too, since the background check has no reason to use them. Keep
-secrets in a git credential helper. The shell service runs the check once when
-it starts and then once an hour; a result is
-cached for the hour, so a restart inside that window reads the cache instead of
-fetching again. `--force` ignores
-the cache, and `--json` prints the result for the panel. An update waiting shows
-as an accent dot on the bar mark and a newer version with an accent arrow in the
-panel header; that readout checks again when the install is current, and reads
-`Retry` when the last check failed.
 
 `0x0` keeps the selected crop or monitor at native size.
 `--microphone-audio` also has the alias `--mic`.
@@ -439,7 +416,6 @@ whole file just to trim its head.
 | `$XDG_RUNTIME_DIR/reel/saves` | One small record per running save pass |
 | `$XDG_RUNTIME_DIR/reel/last.json` | Metadata for the last completed take |
 | `$XDG_RUNTIME_DIR/reel/reel.log` | Recorder and save-pass log; kept across takes and rotated to `reel.log.1` at 4 MB |
-| `$XDG_RUNTIME_DIR/reel/update.json` | Cached update check, trusted for one hour |
 | `$XDG_RUNTIME_DIR/reel/recorder.sock` | Pause/resume IPC to `gpu-screen-recorder` |
 | `$XDG_RUNTIME_DIR/reel/pa.modules` | Temporary PulseAudio modules for the CPU fallback's combined audio |
 | `$XDG_RUNTIME_DIR/reel/session.telemetry.jsonl` | Pointer telemetry while Record the pointer is on |
@@ -641,15 +617,6 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   support (`wlr-screencopy` or `ext-image-copy-capture`). On Hyprland this
   should work; restart the shell if the panel was loaded before the compositor
   was ready.
-- **The update mark never appears** — for a normal install, checks run at most
-  once an hour and need network access to the plugin's git origin. Run
-  `reel update --check` to see the current answer or the connection error. A
-  development install compares local files on every check, so an edit in the
-  checkout is reported without the network or the hourly cache.
-- **The development checkout is gone** — a development install records the
-  checkout that `install.sh` copied from. Move the checkout back or reinstall
-  from it. Removing `.reel-dev-source` only returns to git-managed updates when
-  the installed tree is also a clean git checkout.
 - **The save pass failed** — the original recording is kept and the error is
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error

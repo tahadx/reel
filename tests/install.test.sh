@@ -122,29 +122,16 @@ assert_file "$PLUGIN_DIR/install.sh"
 assert_file "$PLUGIN_DIR/.reel-dev-source"
 DEV_SOURCE="$(sed -n '1p' "$PLUGIN_DIR/.reel-dev-source")"
 [[ "$DEV_SOURCE" == "$REPO" ]] || fail "dev install recorded '$DEV_SOURCE', not '$REPO'"
-grep -qxF -- 'Panel.qml' "$PLUGIN_DIR/.reel-dev-source" \
-  || fail "dev install marker is missing Panel.qml"
-grep -qxF -- 'bin/dist/reel-native' "$PLUGIN_DIR/.reel-dev-source" \
-  || fail "dev install marker is missing the shipped engine"
-# The shipped engine reads that marker: a fresh copy is current, and a stale
-# copied file is offered as an update.
-CHECK_JSON="$(reel update --check --json)"
-[[ "$CHECK_JSON" == *'"available":false'* ]] \
-  || fail "dev update check did not see a current install: $CHECK_JSON"
-[[ "$CHECK_JSON" == *'"error":""'* ]] \
-  || fail "dev update check reported an error: $CHECK_JSON"
-printf '\n// stale\n' >>"$PLUGIN_DIR/Panel.qml"
-CHECK_JSON="$(reel update --check --json)"
-[[ "$CHECK_JSON" == *'"available":true'* ]] \
-  || fail "dev update check missed a stale copied file: $CHECK_JSON"
+[[ "$(wc -l <"$PLUGIN_DIR/.reel-dev-source")" -eq 1 ]] \
+  || fail "dev install marker has more than the checkout path"
 # The update action must reinstall from the checkout instead of asking git to
-# fast-forward the copied tree, and it must make the check current again.
+# fast-forward the copied tree.
+printf '\n// stale\n' >>"$PLUGIN_DIR/Panel.qml"
 reel update --binds >"$TEST_ROOT/update-dev.log"
 grep -q 'development install from' "$TEST_ROOT/update-dev.log" \
   || fail "dev update did not report the development checkout"
-CHECK_JSON="$(reel update --check --json)"
-[[ "$CHECK_JSON" == *'"available":false'* ]] \
-  || fail "dev update did not replace the stale copied file: $CHECK_JSON"
+cmp -s "$REPO/Panel.qml" "$PLUGIN_DIR/Panel.qml" \
+  || fail "dev update did not replace the stale copied file"
 [[ -x "$PLUGIN_DIR/install.sh" ]] || fail "installed installer is not executable"
 cmp -s "$REPO/install.sh" "$PLUGIN_DIR/install.sh" \
   || fail "installed installer differs from the checkout"

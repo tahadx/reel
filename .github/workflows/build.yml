@@ -51,9 +51,8 @@ jobs:
         run: |
           shellcheck -x \
             install.sh \
-            bin/configure bin/uninstall bin/refresh-dist bin/version \
-            bin/stamp-version bin/check-release bin/lint-qml bin/test-qml \
-            bin/reel bin/clipboard \
+            bin/configure bin/uninstall bin/refresh-dist \
+            bin/lint-qml bin/test-qml bin/reel bin/clipboard \
             tests/install.test.sh
 
       - name: Installer and uninstaller reruns
@@ -64,11 +63,6 @@ jobs:
 
       - name: QML geometry tests
         run: bin/test-qml
-
-      # Plugin version, crate version and the shipped engine must agree, and
-      # the engine must target this runner's CPU.
-      - name: Release consistency
-        run: bin/check-release
 
       - name: Plugin contract
         run: |

@@ -11,8 +11,7 @@ engine, so a normal install does not need Rust.
   helpers.
 - `bin/dist/reel-native` — the committed x86_64 musl engine.
 - `bin/dist/reel-native.fingerprint` — source fingerprint for the local hook.
-- `bin/refresh-dist`, `bin/stamp-version`, and `bin/check-release` — release
-  tooling.
+- `bin/refresh-dist` — rebuilds the committed engine from this tree.
 - `bin/clipboard` — the bounded clipboard reader used by the name fields.
 - `THIRD-PARTY.md` and `licenses/` — notices for the linked engine.
 - `bin/lint-qml`, `bin/test-qml`, and `tests/` — QML and installer checks.
@@ -76,26 +75,9 @@ linker build ID, and relies on Cargo's own `strip = true` instead of the host
 `strip`.
 
 The static musl build does not depend on the host glibc.
-`bin/check-release` verifies that the manifest and crate versions agree, that
-the engine is executable on this machine, and that it reports the manifest
-version.
 
-## Release
-
-1. Stamp the version with `bin/stamp-version X.Y.Z`.
-2. Rebuild the shipped engine with `bin/refresh-dist`.
-3. Commit both version files, the engine, and its fingerprint, tag the commit
-   `vX.Y.Z`, and push the tag.
-
-The release workflow rebuilds the engine from the tag and refuses to publish
-if `manifest.json` or `crates/reel/Cargo.toml` disagree with it. It uploads a
-`reel-<version>-linux-x86_64` asset and its checksum, plus
-`reel-<version>-licenses.tar.gz` with `LICENSE`, `THIRD-PARTY.md`, and
-`licenses/` so the standalone engine carries its notices.
-
-The committed engine and release workflow target x86_64. On another
-architecture, build the crate for the host, place the binary at
-`bin/dist/reel-native`, and run `./install.sh`.
+The committed engine targets x86_64. On another architecture, build the crate
+for the host, place the binary at `bin/dist/reel-native`, and run `./install.sh`.
 
 ## Development install
 
@@ -112,12 +94,11 @@ copies files; `omarchy plugin add` and updates already place them in the plugin
 directory. Re-running it is safe.
 
 The installer records the checkout in `.reel-dev-source` inside the plugin
-directory. `reel update`, and the panel's update action, read that record and
-re-run this checkout's installer. That works even though the copied tree has no
-`.git` and copying over an existing plugin clone leaves it dirty, which is why
-`omarchy plugin update` cannot fast-forward a development install. Pull or edit
-the checkout before updating; the installer replaces the installed files with
-it.
+directory. `reel update` reads that record and re-runs this checkout's
+installer. That works even though the copied tree has no `.git` and copying over
+an existing plugin clone leaves it dirty, which is why `omarchy plugin update`
+cannot fast-forward a development install. Pull or edit the checkout before
+updating; the installer replaces the installed files with it.
 
 An older development install needs one `./install.sh` run from its checkout to
 write the record. After that, updates use the checkout instead of git.

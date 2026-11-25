@@ -55,18 +55,7 @@ fn run() -> anyhow::Result<u8> {
         Command::Webcams { json } => commands::webcams(json)?,
         Command::Output => commands::output(&paths),
         Command::Doctor => commands::doctor(&paths),
-        Command::Update {
-            binds,
-            check,
-            json,
-            force,
-        } => {
-            if check {
-                commands::check_update(&paths, force, json)?;
-            } else {
-                commands::update(&paths, binds)?;
-            }
-        }
+        Command::Update { binds } => commands::update(&paths, binds)?,
         Command::ZoomIn { step, pos_step } => {
             let s = step.or(pos_step).unwrap_or(0.25);
             commands::zoom_in(&paths, s)?;

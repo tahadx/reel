@@ -3,14 +3,13 @@
 #   git config core.hooksPath .githooks
 set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
-echo "pre-push: fmt, clippy, tests, qml, installer, release, dist"
+echo "pre-push: fmt, clippy, tests, qml, installer, dist"
 cargo fmt --check -p reel
 cargo clippy -p reel --all-targets -- -D warnings
 cargo test --workspace --quiet
 bin/lint-qml
 bin/test-qml
 bash tests/install.test.sh
-bin/check-release
 if command -v omarchy >/dev/null 2>&1; then
   omarchy plugin validate .
 fi

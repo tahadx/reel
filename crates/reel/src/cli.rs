@@ -83,20 +83,11 @@ pub enum Command {
     Output,
     /// Check the tools Reel needs.
     Doctor,
-    /// Update the installed plugin and re-run its installer.
+    /// Update the installed plugin from its git origin and re-run its installer.
     Update {
         /// Add or refresh the optional Hyprland bindings without prompting.
         #[arg(long)]
         binds: bool,
-        /// Check whether an update is available without installing it.
-        #[arg(long)]
-        check: bool,
-        /// Print the check as JSON.
-        #[arg(long, requires = "check")]
-        json: bool,
-        /// Ignore the cached result and contact the remote now.
-        #[arg(long, requires = "check")]
-        force: bool,
     },
     /// Zoom in on the pointer during recording.
     #[command(name = "zoom-in")]

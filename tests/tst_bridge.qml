@@ -18,7 +18,6 @@ TestCase {
     var value = { status: "idle" }
     var api = Bridge.publish(function() { return { state: value } }, {
       refresh: function() { calls.push("refresh") },
-      checkForUpdates: function(force) { calls.push("update:" + force) },
       retryConfigure: function() { calls.push("configure") }
     })
 
@@ -29,9 +28,8 @@ TestCase {
     compare(api.snapshot().state.status, "recording")
 
     api.call("refresh")
-    api.call("checkForUpdates", [true])
     api.call("retryConfigure")
-    compare(calls, ["refresh", "update:true", "configure"])
+    compare(calls, ["refresh", "configure"])
   }
 
   function test_unknownOrInheritedActionsAreRejected() {
@@ -76,7 +74,6 @@ TestCase {
     var value = Bridge.snapshotValue({
       elapsed: "12",
       recentVersion: "3",
-      updateChecking: 1,
       lastError: null
     })
 
@@ -85,9 +82,6 @@ TestCase {
     compare(value.elapsed, 12)
     compare(value.recentVersion, 3)
     compare(value.outputDir, "")
-    compare(value.version, "")
-    compare(value.updateInfo, null)
-    compare(value.updateChecking, false)
     compare(value.lastError, "")
     compare(value.configureFailed, false)
   }
