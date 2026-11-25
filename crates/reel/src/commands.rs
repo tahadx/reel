@@ -197,117 +197,12 @@ fn fetch_update_report(dir: &Path, checked_at: i64) -> UpdateReport {
     report
 }
 
-/// The checkout the update check and update command operate on. A development
-/// install points at its source checkout; a normal install is the plugin clone.
-fn update_dir(plugin_dir: &Path) -> Result<PathBuf> {
-    Ok(read_dev_source(plugin_dir)?.unwrap_or_else(|| plugin_dir.to_path_buf()))
-}
-
-/// `install.sh` records the checkout it copied when it installs a development
-/// tree into the plugin directory. The copy has no `.git`, and copying over an
-/// existing plugin clone leaves its tracked files modified, so
-/// `omarchy plugin update` cannot fast-forward either shape. `reel update`
-/// re-runs the checkout's installer instead.
-const DEV_SOURCE_FILE: &str = ".reel-dev-source";
-
-/// Read the development checkout recorded by `install.sh`. `None` means this
-/// is a git-managed install; an error means the record exists but no longer
-/// describes a usable checkout, which the caller reports rather than falling
-/// back to a git update that would fail on the copied files.
-fn read_dev_source(plugin_dir: &Path) -> Result<Option<PathBuf>> {
-    let marker = plugin_dir.join(DEV_SOURCE_FILE);
-    let text = match fs::read_to_string(&marker) {
-        Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("cannot read {}", marker.display()))
-        }
-    };
-
-    // Older development records carried a file list after the checkout path.
-    // The first line is the only part a git-less install needs.
-    let value = text.lines().next().map(str::trim).unwrap_or("");
-    if value.is_empty() {
-        anyhow::bail!("{} is empty.", marker.display());
-    }
-    let root = PathBuf::from(value);
-    if !root.is_absolute() {
-        anyhow::bail!(
-            "{} does not name an absolute development checkout.",
-            marker.display()
-        );
-    }
-    if !root.is_dir() {
-        anyhow::bail!(
-            "The development checkout at {} is gone. Reinstall from it or remove {}.",
-            root.display(),
-            marker.display()
-        );
-    }
-    let id = fs::read_to_string(root.join("manifest.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|value| value.get("id")?.as_str().map(str::to_string))
-        .unwrap_or_default();
-    if id != PLUGIN_ID {
-        anyhow::bail!(
-            "The development checkout at {} is not a Reel install.",
-            root.display()
-        );
-    }
-    if !root.join("install.sh").is_file() {
-        anyhow::bail!(
-            "The development checkout at {} has no install.sh.",
-            root.display()
-        );
-    }
-    if !root.join(".git").exists() {
-        anyhow::bail!(
-            "The development checkout at {} is not a git checkout, so there are no commits to update.",
-            root.display()
-        );
-    }
-
-    let root = fs::canonicalize(&root)
-        .with_context(|| format!("cannot resolve the development checkout {}", root.display()))?;
-    let plugin_dir = fs::canonicalize(plugin_dir)
-        .with_context(|| format!("cannot resolve {}", plugin_dir.display()))?;
-    if root == plugin_dir {
-        anyhow::bail!(
-            "{} points at the installed plugin, not a development checkout.",
-            marker.display()
-        );
-    }
-
-    Ok(Some(root))
-}
-
 /// Check whether newer commits are available. The hourly service call uses the
 /// cached result inside the hour; `force` (the panel's manual check) always
 /// contacts the remote. Prints JSON for the panel or one line for a terminal.
 pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
     let now = paths::now_secs();
-    let plugin_dir = installed_plugin_dir();
-    let dir = match update_dir(&plugin_dir) {
-        Ok(dir) => dir,
-        Err(error) => {
-            let report = UpdateReport {
-                current: String::new(),
-                latest: String::new(),
-                available: false,
-                behind: 0,
-                checked_at: now,
-                error: format!("{error:#}"),
-            };
-            if as_json {
-                println!("{}", serde_json::to_string(&report)?);
-            } else {
-                println!("Could not check for updates: {}", report.error);
-            }
-            return Ok(());
-        }
-    };
-
+    let dir = installed_plugin_dir();
     let current = short_rev(&dir, "HEAD");
     let cached = read_update_cache(paths);
     let fresh = if force {
@@ -346,89 +241,13 @@ pub fn check_update(paths: &Paths, force: bool, as_json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Bring a development checkout up to its remote before reinstalling it.
-/// Local changes are never overwritten: a dirty checkout with newer commits is
-/// refused, while a dirty checkout that is already current still installs.
-fn update_dev_checkout(dir: &Path) -> Result<()> {
-    let dir_text = dir.display().to_string();
-    let Some(urls) = fetch_urls(dir, Duration::from_secs(10)) else {
-        anyhow::bail!("The development checkout's remote URL could not be read.");
-    };
-    if urls.iter().any(|url| credential_bearing_url(url)) {
-        anyhow::bail!(
-            "The development checkout's remote URL carries credentials. Move them to a git credential helper and remove them from the URL."
-        );
-    }
-
-    let fetched = util::run_stdout_within_env(
-        "git",
-        &["-C", &dir_text, "fetch", "--quiet", "origin", "HEAD"],
-        &[
-            ("GIT_TERMINAL_PROMPT", "0"),
-            ("GIT_SSH_COMMAND", "ssh -oBatchMode=yes"),
-        ],
-        Duration::from_secs(30),
-    );
-    if fetched.is_none() {
-        anyhow::bail!("The development checkout's remote could not be reached.");
-    }
-
-    let behind = util::run_stdout_within(
-        "git",
-        &["-C", &dir_text, "rev-list", "--count", "HEAD..FETCH_HEAD"],
-        Duration::from_secs(10),
-    )
-    .and_then(|out| out.trim().parse::<u64>().ok())
-    .ok_or_else(|| {
-        anyhow::anyhow!("The development checkout's remote revision could not be read.")
-    })?;
-    if behind == 0 {
-        println!("  checkout is up to date.");
-        return Ok(());
-    }
-
-    let dirty = util::run_stdout_within(
-        "git",
-        &[
-            "-C",
-            &dir_text,
-            "status",
-            "--porcelain",
-            "--untracked-files=no",
-        ],
-        Duration::from_secs(10),
-    )
-    .map(|out| !out.trim().is_empty())
-    .unwrap_or(true);
-    if dirty {
-        anyhow::bail!(
-            "The development checkout has local changes. Commit or stash them, then run update again."
-        );
-    }
-
-    let merged = Command::new("git")
-        .args(["-C", &dir_text, "merge", "--ff-only", "FETCH_HEAD"])
-        .status()
-        .context("could not fast-forward the development checkout")?;
-    if !merged.success() {
-        anyhow::bail!("The development checkout could not be fast-forwarded to the remote.");
-    }
-    let head = short_rev(dir, "HEAD");
-    if head.is_empty() {
-        println!("  updated the checkout.");
-    } else {
-        println!("  updated the checkout to {head}.");
-    }
-    Ok(())
-}
-
 /// Update the installed Omarchy plugin from its git origin, then run the
 /// installer from the updated checkout. There are no release assets to
 /// download: `omarchy plugin update` fetches the repository's latest commit.
 /// The installer is matched to the engine it just fetched, and it restarts the
-/// shell so the new QML is loaded. A development install has no git checkout in
-/// the plugin directory, so it fast-forwards its recorded checkout and re-runs
-/// that checkout's installer.
+/// shell so the new QML is loaded. The installed plugin must be a git checkout,
+/// like any Omarchy plugin; a copied development tree is refused by Omarchy's
+/// updater instead of being updated behind its back.
 pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     state::reconcile(paths);
     match state::status(paths).as_str() {
@@ -454,29 +273,16 @@ pub fn update(paths: &Paths, binds: bool) -> Result<()> {
     }
 
     println!("== Reel: update ==");
-    let installer = match read_dev_source(&plugin_dir)? {
-        Some(root) => {
-            // A development install is a copy of a checkout. Fast-forward that
-            // checkout, then re-run its installer to replace the installed
-            // files and restart the shell. `omarchy plugin update` cannot do
-            // this when the copy has no `.git` or left an existing clone dirty.
-            println!("  development install from {}", root.display());
-            update_dev_checkout(&root)?;
-            root.join("install.sh")
-        }
-        None => {
-            println!("  updating {PLUGIN_ID}");
-            let status = Command::new("omarchy")
-                .args(["plugin", "update", PLUGIN_ID, "--yes"])
-                .status()
-                .context("could not run omarchy plugin update")?;
-            if !status.success() {
-                anyhow::bail!("omarchy plugin update failed for {PLUGIN_ID}");
-            }
-            plugin_dir.join("install.sh")
-        }
-    };
+    println!("  updating {PLUGIN_ID}");
+    let status = Command::new("omarchy")
+        .args(["plugin", "update", PLUGIN_ID, "--yes"])
+        .status()
+        .context("could not run omarchy plugin update")?;
+    if !status.success() {
+        anyhow::bail!("omarchy plugin update failed for {PLUGIN_ID}");
+    }
 
+    let installer = plugin_dir.join("install.sh");
     if !installer.is_file() {
         anyhow::bail!(
             "the updated plugin has no installer at {}",
@@ -1546,93 +1352,6 @@ mod tests {
         assert!(body.contains("\"behind\":2"), "{body}");
         let parsed: UpdateReport = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed, report);
-    }
-
-    fn dev_install(label: &str) -> (PathBuf, PathBuf, PathBuf) {
-        let root = temp_root(label);
-        let source = root.join("checkout");
-        let installed = root.join("installed");
-        fs::create_dir_all(&source).unwrap();
-        fs::create_dir_all(source.join(".git")).unwrap();
-        fs::create_dir_all(&installed).unwrap();
-        fs::write(
-            source.join("manifest.json"),
-            format!(r#"{{"schemaVersion":1,"id":"{PLUGIN_ID}","version":"0.5.1"}}"#),
-        )
-        .unwrap();
-        fs::write(source.join("install.sh"), b"#!/bin/sh\n").unwrap();
-        fs::write(
-            installed.join(DEV_SOURCE_FILE),
-            format!("{}\n", source.display()),
-        )
-        .unwrap();
-        (root, source, installed)
-    }
-
-    #[test]
-    fn a_development_install_records_its_checkout() {
-        let (root, source, installed) = dev_install("dev-source");
-
-        let recorded = read_dev_source(&installed).unwrap().expect("a dev install");
-        assert_eq!(recorded, fs::canonicalize(&source).unwrap());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn a_git_install_has_no_development_record() {
-        let root = temp_root("dev-none");
-        let installed = root.join("installed");
-        fs::create_dir_all(&installed).unwrap();
-
-        assert!(read_dev_source(&installed).unwrap().is_none());
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn a_missing_development_checkout_is_reported() {
-        let root = temp_root("dev-gone");
-        let installed = root.join("installed");
-        fs::create_dir_all(&installed).unwrap();
-        fs::write(
-            installed.join(DEV_SOURCE_FILE),
-            format!("{}\n", root.join("gone").display()),
-        )
-        .unwrap();
-
-        let error = read_dev_source(&installed).unwrap_err().to_string();
-        assert!(error.contains("is gone"), "{error}");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn a_development_checkout_must_be_reel() {
-        let (root, source, installed) = dev_install("dev-other");
-        fs::write(source.join("manifest.json"), r#"{"id":"example.other"}"#).unwrap();
-
-        let error = read_dev_source(&installed).unwrap_err().to_string();
-        assert!(error.contains("not a Reel install"), "{error}");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn a_development_marker_cannot_point_at_the_installed_plugin() {
-        let (root, _source, installed) = dev_install("dev-self");
-        fs::create_dir_all(installed.join(".git")).unwrap();
-        fs::write(
-            installed.join("manifest.json"),
-            format!(r#"{{"schemaVersion":1,"id":"{PLUGIN_ID}","version":"0.5.1"}}"#),
-        )
-        .unwrap();
-        fs::write(installed.join("install.sh"), b"#!/bin/sh\n").unwrap();
-        fs::write(
-            installed.join(DEV_SOURCE_FILE),
-            format!("{}\n", installed.display()),
-        )
-        .unwrap();
-
-        let error = read_dev_source(&installed).unwrap_err().to_string();
-        assert!(error.contains("points at the installed plugin"), "{error}");
-        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

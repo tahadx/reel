@@ -100,12 +100,10 @@ footer; click the cue or press `Shift+U` to open the updater. `reel update
 --check` prints the answer, `--json` prints it for the panel, and `--force`
 ignores the cache.
 
-If Reel was installed from a development checkout with `./install.sh`, update
-fast-forwards that checkout from its remote, then re-runs its installer instead
-of a git update. The installer records the checkout in `.reel-dev-source`. Commit
-or stash local changes before updating when the checkout is behind; the
-installer replaces the installed files with it. An older development install
-needs one `./install.sh` run from its checkout to write the record.
+Reel uses Omarchy's plugin updater, so the installed plugin must be a git
+checkout. A development copy made with `./install.sh` is not a git checkout, or
+is a clone left dirty by the copy, and `reel update` rejects it the same way
+Omarchy does. Use a git-managed install to receive updates.
 
 Pass `--binds` to add or refresh the optional Hyprland shortcuts without
 prompting:

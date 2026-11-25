@@ -83,13 +83,10 @@ cached for the hour; `--force` ignores the cache and `--json` prints the report
 for the panel. The shell service runs the check once when it starts and then once
 an hour.
 
-A development install records its checkout in `.reel-dev-source` inside the
-plugin directory when `./install.sh` copies the files. For that install,
-`reel update` fast-forwards the recorded checkout and then re-runs its
-installer, because `omarchy plugin update` cannot fast-forward a copied tree (no
-`.git`) or a clone left dirty by the copy. Commit or stash local changes before
-updating when the checkout is behind. An older development install gets its
-record on the next `./install.sh` run.
+`reel update` uses Omarchy's plugin updater, so the installed plugin must be a
+git checkout. A copy made with `./install.sh` is not a git checkout, or is a
+clone left dirty by the copy; update and check reject it the same way Omarchy
+does. Use a git-managed install to receive updates.
 
 Stop an active take before installing or updating. The plugin reload removes the
 shell process that keeps the recorder's telemetry listener alive, so the take
@@ -626,15 +623,13 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   was ready.
 - **The update mark never appears** — checks run at most once an hour and need
   network access to the plugin's git origin. Run `reel update --check` to see
-  the current answer or the connection error. A development install checks its
-  recorded checkout instead.
-- **A development update refuses to run** — the recorded checkout has local
-  changes and the remote has newer commits. Commit or stash them, then run
-  `reel update` again. A dirty checkout that is already current still installs.
-- **The development checkout is gone** — a development install records the
-  checkout that `install.sh` copied from. Move the checkout back or reinstall
-  from it. Removing `.reel-dev-source` only returns to git-managed updates when
-  the installed tree is also a clean git checkout.
+  the current answer or the connection error.
+- **Update says this install is not a git checkout** — Reel uses Omarchy's plugin
+  updater, so a development copy made with `./install.sh` cannot update. Install
+  Reel as a normal Omarchy plugin (a clean git checkout) to receive updates.
+- **Update says the plugin has local changes** — the installed clone was edited
+  or overwritten by a development copy. Commit or discard those changes, or
+  reinstall the plugin, before updating.
 - **The save pass failed** — the original recording is kept and the error is
   written to the log. A take recorded with a countdown stays under an
   `-untrimmed` name, and history skips it, until the trim succeeds; the error

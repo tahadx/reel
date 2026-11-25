@@ -93,17 +93,10 @@ This copies the runtime files into
 copies files; `omarchy plugin add` and updates already place them in the plugin
 directory. Re-running it is safe.
 
-The installer records the checkout in `.reel-dev-source` inside the plugin
-directory. `reel update` fast-forwards that checkout from its remote and re-runs
-its installer. That works even though the copied tree has no `.git` and copying
-over an existing plugin clone leaves it dirty, which is why `omarchy plugin
-update` cannot fast-forward a development install. Commit or stash local changes
-before updating when the checkout is behind; the installer replaces the
-installed files with it. `reel update --check` reports waiting commits without
-installing.
-
-An older development install needs one `./install.sh` run from its checkout to
-write the record. After that, updates use the checkout instead of git.
+The copied tree is a development install, not a git checkout. `reel update` and
+`reel update --check` use Omarchy's plugin updater, so they reject it the same way
+they reject any non-git or dirty plugin. To receive updates, install Reel as a
+normal Omarchy plugin, which is a clean git checkout.
 
 After QML changes, restart the shell so the loaded panel is replaced:
 

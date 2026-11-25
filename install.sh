@@ -9,14 +9,6 @@
 set -euo pipefail
 
 HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-# The development record is line-oriented, so a newline here would split it
-# into a different path.
-case "$HERE" in
-*$'\n'*)
-  echo "install.sh: the checkout path contains a newline" >&2
-  exit 1
-  ;;
-esac
 PLUGIN_ID="io.github.tahadx.reel"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 PLUGIN_DIR="$CONFIG_HOME/omarchy/plugins/$PLUGIN_ID"
@@ -93,10 +85,9 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   # Development path: a clone installs into the plugin directory Omarchy loads.
   # The marketplace/clone flow already has the files where they belong.
   mkdir -p -- "$PLUGIN_DIR/bin/dist"
-  # The runtime files a development install owns. The same list is written to
-  # the marker below, so `reel update` compares exactly what this installer
-  # copies. The fingerprint keeps the installed build verifiable against the
-  # checkout; the installed installer is the copy a normal re-install runs.
+  # The runtime files a development install owns. Keep the modes explicit so
+  # the engine and helpers stay executable; the fingerprint keeps the installed
+  # build verifiable against the checkout.
   RUNTIME_FILES=(
     manifest.json
     Panel.qml
@@ -115,11 +106,6 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
     LICENSE
     THIRD-PARTY.md
   )
-  # A copied tree has no `.git`, and copying over an existing plugin clone
-  # leaves its tracked files modified, so `omarchy plugin update` cannot
-  # fast-forward either shape. Record this checkout before the copy, so a
-  # service reload cannot read the new files without the record.
-  printf '%s\n' "$HERE" >"$PLUGIN_DIR/.reel-dev-source"
   for file in "${RUNTIME_FILES[@]}"; do
     mode=0644
     case "$file" in
@@ -135,6 +121,9 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
   # guide under docs/contributing/ instead.
   rm -f -- "$PLUGIN_DIR/AGENTS.md" "$PLUGIN_DIR/CLAUDE.md"
   rm -rf -- "$PLUGIN_DIR/.agents" "$PLUGIN_DIR/.claude" "$PLUGIN_DIR/.codex" "$PLUGIN_DIR/.gemini"
+  # Older development builds recorded a checkout for a local updater. Updates
+  # now go through Omarchy's git updater, so drop the stale record.
+  rm -f -- "$PLUGIN_DIR/.reel-dev-source"
   echo "  copied into $PLUGIN_DIR"
   # The first configure ran from the clone; relink to the installed wrapper so
   # ~/.local/bin keeps working if the checkout moves or is deleted.
