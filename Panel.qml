@@ -2220,9 +2220,12 @@ Panel {
   // section sideways; a card anchored to the widget itself would be dragged
   // along in one frame. Pinned per open, so a card raised on the resting mark
   // stays under the mark, and one raised during a take stays under the pill.
+  // Only pinPanelAnchor moves it into the bar's surface. Bound to the window,
+  // the parent would change while Qt is still attaching the bar's content when
+  // a hidden bar is shown again, and that crashes the shell.
   Item {
     id: panelAnchor
-    parent: root.QsWindow.window ? root.QsWindow.window.contentItem : root
+    parent: root
     width: root.barVertical ? 1 : Style.bar.iconSlot
     height: root.barVertical ? Style.bar.iconSlot : 1
     visible: false
