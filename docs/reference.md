@@ -352,6 +352,12 @@ on, pressing an Omarchy keybinding shows a small card at the bottom of the
 screen with the keys and the action from the same bind list the Super+K
 keybindings menu reads, for example `SUPER + K` / `Keybindings`.
 
+Passive hooks are left out: a bare key that does not consume the press belongs
+to the focused app, not the desktop, so Escape / `Superwhisper: cancel` does not
+show a card. Bind halves that fire on release are left out too. Modified
+non-consuming binds such as `CTRL + SPACE` and consuming bare keys such as
+`PRINT` still show.
+
 Reel registers a short-lived Hyprland Lua hook through `hyprctl eval` when the
 take starts and removes it when recording stops or the setting turns off. No
 Hyprland config file is changed. The hook only writes recognised shortcuts to

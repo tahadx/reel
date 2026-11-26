@@ -12,7 +12,10 @@ TestCase {
     { mouse: false, submap: "", modmask: 0, key: "PRINT", description: "Screenshot" },
     { mouse: false, submap: "", modmask: 64, key: "X", description: "" },
     { mouse: true, submap: "", modmask: 64, key: "Y", description: "Mouse bind" },
-    { mouse: false, submap: "resize", modmask: 64, key: "Z", description: "Submap bind" }
+    { mouse: false, submap: "resize", modmask: 64, key: "Z", description: "Submap bind" },
+    { mouse: false, submap: "", modmask: 0, key: "Escape", non_consuming: true, description: "Superwhisper: cancel" },
+    { mouse: false, submap: "", modmask: 4, key: "SPACE", non_consuming: true, description: "Direct input" },
+    { mouse: false, submap: "", modmask: 8, key: "Alt_R", release: true, non_consuming: true, description: "Stop dictation" }
   ])
 
   readonly property string keymap: "xkb_keymap {\nxkb_keycodes \"evdev\" {\n"
@@ -32,11 +35,17 @@ TestCase {
 
   function test_parseBindsDropsUnusableRows() {
     var list = Shortcuts.parseBinds(binds)
-    compare(list.length, 4)
+    compare(list.length, 5)
     compare(list[0].keys, "SUPER + K")
     compare(list[0].label, "Keybindings")
     compare(list[1].keys, "SUPER SHIFT + RETURN")
     compare(list[3].keys, "PRINT")
+    // Passive bare-key hooks and release halves are app events, not shortcuts.
+    compare(list.filter(function(b) { return b.key === "ESCAPE" }).length, 0)
+    compare(list.filter(function(b) { return b.key === "ALT_R" }).length, 0)
+    // A modified non-consuming bind is still a desktop shortcut.
+    compare(list[4].keys, "CTRL + SPACE")
+    compare(list[4].label, "Direct input")
   }
 
   function test_parseBindsSurvivesGarbage() {

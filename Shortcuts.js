@@ -39,15 +39,23 @@ function parseBinds(text) {
     var bind = data[i] || {}
     if (bind.mouse === true) continue
     if (String(bind.submap || "") !== "") continue
+    var mask = Number(bind.modmask)
+    if (!isFinite(mask) || mask < 0) mask = 0
+    // The toast fires on key press, so a bind's release half is not the
+    // shortcut the user just pressed.
+    if (bind.release === true) continue
+    // A non-consuming bare key belongs to the focused app, not the desktop:
+    // Superwhisper's Escape cancel is one. Modified non-consuming binds, such
+    // as CTRL + SPACE, are still real desktop shortcuts and stay visible.
+    if (bind.non_consuming === true && mask === 0) continue
     var key = clean(bind.key, 40).toUpperCase()
     if (key === "") continue
     var label = clean(bind.description, 100)
     if (label === "") continue
-    var keys = comboKeys(bind.modmask, key)
+    var keys = comboKeys(mask, key)
     if (keys === "") continue
-    var mask = Number(bind.modmask)
     out.push({
-      mask: isFinite(mask) && mask > 0 ? Math.floor(mask) : 0,
+      mask: Math.floor(mask),
       key: key,
       keys: keys,
       label: label
