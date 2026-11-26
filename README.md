@@ -286,6 +286,14 @@ Omarchy accent is used, with a dark hairline so the effect reads on both light
 and dark content. The choice is stored in the take's `project.json`, so
 `reel render` reproduces the same effect even after a theme change.
 
+**Show shortcuts** is the last switch in Settings → **Visuals**. While a take is
+recording, turning it on shows a small animated card at the bottom of the screen
+whenever you press an Omarchy shortcut — the keys and the action from the same
+list Super+K shows, for example `SUPER + K` / `Keybindings`. The hook is active
+only for the length of the take, writes no keystrokes, and never takes keyboard
+focus or clicks. It needs Hyprland 0.57+ with Lua events; without it the take
+still records normally, just without the card.
+
 Every saved take with telemetry writes a `project.json` into a hidden `.reel/`
 folder beside it, even when auto zoom is off. The folder is owner-only and its
 files are removed when the take is trashed. `reel render --project <path>`

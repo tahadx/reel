@@ -93,10 +93,13 @@ if [[ "$HERE" != "$PLUGIN_DIR" ]]; then
     Panel.qml
     Service.qml
     Countdown.qml
+    ShortcutOverlay.qml
+    Shortcuts.js
     Bridge.js
     Model.js
     GuardedInput.qml
     bin/reel
+    bin/shortcut-hook.lua
     bin/clipboard
     bin/configure
     bin/uninstall

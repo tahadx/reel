@@ -116,6 +116,8 @@ Rules that follow from this:
 manifest.json            plugin registration, kinds, settings schema
 Panel.qml                bar widget, panel, settings, history, take menu
 Service.qml              shell service and history shaping
+ShortcutOverlay.qml      recording-only shortcut toast and its Hyprland hook
+Shortcuts.js             pure bind/keymap/event helpers for that overlay
 Bridge.js                service-to-widget bridge for replacement bars
 Model.js                 pure state and history helpers
 Countdown.qml            countdown overlay
@@ -225,5 +227,5 @@ what the fix does, and how it was verified (build, tests,
 
 ## Status
 
-- **Shipped:** settings tabs (Recording, Visuals, Shortcuts), fixed tab strip, save-pass noise reduction, countdown quarantine, history actions (open/cut/share/trash/copy path), live/manual zoom, pause/resume, cursor capture, webcam corner overlay, and bar states.
+- **Shipped:** settings tabs (Recording, Visuals, Shortcuts), fixed tab strip, save-pass noise reduction, countdown quarantine, history actions (open/cut/share/trash/copy path), live/manual zoom, pause/resume, cursor capture, webcam corner overlay, recording-only shortcut toast, and bar states.
 - **Open:** marketplace verification, maintainer review pending.

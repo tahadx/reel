@@ -492,7 +492,7 @@ the read-only `Shortcuts` reference on the trailing end.
 | Destination | Belongs here                                                          | Does not belong                  |
 | :---------- | :-------------------------------------------------------------------- | :------------------------------- |
 | Recording   | Audio section: desktop audio, microphone, noise reduction. Video section: frame rate, quality, codec, resolution cap, container. Capture section: countdown, webcam corner. Devices section: Input devices, opening the Devices page. Saving section: saved notification, filename prefix, recordings path | Zoom, pointer appearance, or shortcuts |
-| Visuals     | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance | Anything unrelated to how the picture looks |
+| Visuals     | Manual zoom, auto zoom, click effects, pointer capture, pointer appearance, show shortcuts | Anything unrelated to how the picture looks |
 | History     | Takes, the recordings folder, take actions                            | Settings of any kind             |
 | Shortcuts   | Read-only shortcut reference (top-level tab in the strip)             | Editable key bindings            |
 
@@ -508,7 +508,8 @@ Rules:
   live, on-by-default control. Auto zoom is the optional save-pass switch and is
   off by default. Click effects follow it: they are the optional save-pass
   suffix to auto zoom, off by default. Pointer capture and pointer appearance
-  follow.
+  follow. Show shortcuts is the last, switch-only row in its own Overlay
+  section; it is off by default and only takes effect while a take is live.
 - Zoom depth and pan step are config-only engine defaults (2× and 60 px); do
   not add rows for them.
 - Click effect style is a cycle row (`Off`, `Ripple`, `Halo`). Never a second
@@ -683,6 +684,29 @@ It must never become a separate overlay plugin kind.
 - Ring progress animates in `240` ms `OutCubic`.
 - Countdown default is **Off**. Options are `0`, `3`, `5`, `10` seconds.
 - The UI must not imply that capture starts after the ring.
+
+### 6.12.1 Shortcut toast
+
+A visual-only overlay hosted in `Service.qml`, never a separate plugin kind and
+never a keyboard-focus surface. It arms only while a take is recording (or
+paused) and Visuals -> Show shortcuts is on.
+
+- One `reel-shortcuts` layer window per screen, `Overlay` layer, no keyboard
+  focus, empty input region, `Ignore` exclusion.
+- Card: bottom-centred with a `40` px bottom gap, theme background at `0.94`,
+  foreground border at `0.16`, `Style.cornerRadius`, one accent rule on the
+  leading edge.
+- Keys: accent, `body`, bold, in Omarchy's own order and casing (`SUPER SHIFT +
+  RETURN`). Action: foreground at `0.82`, `bodySmall`, from the same bind list
+  the Super+K keybindings menu reads.
+- Entries and exits share a path: slide up `10` px and fade in, then back down
+  and out. `160` ms opacity and `200` ms translate with `Style.easeOut`, both
+  through `Style.duration()` so reduced motion removes the movement. They are
+  retargeted from the current value, never restarted, because several shortcuts
+  can land inside one hold interval.
+- A shortcut stays `1200` ms; a new press replaces the card and restarts that
+  window. The hook writes only matched shortcuts, one line at a time, and is
+  removed the moment recording stops or the setting turns off.
 
 ### 6.13 Footer, compact update cue & tooltips
 
