@@ -38,6 +38,7 @@ Item {
   property string bindsText: ""
   property string keymapText: ""
   property string pendingMap: ""
+  property int pendingMapLines: 0
   property string keys: ""
   property string label: ""
   property string lastSeq: ""
@@ -69,6 +70,7 @@ Item {
     var map = Shortcuts.buildMap(root.bindsText, root.keymapText)
     if (map === "") return
     root.pendingMap = map
+    root.pendingMapLines = map.trim().split("\n").length
     if (!mapWriter.running) mapWriter.running = true
   }
 
@@ -127,7 +129,12 @@ Item {
     interval: 60000
     repeat: true
     running: root.enabled
-    onTriggered: root.startHook()
+    onTriggered: {
+      root.startHook()
+      // Re-register even if a map rebuild did not finish: the existing map is
+      // still valid, and a Hyprland config reload clears the Lua hook.
+      registerProc.register()
+    }
   }
 
   Process {
@@ -158,17 +165,18 @@ Item {
     stderr: StdioCollector { waitForEnd: true }
   }
 
-  // Write via argv, never a shell string: the map is plain data and tee only
-  // ever sees a fixed path from this plugin's own runtime directory.
+  // Quickshell keeps the stdin pipe open, so `tee` never sees EOF and never
+  // exits. Read exactly the number of lines we wrote instead: head stops on
+  // its own, and the map and path travel as data over stdin and argv.
   Process {
     id: mapWriter
-    command: ["tee", root.mapPath]
+    command: ["sh", "-c", "head -n \"$1\" > \"$2\"", "sh",
+      String(root.pendingMapLines), root.mapPath]
     stdinEnabled: true
     onStarted: {
       if (root.pendingMap === "") return
       mapWriter.write(root.pendingMap)
       root.pendingMap = ""
-      mapWriter.stdinEnabled = false
     }
     onExited: function(code) {
       if (code === 0) registerProc.register()
@@ -216,7 +224,7 @@ Item {
 
   Timer {
     id: hideTimer
-    interval: 1800
+    interval: 1400
     repeat: false
     onTriggered: root.showing = false
   }

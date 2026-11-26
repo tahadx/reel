@@ -356,7 +356,7 @@ Reel registers a short-lived Hyprland Lua hook through `hyprctl eval` when the
 take starts and removes it when recording stops or the setting turns off. No
 Hyprland config file is changed. The hook only writes recognised shortcuts to
 `$XDG_RUNTIME_DIR/reel/shortcut-event`; it does not log keystrokes or text. A
-new press replaces the card and restarts its 1.8 second hold. The overlay is
+new press replaces the card and restarts its 1.4 second hold. The overlay is
 visual-only: it takes no keyboard focus and no clicks.
 
 `reel config set showShortcuts on` sets the same key, but the toast still only
