@@ -502,7 +502,8 @@ Panel {
       { key: "manualZoom", label: "Manual zoom", glyph: "󰍉", section: "Zoom" },
       { key: "autoZoom", label: "Auto zoom", glyph: "󰁨" },
       { key: "clickEffects", label: "Click effects", glyph: "󰝁" },
-      { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" }
+      { key: "cursor", label: "Record the pointer", glyph: "󰍽", section: "Pointer" },
+      { key: "showShortcuts", label: "Show shortcuts", glyph: "󰌓", section: "Overlay" }
     ] },
     { id: "shortcuts", label: "Shortcuts", rows: root.shortcutRows }
   ]
@@ -841,7 +842,7 @@ Panel {
   function isSwitch(key) {
     return key === "desktopAudio" || key === "microphoneAudio" || key === "cursor"
       || key === "notifications" || key === "manualZoom" || key === "autoZoom"
-      || key === "noiseCancellation"
+      || key === "noiseCancellation" || key === "showShortcuts"
   }
 
   function optionList(key) {
@@ -863,6 +864,7 @@ Panel {
     case "notifications": return ["on", "off"]
     case "manualZoom": return ["off", "on"]
     case "autoZoom": return ["off", "on"]
+    case "showShortcuts": return ["off", "on"]
     case "clickEffects": return ["off", "ripple", "halo"]
     default: return [String(root.defaults[key] || "")]
     }
@@ -892,7 +894,8 @@ Panel {
     // snapping the row to its fallback.
     if ((key === "desktopAudio" || key === "microphoneAudio"
         || key === "noiseCancellation" || key === "cursor"
-        || key === "notifications" || key === "manualZoom" || key === "autoZoom")
+        || key === "notifications" || key === "manualZoom" || key === "autoZoom"
+        || key === "showShortcuts")
         && (list.indexOf("on") >= 0)) {
       return Model.truthy(raw) ? "on" : "off"
     }
@@ -909,6 +912,7 @@ Panel {
     case "notifications":
     case "manualZoom":
     case "autoZoom":
+    case "showShortcuts":
       return value === "on" ? "On" : "Off"
     case "desktopDevice":
       return root.audioDeviceLabel(value, "output")

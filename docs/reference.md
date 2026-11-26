@@ -344,6 +344,26 @@ Edit any of these and run `reel render` to change the effect without recording
 again. The save pass removes its generated ASS script after a successful
 render; it is not a runtime file you need to manage.
 
+## Show shortcuts
+
+**Show shortcuts** is the last switch in Settings → **Visuals**. It is off by
+default and only does anything while a take is recording or paused. When it is
+on, pressing an Omarchy keybinding shows a small card at the bottom of the
+screen with the keys and the action from the same bind list the Super+K
+keybindings menu reads, for example `SUPER + K` / `Keybindings`.
+
+Reel registers a short-lived Hyprland Lua hook through `hyprctl eval` when the
+take starts and removes it when recording stops or the setting turns off. No
+Hyprland config file is changed. The hook only writes recognised shortcuts to
+`$XDG_RUNTIME_DIR/reel/shortcut-event`; it does not log keystrokes or text. A
+new press replaces the card and restarts its 1.8 second hold. The overlay is
+visual-only: it takes no keyboard focus and no clicks.
+
+`reel config set showShortcuts on` sets the same key, but the toast still only
+appears while a take is live. The hook needs `hyprctl`, `xkbcli`, and Lua events
+from Hyprland 0.57 or newer; without them the take records normally and no card
+appears.
+
 ## Re-rendering a take
 
 A saved take with pointer telemetry carries a `project.json` in the hidden

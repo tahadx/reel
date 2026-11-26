@@ -32,7 +32,8 @@ pub fn defaults() -> Value {
         "panStep": 60,
         "autoZoom": false,
         "autoZoomDepth": 2.0,
-        "clickEffects": "off"
+        "clickEffects": "off",
+        "showShortcuts": false
     })
 }
 

@@ -581,4 +581,9 @@ Item {
     running: root.active || root.capturing
     onTriggered: root.tick++
   }
+
+  // Visual-only shortcut toast. It reads the live state above, so it can only
+  // arm itself while a take is actually running, and owns its own Hyprland
+  // key hook for that window of time.
+  ShortcutOverlay { service: root }
 }
