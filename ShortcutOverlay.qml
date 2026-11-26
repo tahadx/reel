@@ -224,7 +224,7 @@ Item {
 
   Timer {
     id: hideTimer
-    interval: 1400
+    interval: 1200
     repeat: false
     onTriggered: root.showing = false
   }

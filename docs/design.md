@@ -704,7 +704,7 @@ paused) and Visuals -> Show shortcuts is on.
   through `Style.duration()` so reduced motion removes the movement. They are
   retargeted from the current value, never restarted, because several shortcuts
   can land inside one hold interval.
-- A shortcut stays `1400` ms; a new press replaces the card and restarts that
+- A shortcut stays `1200` ms; a new press replaces the card and restarts that
   window. The hook writes only matched shortcuts, one line at a time, and is
   removed the moment recording stops or the setting turns off.
 
