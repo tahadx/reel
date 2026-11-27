@@ -136,7 +136,7 @@ Panel {
   property bool savingHold: false
   property bool savingWasFinalizing: false
   property int savingHoldVersion: 0
-  property int savingHoldCount: 0
+  property int savingHoldAttempts: 0
   property string savingHoldPath: ""
   property string savingTitleCache: ""
 
@@ -182,17 +182,14 @@ Panel {
   }
 
   function historyContains(path) {
-    var rows = root.visibleRecents || []
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].path || "") === path) return true
-    }
-    return false
+    return Model.savingLanded(root.visibleRecents || [], path)
   }
 
   function releaseSavingHold() {
     root.savingHold = false
     root.savingHoldPath = ""
     root.savingTitleCache = ""
+    root.savingHoldAttempts = 0
   }
 
   onSavingTakePathChanged: {
@@ -210,14 +207,16 @@ Panel {
       if (root.savingHold) root.releaseSavingHold()
     } else if (previous.length > 0) {
       // The last save landed. Hold its row until the refreshed history carries
-      // the take, so the placeholder swaps instead of blinking out.
+      // the take, so the placeholder swaps instead of blinking out. A failed
+      // save publishes no take, so it has nothing to hand off to.
       var last = previous[previous.length - 1]
       var path = String(last.output || last.file || "")
-      if (path !== "") {
+      var failed = root.state.last && String(root.state.last.error || "") !== ""
+      if (path !== "" && !failed) {
         root.savingHoldPath = Model.publishedPath(path)
         if (!root.historyContains(root.savingHoldPath)) {
           root.savingTitleCache = Model.savingTitle(path)
-          root.savingHoldCount = root.visibleRecents.length
+          root.savingHoldAttempts = 0
           root.savingHoldVersion = root.recentsVersion
           root.savingHold = true
           savingHoldTimer.restart()
@@ -229,15 +228,32 @@ Panel {
 
   onRecentsVersionChanged: {
     if (!root.savingHold || root.recentsVersion === root.savingHoldVersion) return
-    if ((root.savingHoldPath !== "" && root.historyContains(root.savingHoldPath))
-      || root.visibleRecents.length !== root.savingHoldCount)
-      root.releaseSavingHold()
+    // Release only when the finished take is actually in history. A refresh can
+    // land before the take (the service refreshes twice around a save), and a
+    // changed row count is not proof the take arrived. Releasing here, in the
+    // same beat as the recents update, swaps the row with no gap or flicker.
+    if (root.historyContains(root.savingHoldPath)) root.releaseSavingHold()
   }
 
   Timer {
     id: savingHoldTimer
     interval: 2500
-    onTriggered: root.releaseSavingHold()
+    onTriggered: {
+      if (!root.savingHold) return
+      // A late fallback for a save whose take never shows up. Release only if
+      // the take is present; otherwise give the service another beat to fetch
+      // it instead of dropping the placeholder while history is still empty.
+      if (root.historyContains(root.savingHoldPath)) {
+        root.releaseSavingHold()
+        return
+      }
+      root.savingHoldAttempts++
+      if (root.savingHoldAttempts >= 3) {
+        root.releaseSavingHold()
+        return
+      }
+      savingHoldTimer.restart()
+    }
   }
   readonly property bool busy: Model.isBusy(root.state)
   readonly property string outputDir: root.service && root.service.outputDir !== ""
@@ -2084,7 +2100,7 @@ Panel {
     // recentVersion on every refresh, so the placeholder and the real row then
     // change within one frame instead of leaving a gap.
     root.savingHoldPath = Model.publishedPath(root.savingTakePath)
-    root.savingHoldCount = root.visibleRecents.length
+    root.savingHoldAttempts = 0
     root.savingHoldVersion = root.recentsVersion
     root.savingHold = true
     savingHoldTimer.restart()

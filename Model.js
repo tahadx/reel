@@ -275,6 +275,20 @@ function publishedPath(path) {
   return String(path || "").replace(/\.capture(\.[^.]+)$/, "$1")
 }
 
+// The saving placeholder is released only once the refreshed history really
+// carries the finished take. A changed row count is not proof: a refresh can
+// land while the take is still missing, and dropping the placeholder then
+// leaves a gap before the row appears. Compare the published path instead.
+function savingLanded(rows, path) {
+  var wanted = String(path || "")
+  if (wanted === "") return false
+  var list = Array.isArray(rows) ? rows : []
+  for (var i = 0; i < list.length; i++) {
+    if (String(object(list[i]).path || "") === wanted) return true
+  }
+  return false
+}
+
 function savingTitle(path) {
   var name = baseName(publishedPath(path))
   return name !== "" ? name : "Saving take"

@@ -40,6 +40,19 @@ TestCase {
     compare(Model.savingTitle(null), "Saving take")
   }
 
+  function test_savingPlaceholderWaitsForThePublishedTake() {
+    var path = "/videos/reel-2026-11-06_17-00-00.mp4"
+    var take = { path: path, preview: "/previews/reel.jpg" }
+    // A stale refresh with no take, or a different row count, must not release
+    // the placeholder: only the published path is proof the take landed.
+    compare(Model.savingLanded([], path), false)
+    compare(Model.savingLanded([{ path: "/videos/older.mp4" }], path), false)
+    compare(Model.savingLanded([take], path), true)
+    compare(Model.savingLanded([take, { path: "/videos/older.mp4" }], path), true)
+    compare(Model.savingLanded([take], ""), false)
+    compare(Model.savingLanded(null, path), false)
+  }
+
   function test_saveJobsAreIndependentOfTheRecordingState() {
     var jobs = Model.saves({
       status: "recording",
