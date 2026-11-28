@@ -2022,6 +2022,20 @@ Panel {
     ]
   }
 
+  // The footer lists r for the picker; ⇧R records the focused monitor. Add it
+  // only while a take can start, since both keys stop a live take.
+  function footerHintsWithFullScreen() {
+    var hints = root.footerHints()
+    if (root.starting || root.liveTake) return hints
+    for (var i = 0; i < hints.length; i++) {
+      if (hints[i].key === "r") {
+        hints.splice(i + 1, 0, { key: "⇧R", label: "Full" })
+        break
+      }
+    }
+    return hints
+  }
+
   function activateSettings() {
     if (root.page === "devices") {
       root.chooseDevice(root.deviceRows()[root.settingsIndex])
@@ -2982,7 +2996,7 @@ Panel {
               clip: true
 
               Repeater {
-                model: root.footerHints()
+                model: root.footerHintsWithFullScreen()
 
                 Row {
                   required property var modelData
