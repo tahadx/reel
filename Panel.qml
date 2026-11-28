@@ -2031,7 +2031,7 @@ Panel {
     if (root.starting || root.liveTake) return hints
     for (var i = 0; i < hints.length; i++) {
       if (hints[i].key === "r") {
-        hints[i] = { key: "⇧R", label: "Full" }
+        hints[i] = { key: "⇧R", label: "Skip picker" }
         break
       }
     }
