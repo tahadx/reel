@@ -2022,14 +2022,16 @@ Panel {
     ]
   }
 
-  // The footer lists r for the picker; ⇧R records the focused monitor. Add it
-  // only while a take can start, since both keys stop a live take.
+  // The footer carries one record hint: ⇧R records the focused monitor with no
+  // picker. Plain r still opens the picker from the panel, but listing both
+  // read as two ways to do the same thing. While starting or recording the
+  // plain r hint stays, since that is the only cue for cancel and stop.
   function footerHintsWithFullScreen() {
     var hints = root.footerHints()
     if (root.starting || root.liveTake) return hints
     for (var i = 0; i < hints.length; i++) {
       if (hints[i].key === "r") {
-        hints.splice(i + 1, 0, { key: "⇧R", label: "Full" })
+        hints[i] = { key: "⇧R", label: "Full" }
         break
       }
     }
