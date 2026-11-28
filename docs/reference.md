@@ -2,6 +2,8 @@
 
 Detailed reference for the Reel CLI, settings, runtime files, troubleshooting,
 and uninstall. See the [README](../README.md) for installation and panel usage.
+A normal install is `omarchy plugin add`. Run `install.sh` afterward if you
+want the optional Hyprland keybindings.
 
 ## CLI
 

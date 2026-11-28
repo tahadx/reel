@@ -65,12 +65,20 @@ needs it.
 
 ```sh
 omarchy plugin add https://github.com/tahadx/reel --enable
+```
+
+That installs the plugin and enables the widget. The shell service links the
+`reel` command on startup.
+
+**Run `install.sh` after installing if you want the optional Hyprland
+keybindings:**
+
+```sh
 ~/.config/omarchy/plugins/io.github.tahadx.reel/install.sh
 ```
 
-The installer checks the core dependencies, links the `reel` command into
-`~/.local/bin`, and enables the widget. It asks before adding optional
-Hyprland shortcuts; `--yes` adds them and `--no-binds` skips them.
+The installer also checks the core dependencies. It asks before adding the
+shortcuts; `--yes` adds them and `--no-binds` skips them.
 
 If `omarchy-shell` is not running when the installer reaches the plugin step,
 it keeps going, restarts the shell at the end, and checks the plugin again once

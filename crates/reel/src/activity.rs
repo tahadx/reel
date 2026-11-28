@@ -170,7 +170,7 @@ impl Activity {
 /// Camera points along a pointer drag that starts just after the click.
 ///
 /// A text selection is a drag: the pointer moves continuously from the click
-/// to the other end. Screen Studio follows that movement; snapping between
+/// to the other end. The camera follows that movement; snapping between
 /// clicks leaves the selection off-screen. Returns `(saved-take time, x, y)`
 /// points, starting at the last still sample before the pointer moved.
 pub fn drag_targets(
