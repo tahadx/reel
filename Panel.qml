@@ -317,7 +317,7 @@ Panel {
   }
 
   readonly property var defaults: ({
-    "desktopAudio": "on",
+    "desktopAudio": "off",
     "microphoneAudio": "off",
     "noiseCancellation": "off",
     "desktopDevice": "",
@@ -491,13 +491,14 @@ Panel {
     { key: "notifications", label: "Saved notification", glyph: "󰂚", section: "Saving" }
   ]
   readonly property var shortcutRows: [
-    { keys: "Shift+U", what: "update Reel" },
+    { keys: "⇧U", what: "update Reel" },
     { keys: "↑ ↓ / j k", what: "move between rows" },
     { keys: "← →", what: "move horizontally or step an option" },
     { keys: "h / l", what: "move horizontally or cycle an option" },
     { keys: "enter / space", what: "activate, toggle, or open" },
-    { keys: "tab", what: "cycle pages (Shift+Tab reverses)" },
+    { keys: "tab", what: "cycle pages (⇧Tab reverses)" },
     { keys: "r", what: "start or stop a take" },
+    { keys: "⇧R", what: "record the full screen, no picker" },
     { keys: "p", what: "pause or resume" },
     { keys: "d", what: "discard the current take" },
     { keys: "Ctrl+Scroll", what: "zoom during a take" },
@@ -1072,8 +1073,8 @@ Panel {
 
   // ---------- actions -----------------------------------------------------
 
-  function startArgs() {
-    return [
+  function startArgs(target) {
+    var args = [
       "reel", "start",
       "--desktop-audio", root.currentValue("desktopAudio"),
       "--microphone-audio", root.currentValue("microphoneAudio"),
@@ -1094,11 +1095,24 @@ Panel {
       "--manual-zoom", root.currentValue("manualZoom"),
       "--auto-zoom", root.currentValue("autoZoom")
     ]
+    // An explicit target skips the picker. `focused` is resolved by the engine
+    // to the current Hyprland monitor at start time.
+    if (target) args.push("--target", target)
+    return args
   }
 
   // Open the picker, then count down and record. The panel closes first so the
   // picker owns the screen; it stays closed while the take runs.
   function start() {
+    root.beginTake("")
+  }
+
+  // Shift+R: record the focused monitor at once, with no picker overlay.
+  function startFullscreen() {
+    root.beginTake("focused")
+  }
+
+  function beginTake(target) {
     // The primary action should already have routed a live take to stop; keep
     // this honest for IPC and keyboard callers.
     if (root.liveTake) {
@@ -1115,18 +1129,18 @@ Panel {
       root.setNotice("Reel is still finishing the last take. Try again in a moment.", true)
       return
     }
-    root.startImmediate()
+    root.startImmediate(target)
   }
 
   // The IPC path goes through the same picker without a panel press. The
   // engine still owns the real busy check and queues a press while the encoder
   // is shutting down; this only avoids starting a second local supervisor.
-  function startImmediate() {
+  function startImmediate(target) {
     if (root.liveTake || root.finalizing) return
     if (controlProc.running) return
     root.cancelling = false
     root.controlAction = "start"
-    root.lastActionArgs = root.startArgs()
+    root.lastActionArgs = root.startArgs(target)
     root.close()
     controlProc.command = root.lastActionArgs
     controlProc.running = true
@@ -1699,6 +1713,12 @@ Panel {
     // through to u, which shares the selected take.
     if (raw === "U") {
       root.updateReel()
+      return
+    }
+    // Shift+R records the focused monitor directly, without the picker that
+    // plain r opens.
+    if (raw === "R") {
+      root.startFullscreen()
       return
     }
     var key = raw.toLowerCase()

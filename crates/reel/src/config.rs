@@ -9,7 +9,9 @@ use std::path::PathBuf;
 
 pub fn defaults() -> Value {
     serde_json::json!({
-        "desktopAudio": true,
+        // Omarchy's own screen recording is silent unless audio is asked for;
+        // Reel starts from the same place so a fresh install matches it.
+        "desktopAudio": false,
         "microphoneAudio": false,
         "noiseCancellation": false,
         "desktopDevice": "",
@@ -286,6 +288,17 @@ mod tests {
         fs::write(&paths.config, "x".repeat(MAX_CONFIG_BYTES as usize + 1)).unwrap();
         assert!(load(&paths).as_object().unwrap().is_empty());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn defaults_record_without_audio_like_omarchy() {
+        let defaults = defaults();
+        assert_eq!(defaults["desktopAudio"], false);
+        assert_eq!(defaults["microphoneAudio"], false);
+        assert_eq!(defaults["fps"], 60);
+        assert_eq!(defaults["quality"], "very_high");
+        assert_eq!(defaults["codec"], "auto");
+        assert_eq!(defaults["container"], "mp4");
     }
 
     #[test]

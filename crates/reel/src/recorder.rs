@@ -220,7 +220,7 @@ fn resolve_settings(paths: &Paths, options: &StartArgs) -> Result<Settings> {
         &options.desktop_audio,
         &stored,
         "desktopAudio",
-        "on",
+        "off",
     ));
     let mic = util::normalize_switch(&effective(
         &options.microphone_audio,

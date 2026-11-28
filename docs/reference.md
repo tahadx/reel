@@ -51,8 +51,8 @@ in `-untrimmed` or containing `.capture` or `.part.` are reserved.
 
 | Option | Values | Default |
 | --- | --- | --- |
-| `--target` | `portal`, `monitor:NAME`, or `region:WxH+X+Y` | picker |
-| `--desktop-audio` | `on`, `off` | `on` |
+| `--target` | `focused`, `portal`, `monitor:NAME`, or `region:WxH+X+Y` | picker |
+| `--desktop-audio` | `on`, `off` | `off` |
 | `--microphone-audio` | `on`, `off` | `off` |
 | `--noise-reduction` | `on`, `off` | `off` |
 | `--desktop-device` | audio device ID from `reel audio-devices --json` | empty (`default_output`) |
@@ -106,18 +106,21 @@ of it. The installer refuses while Reel is recording or saving.
 `--microphone-audio` also has the alias `--mic`.
 `reel preview --note-only` resolves the monitor and note without writing a still.
 
-`--target` skips the picker. Without it, Reel opens the picker, and an output
-that `gpu-screen-recorder --list-capture-options` does not list as a KMS
-monitor falls back to `portal`: the system dialog chooses the source, and an
-area take records the whole output. This is the path for a headless Hyprland
-output created with `hyprctl output create headless`. `--target portal` selects
-it explicitly, which is also useful in scripts.
+`--target` skips the picker. `--target focused` records the monitor Hyprland
+has focused, which is what the panel's `Shift+R` shortcut sends. Without a
+target, Reel opens the picker, and an output that
+`gpu-screen-recorder --list-capture-options` does not list as a KMS monitor
+falls back to `portal`: the system dialog chooses the source, and an area take
+records the whole output. This is the path for a headless Hyprland output
+created with `hyprctl output create headless`. `--target portal` selects it
+explicitly, which is also useful in scripts.
 
 Examples:
 
 ```sh
 reel start --countdown 3
 reel start --microphone-audio on
+reel start --target focused
 reel start --target portal
 reel toggle-pause
 reel stop
@@ -642,9 +645,11 @@ tail -f "${XDG_RUNTIME_DIR:-$HOME/.local/state/omarchy/reel/run}/reel/reel.log"
   drag, hold, or click outside the capture does not qualify. If the effect
   render itself failed, the log says so and the take is published without the
   effect rather than losing the camera or the footage.
-- **A take has no audio** — takes shorter than 0.8 seconds are saved silent
-  rather than failing the loudness pass. For longer takes, check that the
-  selected desktop-output or microphone source exists.
+- **A take has no audio** — desktop audio is off by default, the same as
+  Omarchy's own screen recorder. Turn it on in Settings → **Recording** →
+  **Desktop audio**. Takes shorter than 0.8 seconds are saved silent rather
+  than failing the loudness pass. For longer takes, check that the selected
+  desktop-output or microphone source exists.
 - **Zoom shortcuts do nothing** — zoom only acts while a take is recording, and
   the `Ctrl + Alt` binds are optional: re-run `install.sh` after an update and
   accept the shortcut prompt (or add the block by hand). Touchpad pinch does

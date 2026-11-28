@@ -193,11 +193,18 @@ fn kms_fallback(name: &str, reason: &str) -> Result<Option<Choice>, String> {
     ))
 }
 
-/// Resolve an explicit target (`portal`, `monitor:NAME`, or a region) instead
-/// of opening the picker.
+/// Resolve an explicit target (`focused`, `portal`, `monitor:NAME`, or a
+/// region) instead of opening the picker.
 pub fn resolve(raw: &str) -> Result<Choice, String> {
+    // `focused` is the one-click full-screen path: it resolves to whichever
+    // monitor Hyprland has focused, without any picker overlay.
+    if raw.trim().eq_ignore_ascii_case("focused") {
+        let name = focused_monitor()
+            .ok_or_else(|| "Reel could not read the focused monitor from Hyprland.".to_string())?;
+        return monitor_choice(&name);
+    }
     let normalized = normalize(raw).ok_or_else(|| {
-        "That capture target could not be read. Use portal, monitor:NAME, or region:WxH+X+Y."
+        "That capture target could not be read. Use focused, portal, monitor:NAME, or region:WxH+X+Y."
             .to_string()
     })?;
     if normalized == "portal" {

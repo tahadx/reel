@@ -784,6 +784,7 @@ Rules:
 | `enter` / `space` | Activate, toggle, or open (when cursor active) |
 | `tab`             | Cycle `Recording` / `Visuals` / `History` / `Shortcuts` (`Shift+Tab` reverses) |
 | `r`               | Start or stop a take                 |
+| `Shift+R`         | Record the focused monitor, no picker |
 | `p`               | Pause or resume                      |
 | `d`               | Discard the current take             |
 | `Ctrl+Scroll`     | Zoom during a take                   |

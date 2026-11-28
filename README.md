@@ -14,7 +14,8 @@ without stepping on each other.
 ## Features
 
 - Pick a window, monitor, or region with Omarchy's picker; recording starts
-  after the countdown.
+  after the countdown. `Shift+R` skips the picker and records the focused
+  monitor at once.
 - Pause and resume without ending the file (GPU takes; the CPU fallback records
   continuously).
 - Manual zoom during a take with touchpad pinch, `Ctrl+Alt` keyboard binds, or
@@ -174,9 +175,10 @@ CLI options, files, uninstall, and troubleshooting are in
 Click the Reel mark in the bar to open the panel. Left-click toggles it,
 right-click starts or pauses, and middle-click opens the recordings folder.
 
-1. Press **Record** or click the preview.
-2. Click a window or monitor, or drag an area.
-3. After the countdown (0 by default), Reel records. The panel closes so it
+1. Press **Record** or click the preview, then click a window or monitor, or
+   drag an area. `Shift+R` records the focused monitor directly, with no
+   picker.
+2. After the countdown (0 by default), Reel records. The panel closes so it
    does not appear in the take.
 
 Pause or resume from the panel, the bar's right-click action, or `p`. Open
@@ -199,6 +201,7 @@ take. Monitors and dragged areas record exactly those screen pixels.
 | `q` | Close the panel |
 | `Shift+H` | Open or close history |
 | `r` | Start or stop a take |
+| `Shift+R` | Record the focused monitor, with no picker |
 | `p` | Pause or resume |
 | `d` | Discard the current take (press twice) |
 | `s` | Open or close settings |
